@@ -1,4 +1,4 @@
-<<<# Code Editing Agent
+# Code Editing Agent
 
 A code-editing agent built with Vercel AI SDK and FriendliAI provider, following the architecture described in [ampcode.com/how-to-build-an-agent](https://ampcode.com/how-to-build-an-agent).
 
