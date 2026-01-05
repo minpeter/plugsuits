@@ -1,16 +1,18 @@
 import { createInterface } from "node:readline";
 import { createFriendli } from "@friendliai/ai-provider";
+import type { LanguageModel } from "ai";
 import { Agent } from "./agent";
 import { handleCommand } from "./commands";
 import { printYou } from "./utils/colors";
+
+const DEFAULT_MODEL_ID = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8";
 
 const friendli = createFriendli({
   apiKey: process.env.FRIENDLI_TOKEN,
 });
 
-const model = friendli("LGAI-EXAONE/K-EXAONE-236B-A23B");
-
-const agent = new Agent(model);
+let currentModelId = DEFAULT_MODEL_ID;
+const agent = new Agent(friendli(currentModelId));
 let currentConversationId: string | undefined;
 
 const rl = createInterface({
@@ -35,8 +37,14 @@ function exitProgram(): void {
   process.exit(0);
 }
 
+function setModel(model: LanguageModel, modelId: string): void {
+  agent.setModel(model);
+  currentModelId = modelId;
+}
+
 async function main(): Promise<void> {
-  console.log("Chat with AI (use '/help' for commands, 'ctrl-c' to quit)");
+  console.log(`Chat with AI (model: ${currentModelId})`);
+  console.log("Use '/help' for commands, 'ctrl-c' to quit");
   console.log();
 
   while (true) {
@@ -55,6 +63,9 @@ async function main(): Promise<void> {
       const result = await handleCommand(trimmed, {
         agent,
         currentConversationId,
+        currentModelId,
+        readline: rl,
+        setModel,
         exit: exitProgram,
       });
       currentConversationId = result.conversationId;

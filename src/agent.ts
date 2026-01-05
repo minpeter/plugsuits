@@ -7,8 +7,8 @@ import {
 import { SYSTEM_PROMPT } from "./prompts/system";
 import { tools } from "./tools/index";
 import {
-  printChunk,
   printAIPrefix,
+  printChunk,
   printNewline,
   printReasoningChunk,
   printReasoningEnd,
@@ -39,13 +39,21 @@ function endTextIfNeeded(state: StreamState): void {
 const DEFAULT_MAX_STEPS = 10;
 
 export class Agent {
-  private readonly model: LanguageModel;
+  private model: LanguageModel;
   private conversation: ModelMessage[] = [];
   private readonly maxSteps: number;
 
   constructor(model: LanguageModel, maxSteps = DEFAULT_MAX_STEPS) {
     this.model = model;
     this.maxSteps = maxSteps;
+  }
+
+  getModel(): LanguageModel {
+    return this.model;
+  }
+
+  setModel(model: LanguageModel): void {
+    this.model = model;
   }
 
   getConversation(): ModelMessage[] {

@@ -1,3 +1,5 @@
+import type { Interface as ReadlineInterface } from "node:readline";
+import type { LanguageModel } from "ai";
 import type { Agent } from "../agent";
 import { colorize } from "../utils/colors";
 import {
@@ -6,10 +8,14 @@ import {
   loadConversation,
   saveConversation,
 } from "../utils/conversation-store";
+import { selectModel } from "../utils/model-selector";
 
 export interface CommandContext {
   agent: Agent;
   currentConversationId: string | undefined;
+  currentModelId: string;
+  readline: ReadlineInterface;
+  setModel: (model: LanguageModel, modelId: string) => void;
   exit: () => void;
 }
 
@@ -31,6 +37,7 @@ ${colorize("cyan", "Available commands:")}
   /load <id>         - Load a saved conversation
   /list              - List all saved conversations
   /delete <id>       - Delete a saved conversation
+  /models            - List and select available AI models
   /quit              - Exit the program
 `);
 }
@@ -131,6 +138,20 @@ function handleQuit(_args: string[], ctx: CommandContext): CommandResult {
   return { conversationId: ctx.currentConversationId };
 }
 
+async function handleModels(
+  _args: string[],
+  ctx: CommandContext
+): Promise<CommandResult> {
+  const selection = await selectModel(ctx.readline, ctx.currentModelId);
+
+  if (selection) {
+    ctx.setModel(selection.model, selection.modelId);
+    console.log(colorize("green", `Model changed to: ${selection.modelId}`));
+  }
+
+  return { conversationId: ctx.currentConversationId };
+}
+
 const commands: Record<string, CommandHandler> = {
   help: handleHelp,
   clear: handleClear,
@@ -140,6 +161,7 @@ const commands: Record<string, CommandHandler> = {
   delete: handleDelete,
   quit: handleQuit,
   exit: handleQuit,
+  models: handleModels,
 };
 
 export function handleCommand(
