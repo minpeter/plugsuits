@@ -38,15 +38,15 @@ pnpm start
 ```
 $ pnpm start
 
-Chat with Claude (use 'ctrl-c' to quit)
+Chat with AI (use 'ctrl-c' to quit)
 
 You: what's in package.json?
 tool: read_file({"path":"package.json"})
-Claude: The package.json file contains...
+AI: The package.json file contains...
 
 You: create a hello.js file that prints "Hello World"
 tool: edit_file({"path":"hello.js","old_str":"","new_str":"console.log('Hello World');"})
-Claude: I've created hello.js...
+AI: I've created hello.js...
 
 You: ^C
 ```

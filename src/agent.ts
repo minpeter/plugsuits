@@ -8,7 +8,7 @@ import { SYSTEM_PROMPT } from "./prompts/system";
 import { tools } from "./tools/index";
 import {
   printChunk,
-  printClaudePrefix,
+  printAIPrefix,
   printNewline,
   printReasoningChunk,
   printReasoningEnd,
@@ -95,7 +95,7 @@ export class Agent {
       } else if (chunk.type === "text-delta") {
         endReasoningIfNeeded(state);
         if (!state.hasStartedText) {
-          printClaudePrefix();
+          printAIPrefix();
           state.hasStartedText = true;
         }
         printChunk(chunk.text);

@@ -16,8 +16,8 @@ export function printYou(): void {
   process.stdout.write(`${colorize("blue", "You")}: `);
 }
 
-export function printClaudePrefix(): void {
-  process.stdout.write(`${colorize("yellow", "Claude")}: `);
+export function printAIPrefix(): void {
+  process.stdout.write(`${colorize("yellow", "AI")}: `);
 }
 
 export function printReasoningPrefix(): void {

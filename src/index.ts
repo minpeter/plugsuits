@@ -36,7 +36,7 @@ function exitProgram(): void {
 }
 
 async function main(): Promise<void> {
-  console.log("Chat with Claude (use '/help' for commands, 'ctrl-c' to quit)");
+  console.log("Chat with AI (use '/help' for commands, 'ctrl-c' to quit)");
   console.log();
 
   while (true) {
