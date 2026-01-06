@@ -16,12 +16,15 @@ const friendli = createFriendli({
 });
 
 let currentModelId = DEFAULT_MODEL_ID;
-const agent = new Agent(wrapModel(friendli(currentModelId)));
+const agent = new Agent(wrapModel(friendli(currentModelId)), {
+  modelId: currentModelId,
+});
 let currentConversationId: string | undefined;
 
 const rl = createInterface({
   input: process.stdin,
   output: process.stdout,
+  terminal: false,
 });
 
 emitKeypressEvents(process.stdin);
@@ -40,6 +43,7 @@ function setupEscHandler(): void {
 
 function getUserInput(): Promise<string | null> {
   return new Promise((resolve) => {
+    rl.resume();
     printYou();
 
     if (process.stdin.isTTY) {
@@ -48,11 +52,13 @@ function getUserInput(): Promise<string | null> {
 
     const onLine = (line: string) => {
       rl.removeListener("close", onClose);
+      rl.pause();
       resolve(line);
     };
 
     const onClose = () => {
       rl.removeListener("line", onLine);
+      rl.pause();
       resolve(null);
     };
 
@@ -67,7 +73,7 @@ function exitProgram(): void {
 }
 
 function setModel(model: LanguageModel, modelId: string): void {
-  agent.setModel(wrapModel(model));
+  agent.setModel(wrapModel(model), modelId);
   currentModelId = modelId;
 }
 

@@ -16,7 +16,7 @@ export interface ContextStats {
 
 const DEFAULT_CONFIG: ContextConfig = {
   maxContextTokens: 128_000, // Default for most modern models
-  compactionThreshold: 0.75, // Compact when 75% of context is used
+  compactionThreshold: 0.85, // Compact when 85% of context is used
 };
 
 export class ContextTracker {
@@ -24,6 +24,7 @@ export class ContextTracker {
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
   private stepCount = 0;
+  private currentContextTokens: number | null = null;
 
   constructor(config: Partial<ContextConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -47,6 +48,13 @@ export class ContextTracker {
   }
 
   /**
+   * Set the exact current context token count.
+   */
+  setContextTokens(tokens: number): void {
+    this.currentContextTokens = Math.max(0, Math.round(tokens));
+  }
+
+  /**
    * Set total usage directly (useful after compaction or when loading state)
    */
   setTotalUsage(inputTokens: number, outputTokens: number): void {
@@ -67,7 +75,8 @@ export class ContextTracker {
   }
 
   getStats(): ContextStats {
-    const totalTokens = this.totalInputTokens + this.totalOutputTokens;
+    const totalTokens =
+      this.currentContextTokens ?? this.getEstimatedContextTokens();
     const usagePercentage = totalTokens / this.config.maxContextTokens;
     const shouldCompact = usagePercentage >= this.config.compactionThreshold;
 
@@ -89,6 +98,7 @@ export class ContextTracker {
     this.totalInputTokens = 0;
     this.totalOutputTokens = 0;
     this.stepCount = 0;
+    this.currentContextTokens = 0;
   }
 
   /**
@@ -99,6 +109,7 @@ export class ContextTracker {
     this.totalInputTokens = newInputTokens;
     this.totalOutputTokens = 0;
     this.stepCount = 1;
+    this.currentContextTokens = Math.max(0, Math.round(newInputTokens));
   }
 
   getConfig(): ContextConfig {

@@ -5,7 +5,11 @@ You have access to the following tools:
 - **read_file**: Read the contents of a file
 - **list_files**: List files and directories (respects .gitignore)
 - **edit_file**: Edit files by replacing text, or create new files
+- **write_file**: Create or overwrite files
+- **delete_file**: Delete files
 - **run_command**: Execute safe shell commands
+- **glob**: Find files by glob pattern
+- **grep**: Search file contents quickly
 
 ## Guidelines
 
