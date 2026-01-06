@@ -1,3 +1,6 @@
+// Command execution tool
+import { runCommandTool } from "./command/run-command";
+
 // File manipulation tools
 import { deleteFileTool } from "./file/delete-file";
 import { editFileTool } from "./file/edit-file";
@@ -8,10 +11,10 @@ import { writeFileTool } from "./file/write-file";
 import { globTool } from "./search/glob";
 import { grepTool } from "./search/grep";
 
-// Command execution tool
-import { runCommandTool } from "./command/run-command";
-
 export const tools = {
+  // Command execution
+  run_command: runCommandTool,
+
   // File manipulation
   write_file: writeFileTool,
   edit_file: editFileTool,
@@ -21,7 +24,4 @@ export const tools = {
   // File search
   glob: globTool,
   grep: grepTool,
-
-  // Command execution
-  run_command: runCommandTool,
 } as const;
