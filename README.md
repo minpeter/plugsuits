@@ -16,10 +16,19 @@ A code-editing agent built with Vercel AI SDK and FriendliAI provider, following
 
 ## Installation
 
-### From GitHub
+### Quick Start (via bunx)
+
+Run directly without installation:
 
 ```bash
-bun install -g github:minpeter/code-editing-agent
+export FRIENDLI_TOKEN=your_token_here
+bunx github:minpeter/agent
+```
+
+### Global Installation
+
+```bash
+bun install -g github:minpeter/agent
 export FRIENDLI_TOKEN=your_token_here
 code-editing-agent
 ```
