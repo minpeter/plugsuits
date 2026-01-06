@@ -8,6 +8,7 @@ import type {
 import type { Agent } from "../agent";
 import { env } from "../env";
 import { SYSTEM_PROMPT } from "../prompts/system";
+import { tools } from "../tools/index";
 import { colorize } from "../utils/colors";
 import {
   deleteConversation,
@@ -16,6 +17,33 @@ import {
   saveConversation,
 } from "../utils/conversation-store";
 import { selectModel } from "../utils/model-selector";
+
+interface OpenAITool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+interface SchemaWithToJSON {
+  toJSONSchema: () => Record<string, unknown>;
+}
+
+function convertToolsToOpenAIFormat(): OpenAITool[] {
+  return Object.entries(tools).map(([name, tool]) => {
+    const schema = tool.inputSchema as unknown as SchemaWithToJSON;
+    return {
+      type: "function" as const,
+      function: {
+        name,
+        description: tool.description ?? "",
+        parameters: schema.toJSONSchema(),
+      },
+    };
+  });
+}
 
 interface RenderAPIMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -152,6 +180,8 @@ ${colorize("cyan", "Available commands:")}
   /delete <id>       - Delete a saved conversation
   /models            - List and select available AI models
   /render            - Render conversation as raw prompt text
+  /context           - Show context usage statistics
+  /compact           - Manually trigger context compaction
   /quit              - Exit the program
 `);
 }
@@ -311,6 +341,213 @@ async function handleRender(
   return { conversationId: ctx.currentConversationId };
 }
 
+async function fetchRenderedText(
+  messages: RenderAPIMessage[],
+  modelId: string,
+  includeTools = false
+): Promise<string | null> {
+  const body: Record<string, unknown> = {
+    model: modelId,
+    messages,
+  };
+
+  if (includeTools) {
+    body.tools = convertToolsToOpenAIFormat();
+  }
+
+  const response = await fetch(
+    "https://api.friendli.ai/serverless/v1/chat/render",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.FRIENDLI_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.log(colorize("red", `Render API failed: ${error}`));
+    return null;
+  }
+
+  const data = (await response.json()) as { text: string };
+  return data.text;
+}
+
+async function fetchTokenCount(
+  text: string,
+  modelId: string
+): Promise<number | null> {
+  const response = await fetch(
+    "https://api.friendli.ai/serverless/v1/tokenize",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.FRIENDLI_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: modelId,
+        prompt: text,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.log(colorize("red", `Tokenize API failed: ${error}`));
+    return null;
+  }
+
+  const data = (await response.json()) as { tokens: number[] };
+  return data.tokens.length;
+}
+
+type ColorName = "blue" | "yellow" | "green" | "cyan" | "red" | "dim" | "reset";
+
+function getProgressBarColor(percentage: number): ColorName {
+  if (percentage >= 0.8) {
+    return "red";
+  }
+  if (percentage >= 0.6) {
+    return "yellow";
+  }
+  if (percentage >= 0.4) {
+    return "cyan";
+  }
+  return "green";
+}
+
+function renderProgressBar(
+  usagePercentage: number,
+  totalTokens: number,
+  maxTokens: number
+): void {
+  const barWidth = 40;
+  const clampedPercentage = Math.min(Math.max(usagePercentage, 0), 1);
+  const filledWidth = Math.floor(barWidth * clampedPercentage);
+  const emptyWidth = barWidth - filledWidth;
+
+  const filledBar = "█".repeat(filledWidth);
+  const emptyBar = "░".repeat(emptyWidth);
+  const barColor = getProgressBarColor(clampedPercentage);
+
+  console.log(
+    `${colorize(barColor, "Progress: ")}${filledBar}${emptyBar} ${(clampedPercentage * 100).toFixed(1)}% (${totalTokens.toLocaleString()} / ${maxTokens.toLocaleString()})`
+  );
+}
+
+async function handleCompact(
+  _args: string[],
+  ctx: CommandContext
+): Promise<CommandResult> {
+  const messages = ctx.agent.getConversation();
+  if (messages.length === 0) {
+    console.log(colorize("yellow", "No conversation to compact."));
+    return { conversationId: ctx.currentConversationId };
+  }
+
+  console.log(colorize("cyan", "=== Context Compaction ==="));
+  console.log(colorize("dim", "Compacting conversation..."));
+
+  try {
+    await ctx.agent.compactContext();
+    console.log(colorize("green", "✓ Conversation compacted successfully."));
+
+    const stats = ctx.agent.getContextStats();
+    console.log(
+      colorize(
+        "dim",
+        `  New estimated size: ${stats.totalTokens.toLocaleString()} tokens`
+      )
+    );
+  } catch (error) {
+    console.log(colorize("red", `Compaction failed: ${error}`));
+  }
+
+  return { conversationId: ctx.currentConversationId };
+}
+
+async function handleContext(
+  _args: string[],
+  ctx: CommandContext
+): Promise<CommandResult> {
+  const messages = ctx.agent.getConversation();
+  const apiMessages = convertToRenderAPIMessages(messages, SYSTEM_PROMPT);
+  const isEmptyConversation = messages.length === 0;
+
+  console.log(colorize("cyan", "=== Context Usage ==="));
+  if (isEmptyConversation) {
+    console.log(colorize("dim", "Calculating system prompt + tools size..."));
+  } else {
+    console.log(colorize("dim", "Calculating accurate token count..."));
+  }
+
+  try {
+    const renderedText = await fetchRenderedText(
+      apiMessages,
+      ctx.currentModelId,
+      true
+    );
+    if (renderedText === null) {
+      return { conversationId: ctx.currentConversationId };
+    }
+
+    const tokenCount = await fetchTokenCount(renderedText, ctx.currentModelId);
+    if (tokenCount === null) {
+      return { conversationId: ctx.currentConversationId };
+    }
+
+    const stats = ctx.agent.getContextStats();
+    const maxContextTokens = stats.maxContextTokens;
+    const usagePercentage = tokenCount / maxContextTokens;
+    const compactionThreshold = 0.75;
+
+    const tokenLabel = isEmptyConversation
+      ? `Total tokens:   ${tokenCount.toLocaleString()} (system prompt + tools)`
+      : `Total tokens:   ${tokenCount.toLocaleString()}`;
+    console.log(`\n${tokenLabel}`);
+    console.log(`Max context:    ${maxContextTokens.toLocaleString()}`);
+    console.log("");
+
+    renderProgressBar(usagePercentage, tokenCount, maxContextTokens);
+
+    console.log(`\n${colorize("dim", "Usage Details:")}`);
+    console.log(`  Usage percentage: ${(usagePercentage * 100).toFixed(1)}%`);
+    console.log(
+      `  Usage threshold:  ${(compactionThreshold * 100).toFixed(0)}%`
+    );
+
+    if (usagePercentage >= compactionThreshold) {
+      console.log(
+        colorize("yellow", "  ⚠️  Status:         Compaction recommended!")
+      );
+      console.log(
+        colorize(
+          "yellow",
+          `    (Usage above ${(compactionThreshold * 100).toFixed(0)}% threshold)`
+        )
+      );
+    } else {
+      const remaining = (compactionThreshold - usagePercentage) * 100;
+      console.log(colorize("green", "  ✓ Status:         Healthy"));
+      console.log(
+        colorize(
+          "dim",
+          `    ${remaining.toFixed(0)}% until compaction threshold`
+        )
+      );
+    }
+  } catch (error) {
+    console.log(colorize("red", `Error: ${error}`));
+  }
+
+  return { conversationId: ctx.currentConversationId };
+}
+
 const commands: Record<string, CommandHandler> = {
   help: handleHelp,
   clear: handleClear,
@@ -322,6 +559,8 @@ const commands: Record<string, CommandHandler> = {
   exit: handleQuit,
   models: handleModels,
   render: handleRender,
+  context: handleContext,
+  compact: handleCompact,
 };
 
 export function handleCommand(

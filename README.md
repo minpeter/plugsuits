@@ -72,7 +72,7 @@ bun start
 ```
 $ bun start
 
-Chat with AI (model: LGAI-EXAONE/K-EXAONE-236B-A23B)
+Chat with AI (model: zai-org/GLM-4.6)
 Use '/help' for commands, 'ctrl-c' to quit
 
 You: what's in package.json?
@@ -132,7 +132,7 @@ code-editing-agent/
 
 ## Model
 
-Uses `LGAI-EXAONE/K-EXAONE-236B-A23B` via FriendliAI serverless endpoints by default. Use `/models` command to switch models.
+Uses `zai-org/GLM-4.6` via FriendliAI serverless endpoints by default. Use `/models` command to switch models.
 
 ## License
 

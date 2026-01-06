@@ -113,12 +113,24 @@ export class Agent {
   private readonly maxSteps: number;
   private readonly contextTracker: ContextTracker;
   private readonly autoCompact: boolean;
+  private abortController: AbortController | null = null;
 
   constructor(model: LanguageModel, config: AgentConfig = {}) {
     this.model = model;
     this.maxSteps = config.maxSteps ?? DEFAULT_MAX_STEPS;
     this.contextTracker = new ContextTracker(config.contextConfig);
     this.autoCompact = config.autoCompact ?? true;
+  }
+
+  isRunning(): boolean {
+    return this.abortController !== null;
+  }
+
+  abort(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
   }
 
   getModel(): LanguageModel {
@@ -174,8 +186,7 @@ export class Agent {
     this.contextTracker.afterCompaction(estimatedTokens);
   }
 
-  async chat(userInput: string): Promise<void> {
-    // Check if compaction is needed before processing
+  async chat(userInput: string): Promise<{ aborted: boolean }> {
     if (this.autoCompact && this.contextTracker.shouldCompact()) {
       await this.compactContext();
     }
@@ -185,14 +196,26 @@ export class Agent {
       content: userInput,
     });
 
-    await withRetry(async () => {
-      await this.executeStreamingChat();
-    });
+    this.abortController = new AbortController();
 
-    // Check again after response
+    try {
+      await withRetry(async () => {
+        await this.executeStreamingChat();
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return { aborted: true };
+      }
+      throw error;
+    } finally {
+      this.abortController = null;
+    }
+
     if (this.autoCompact && this.contextTracker.shouldCompact()) {
       await this.compactContext();
     }
+
+    return { aborted: false };
   }
 
   private async executeStreamingChat(): Promise<void> {
@@ -202,9 +225,9 @@ export class Agent {
       messages: this.conversation,
       tools: agentTools,
       stopWhen: stepCountIs(this.maxSteps),
+      abortSignal: this.abortController?.signal,
       providerOptions: {
         friendliai: {
-          // enable_thinking for hybrid reasoning models
           chat_template_kwargs: {
             enable_thinking: true,
           },
@@ -220,22 +243,44 @@ export class Agent {
     let chunkCount = 0;
     const debug = env.DEBUG_CHUNK_LOG;
 
-    for await (const chunk of result.fullStream) {
-      chunkCount++;
+    let aborted = false;
 
-      if (debug) {
-        logDebugChunk(chunk, chunkCount);
-        logDebugError(chunk);
-        logDebugFinish(chunk);
+    try {
+      for await (const chunk of result.fullStream) {
+        if (this.abortController?.signal.aborted) {
+          aborted = true;
+          break;
+        }
+
+        chunkCount++;
+
+        if (debug) {
+          logDebugChunk(chunk, chunkCount);
+          logDebugError(chunk);
+          logDebugFinish(chunk);
+        }
+
+        handleReasoningDelta(chunk, state);
+        handleTextDelta(chunk, state);
+        handleToolCall(chunk, state);
       }
-
-      handleReasoningDelta(chunk, state);
-      handleTextDelta(chunk, state);
-      handleToolCall(chunk, state);
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        aborted = true;
+      } else {
+        throw error;
+      }
     }
 
     endReasoningIfNeeded(state);
     endTextIfNeeded(state);
+
+    if (aborted) {
+      console.log(colorize("yellow", "\n[Interrupted by user]"));
+      const abortError = new Error("Aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }
 
     const response = await result.response;
 
