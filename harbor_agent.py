@@ -215,9 +215,10 @@ class CodeEditingAgent(BaseInstalledAgent):
             ExecInput(
                 command=(
                     f"export BUN_INSTALL=$HOME/.bun && export PATH=$BUN_INSTALL/bin:$PATH && "
-                    f"cd /agent && bun run headless -p {escaped_instruction} "
+                    f"bun run --cwd /agent headless -p {escaped_instruction} "
                     f"2>&1 | tee /logs/agent/output.jsonl"
                 ),
                 env=env,
+                cwd="/app",
             ),
         ]
