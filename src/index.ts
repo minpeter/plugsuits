@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { createFriendli } from "@friendliai/ai-provider";
 import { ToolLoopAgent, wrapLanguageModel } from "ai";
+import { executeCommand, isCommand } from "./commands";
 import { MessageHistory } from "./context/message-history";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
 import { env } from "./env";
@@ -49,6 +50,14 @@ const run = async (): Promise<void> => {
       const trimmed = input.trim();
       if (trimmed.length === 0 || trimmed.toLowerCase() === "exit") {
         break;
+      }
+
+      if (isCommand(trimmed)) {
+        const result = await executeCommand(trimmed);
+        if (result?.message) {
+          console.log(result.message);
+        }
+        continue;
       }
 
       messageHistory.addUserMessage(trimmed);
