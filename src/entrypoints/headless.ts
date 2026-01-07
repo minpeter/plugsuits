@@ -37,6 +37,31 @@ const emitEvent = (event: TrajectoryEvent): void => {
   console.log(JSON.stringify(event));
 };
 
+const formatToolOutput = (output: unknown): string => {
+  if (typeof output === "string") {
+    return output;
+  }
+  if (typeof output === "object" && output !== null) {
+    if ("output" in output) {
+      const result = output as {
+        output: string;
+        error?: string;
+        exitCode?: number;
+      };
+      let formatted = result.output || "";
+      if (result.error) {
+        formatted += `\nSTDERR: ${result.error}`;
+      }
+      if (result.exitCode !== undefined && result.exitCode !== 0) {
+        formatted += `\nExit code: ${result.exitCode}`;
+      }
+      return formatted || JSON.stringify(output);
+    }
+    return JSON.stringify(output);
+  }
+  return String(output);
+};
+
 const parseArgs = (): { prompt: string } => {
   const args = process.argv.slice(2);
   let prompt = "";
@@ -99,7 +124,7 @@ const processAgentResponse = async (
               {
                 type: "tool_result",
                 tool_use_id: part.toolCallId,
-                content: String(part.output),
+                content: formatToolOutput(part.output),
               },
             ],
           },
