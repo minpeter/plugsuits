@@ -1,7 +1,7 @@
 import { exec } from "node:child_process";
 import { tool } from "ai";
 import { z } from "zod";
-import { isSafeCommand } from "../../utils/file-safety";
+import { isSafeCommand } from "../file/file-safety";
 
 export interface CommandResult {
   output: string;

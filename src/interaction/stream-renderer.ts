@@ -1,6 +1,6 @@
 import type { Writable } from "node:stream";
 import type { TextStreamPart, ToolSet } from "ai";
-import { colorize, colors } from "../utils/colors";
+import { colorize, colors } from "./colors";
 
 export interface StreamRenderOptions {
   output?: Writable;
@@ -291,7 +291,10 @@ const handleFinish = (
     return "none";
   }
   writeLine(ctx);
-  writeLine(ctx, `${renderLabel(ctx, "[finish]")} ${part.finishReason ?? "unknown"}`);
+  writeLine(
+    ctx,
+    `${renderLabel(ctx, "[finish]")} ${part.finishReason ?? "unknown"}`
+  );
   return "none";
 };
 

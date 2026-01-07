@@ -1,91 +1,72 @@
-#!/usr/bin/env bun
-import { createInterface } from "node:readline";
+import { createInterface } from "node:readline/promises";
 import { createFriendli } from "@friendliai/ai-provider";
-import type { LanguageModel } from "ai";
-import { Agent } from "./agent";
-import { handleCommand } from "./commands";
+import { ToolLoopAgent, wrapLanguageModel } from "ai";
+import { MessageHistory } from "./context/message-history";
+import { SYSTEM_PROMPT } from "./context/system-prompt";
 import { env } from "./env";
-import { wrapModel } from "./model/create-model";
-import { printYou } from "./utils/colors";
+import { renderFullStream } from "./interaction/stream-renderer";
+import { trimLeadingNewlinesMiddleware } from "./middleware/trim-leading-newlines";
+import { tools } from "./tools";
 
-const DEFAULT_MODEL_ID = "LGAI-EXAONE/K-EXAONE-236B-A23B";
+const DEFAULT_MODEL_ID = "zai-org/GLM-4.6";
 
 const friendli = createFriendli({
   apiKey: env.FRIENDLI_TOKEN,
+  includeUsage: true,
 });
 
-let currentModelId = DEFAULT_MODEL_ID;
-const agent = new Agent(wrapModel(friendli(currentModelId)));
-let currentConversationId: string | undefined;
-
-const rl = createInterface({
-  input: process.stdin,
-  output: process.stdout,
+const agent = new ToolLoopAgent({
+  model: wrapLanguageModel({
+    model: friendli(DEFAULT_MODEL_ID),
+    middleware: trimLeadingNewlinesMiddleware,
+  }),
+  instructions: SYSTEM_PROMPT,
+  tools: {
+    ...tools,
+  },
+  maxOutputTokens: 1024,
+  providerOptions: {
+    friendli: {
+      // enable_thinking for hybrid reasoning models
+      chat_template_kwargs: {
+        enable_thinking: true,
+      },
+    },
+  },
 });
 
-function getUserInput(): Promise<string | null> {
-  return new Promise((resolve) => {
-    printYou();
-    rl.once("line", (line) => {
-      resolve(line);
-    });
-    rl.once("close", () => {
-      resolve(null);
-    });
+const messageHistory = new MessageHistory();
+
+const run = async (): Promise<void> => {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
   });
-}
 
-function exitProgram(): void {
-  rl.close();
-  process.exit(0);
-}
+  try {
+    while (true) {
+      const input = await rl.question("You: ");
+      const trimmed = input.trim();
+      if (trimmed.length === 0 || trimmed.toLowerCase() === "exit") {
+        break;
+      }
 
-function setModel(model: LanguageModel, modelId: string): void {
-  agent.setModel(wrapModel(model));
-  currentModelId = modelId;
-}
+      messageHistory.addUserMessage(trimmed);
 
-async function main(): Promise<void> {
-  console.log(`Chat with AI (model: ${currentModelId})`);
-  console.log("Use '/help' for commands, 'ctrl-c' to quit");
-  console.log();
-
-  while (true) {
-    const userInput = await getUserInput();
-
-    if (userInput === null) {
-      break;
-    }
-
-    const trimmed = userInput.trim();
-    if (trimmed === "") {
-      continue;
-    }
-
-    if (trimmed.startsWith("/")) {
-      const result = await handleCommand(trimmed, {
-        agent,
-        currentConversationId,
-        currentModelId,
-        readline: rl,
-        setModel,
-        exit: exitProgram,
+      const stream = await agent.stream({
+        messages: messageHistory.toModelMessages(),
       });
-      currentConversationId = result.conversationId;
-      console.log();
-      continue;
-    }
 
-    try {
-      await agent.chat(userInput);
-    } catch (error) {
-      console.error("An error occurred:", error);
-    }
+      await renderFullStream(stream.fullStream, { showSteps: false });
 
-    console.log();
+      const response = await stream.response;
+      messageHistory.addModelMessages(response.messages);
+    }
+  } finally {
+    rl.close();
   }
+};
 
-  rl.close();
-}
-
-main().catch(console.error);
+run().catch((error: unknown) => {
+  throw error instanceof Error ? error : new Error("Failed to run stream.");
+});
