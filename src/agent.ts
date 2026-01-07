@@ -6,7 +6,7 @@ import { env } from "./env";
 import { trimLeadingNewlinesMiddleware } from "./middleware/trim-leading-newlines";
 import { tools } from "./tools";
 
-const DEFAULT_MODEL_ID = "zai-org/GLM-4.6";
+const DEFAULT_MODEL_ID = "Qwen/Qwen3-235B-A22B-Instruct-2507";
 
 const friendli = createFriendli({
   apiKey: env.FRIENDLI_TOKEN,

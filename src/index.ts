@@ -3,6 +3,7 @@ import { agentManager } from "./agent";
 import { executeCommand, isCommand, registerCommand } from "./commands";
 import { createModelCommand } from "./commands/model";
 import { createRenderCommand } from "./commands/render";
+import { createClearCommand } from "./commands/clear";
 import { MessageHistory } from "./context/message-history";
 import { renderFullStream } from "./interaction/stream-renderer";
 
@@ -17,6 +18,7 @@ registerCommand(
   }))
 );
 registerCommand(createModelCommand());
+registerCommand(createClearCommand(messageHistory));
 
 const run = async (): Promise<void> => {
   const rl = createInterface({
