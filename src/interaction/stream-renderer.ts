@@ -1,7 +1,7 @@
 import type { Writable } from "node:stream";
 import type { TextStreamPart, ToolSet } from "ai";
-import { colorize, colors } from "./colors";
 import { env } from "../env";
+import { colorize, colors } from "./colors";
 
 export interface StreamRenderOptions {
   output?: Writable;

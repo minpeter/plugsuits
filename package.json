@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "bun run src/index.ts",
+    "headless": "bun run src/headless.ts",
     "build": "tsc",
     "dev": "bun run --watch src/index.ts",
     "check": "ultracite check",

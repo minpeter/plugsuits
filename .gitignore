@@ -3,3 +3,7 @@ dist/
 .env
 *.log
 .conversations/
+
+# tbranch artifact
+jobs
+__pycache__

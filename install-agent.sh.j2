@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+echo "Installing dependencies..."
+apt-get update -qq
+apt-get install -y -qq curl git unzip ca-certificates
+
+echo "Installing bun..."
+curl -fsSL https://bun.sh/install | bash
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+echo "Cloning code-editing-agent..."
+git clone --depth 1 https://github.com/minpeter/agent.git /app
+cd /app
+bun install
+
+echo "code-editing-agent installed successfully"
+bun --version
