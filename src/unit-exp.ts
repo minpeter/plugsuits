@@ -2,6 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { createFriendli } from "@friendliai/ai-provider";
 import { ToolLoopAgent } from "ai";
 import { env } from "./env";
+import { MessageHistory } from "./interaction/message-history";
 import { renderFullStream } from "./interaction/stream-renderer";
 import { wrapModel } from "./model/create-model";
 import { SYSTEM_PROMPT } from "./prompts/system";
@@ -20,7 +21,7 @@ const agent = new ToolLoopAgent({
   tools: {
     ...tools,
   },
-  maxOutputTokens: 10,
+  maxOutputTokens: 1024,
   providerOptions: {
     friendli: {
       // enable_thinking for hybrid reasoning models
@@ -30,6 +31,8 @@ const agent = new ToolLoopAgent({
     },
   },
 });
+
+const messageHistory = new MessageHistory();
 
 const run = async (): Promise<void> => {
   const rl = createInterface({
@@ -45,8 +48,16 @@ const run = async (): Promise<void> => {
         break;
       }
 
-      const stream = await agent.stream({ prompt: trimmed });
+      messageHistory.addUserMessage(trimmed);
+
+      const stream = await agent.stream({
+        messages: messageHistory.toModelMessages(),
+      });
+
       await renderFullStream(stream.fullStream, { showSteps: false });
+
+      const response = await stream.response;
+      messageHistory.addModelMessages(response.messages);
     }
   } finally {
     rl.close();
