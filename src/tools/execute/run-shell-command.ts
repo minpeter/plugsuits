@@ -88,20 +88,19 @@ Parameters:
 - workdir (optional): Absolute path for command execution
 
 Constraints:
+- Do NOT use & for background processes
 - Do NOT use interactive commands (REPLs, editors, password prompts)
 - Output is truncated to last 50000 characters
-- Environment variables and cd do NOT persist between calls
+- Environment variables and \`cd\` do NOT persist between tool calls
 - Commands run in workspace root by default
-- Only use workdir parameter for different directory
-- For background processes, use & and capture PID with echo $!
-- For servers, redirect output: cmd > /dev/null 2>&1 & echo $!`,
+- Only use workdir parameter for different directory`,
 
   inputSchema: z.object({
     command: z.string().describe("The shell command to execute"),
     workdir: z
       .string()
       .optional()
-      .describe("Working directory. Defaults to current directory."),
+      .describe("Absolute path for command execution"),
   }),
 
   needsApproval: true,
