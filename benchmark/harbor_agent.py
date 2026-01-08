@@ -27,6 +27,10 @@ class CodeEditingAgent(BaseInstalledAgent):
     def name() -> str:
         return "code-editing-agent"
 
+    @staticmethod
+    def version() -> str:
+        return "1.0.0"
+
     @property
     def _install_agent_template_path(self) -> Path:
         return Path(__file__).parent / "install-agent.sh.j2"
