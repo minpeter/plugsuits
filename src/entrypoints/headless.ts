@@ -16,6 +16,7 @@ interface TrajectoryEvent {
     role: string;
     content: string | unknown[];
     model?: string;
+    reasoning_content?: string;
     usage?: {
       input_tokens: number;
       output_tokens: number;
@@ -94,11 +95,15 @@ const processAgentResponse = async (
   const modelId = agentManager.getModelId();
 
   let currentText = "";
+  let currentReasoning = "";
 
   for await (const part of stream.fullStream) {
     switch (part.type) {
       case "text-delta":
         currentText += part.text;
+        break;
+      case "reasoning-delta":
+        currentReasoning += part.text;
         break;
       case "tool-call":
         emitEvent({
@@ -116,8 +121,10 @@ const processAgentResponse = async (
               },
             ],
             model: modelId,
+            reasoning_content: currentReasoning || undefined,
           },
         });
+        currentReasoning = "";
         break;
       case "tool-result":
         emitEvent({
@@ -167,6 +174,7 @@ const processAgentResponse = async (
         role: "assistant",
         content: currentText,
         model: modelId,
+        reasoning_content: currentReasoning || undefined,
       },
     });
   }

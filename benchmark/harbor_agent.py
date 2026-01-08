@@ -81,9 +81,9 @@ class CodeEditingAgent(BaseInstalledAgent):
                             break
 
                 if is_tool_result:
-                    # This is a tool result - attach to previous agent step as observation
+                    # This is a tool result - find the matching tool call in any previous step
                     tool_result = event.get("toolUseResult")
-                    if tool_result and steps and steps[-1].source == "agent":
+                    if tool_result and steps:
                         # Find the tool_call_id from the content
                         tool_use_id = None
                         for item in content:
@@ -94,15 +94,32 @@ class CodeEditingAgent(BaseInstalledAgent):
                                 tool_use_id = item.get("tool_use_id")
                                 break
 
-                        # Update previous step's observation
-                        steps[-1].observation = Observation(
-                            results=[
-                                ObservationResult(
-                                    source_call_id=tool_use_id or "",
-                                    content=tool_result.get("stdout", ""),
-                                )
-                            ]
-                        )
+                        if tool_use_id:
+                            # Search all previous agent steps for the matching tool_call_id
+                            # This handles parallel tool calls where results may arrive out of order
+                            for step in reversed(steps):
+                                if step.source == "agent" and step.tool_calls:
+                                    matching_call = None
+                                    for tc in step.tool_calls:
+                                        if tc.tool_call_id == tool_use_id:
+                                            matching_call = tc
+                                            break
+
+                                    if matching_call:
+                                        # Found the step with matching tool call
+                                        result = ObservationResult(
+                                            source_call_id=tool_use_id,
+                                            content=tool_result.get("stdout", ""),
+                                        )
+                                        if step.observation:
+                                            # Append to existing observation results
+                                            step.observation.results.append(result)
+                                        else:
+                                            # Create new observation
+                                            step.observation = Observation(
+                                                results=[result]
+                                            )
+                                        break
                 else:
                     # This is actual user input
                     step_id += 1
@@ -122,6 +139,7 @@ class CodeEditingAgent(BaseInstalledAgent):
                 step_id += 1
                 content = message.get("content", "")
                 model_name = message.get("model")
+                reasoning_content = message.get("reasoning_content")
                 usage = message.get("usage", {})
 
                 tool_calls: list[ToolCall] = []
@@ -159,8 +177,9 @@ class CodeEditingAgent(BaseInstalledAgent):
                         source="agent",
                         message=text_content or "Tool execution",
                         model_name=model_name or self.model_name,
+                        reasoning_content=reasoning_content,
                         tool_calls=tool_calls if tool_calls else None,
-                        observation=None,  # Will be filled by next user event if tool_result
+                        observation=None,
                         metrics=metrics,
                     )
                 )
