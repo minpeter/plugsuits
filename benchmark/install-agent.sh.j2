@@ -3,9 +3,9 @@ set -e
 
 echo "Installing system dependencies..."
 # Use --no-install-recommends to minimize package size
-# Remove unzip (not needed), keep only essential packages
+# unzip is required for bun installation
 apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-  curl git ca-certificates \
+  curl git ca-certificates unzip \
   && rm -rf /var/lib/apt/lists/*
 
 echo "Installing bun..."
