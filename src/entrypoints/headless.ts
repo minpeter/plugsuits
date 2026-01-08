@@ -1,66 +1,59 @@
 #!/usr/bin/env bun
 
-/**
- * Headless mode entry point for Harbor integration.
- * Usage: bun run src/entrypoints/headless.ts -p "instruction"
- */
-
 import { agentManager, DEFAULT_MODEL_ID } from "../agent";
 import { MessageHistory } from "../context/message-history";
 
-interface TrajectoryEvent {
+interface BaseEvent {
   timestamp: string;
-  type: "user" | "assistant" | "tool_call" | "tool_result" | "error";
   sessionId: string;
-  message?: {
-    role: string;
-    content: string | unknown[];
-    model?: string;
-    reasoning_content?: string;
-    usage?: {
-      input_tokens: number;
-      output_tokens: number;
-      cache_read_input_tokens?: number;
-    };
-  };
-  toolUseResult?: {
-    stdout?: string;
-    stderr?: string;
-    exitCode?: number;
-  };
-  error?: string;
 }
+
+interface UserEvent extends BaseEvent {
+  type: "user";
+  content: string;
+}
+
+interface AssistantEvent extends BaseEvent {
+  type: "assistant";
+  content: string;
+  model: string;
+  reasoning_content?: string;
+}
+
+interface ToolCallEvent extends BaseEvent {
+  type: "tool_call";
+  tool_call_id: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  model: string;
+  reasoning_content?: string;
+}
+
+interface ToolResultEvent extends BaseEvent {
+  type: "tool_result";
+  tool_call_id: string;
+  output: string;
+  error?: string;
+  exit_code?: number;
+}
+
+interface ErrorEvent extends BaseEvent {
+  type: "error";
+  error: string;
+}
+
+type TrajectoryEvent =
+  | UserEvent
+  | AssistantEvent
+  | ToolCallEvent
+  | ToolResultEvent
+  | ErrorEvent;
 
 const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const startTime = Date.now();
 
 const emitEvent = (event: TrajectoryEvent): void => {
   console.log(JSON.stringify(event));
-};
-
-const formatToolOutput = (output: unknown): string => {
-  if (typeof output === "string") {
-    return output;
-  }
-  if (typeof output === "object" && output !== null) {
-    if ("output" in output) {
-      const result = output as {
-        output: string;
-        error?: string;
-        exitCode?: number;
-      };
-      let formatted = result.output || "";
-      if (result.error) {
-        formatted += `\nSTDERR: ${result.error}`;
-      }
-      if (result.exitCode !== undefined && result.exitCode !== 0) {
-        formatted += `\nExit code: ${result.exitCode}`;
-      }
-      return formatted || JSON.stringify(output);
-    }
-    return JSON.stringify(output);
-  }
-  return String(output);
 };
 
 const parseArgs = (): { prompt: string; model?: string } => {
@@ -88,6 +81,24 @@ const parseArgs = (): { prompt: string; model?: string } => {
   return { prompt, model };
 };
 
+const extractToolOutput = (
+  output: unknown
+): { stdout: string; error?: string; exitCode?: number } => {
+  if (typeof output === "object" && output !== null && "output" in output) {
+    const result = output as {
+      output: string;
+      error?: string;
+      exitCode?: number;
+    };
+    return {
+      stdout: result.output || "",
+      error: result.error,
+      exitCode: result.exitCode,
+    };
+  }
+  return { stdout: String(output) };
+};
+
 const processAgentResponse = async (
   messageHistory: MessageHistory
 ): Promise<void> => {
@@ -108,55 +119,29 @@ const processAgentResponse = async (
       case "tool-call":
         emitEvent({
           timestamp: new Date().toISOString(),
-          type: "assistant",
+          type: "tool_call",
           sessionId,
-          message: {
-            role: "assistant",
-            content: [
-              {
-                type: "tool_use",
-                id: part.toolCallId,
-                name: part.toolName,
-                input: part.input,
-              },
-            ],
-            model: modelId,
-            reasoning_content: currentReasoning || undefined,
-          },
+          tool_call_id: part.toolCallId,
+          tool_name: part.toolName,
+          tool_input: part.input as Record<string, unknown>,
+          model: modelId,
+          reasoning_content: currentReasoning || undefined,
         });
         currentReasoning = "";
         break;
-      case "tool-result":
+      case "tool-result": {
+        const toolOutput = extractToolOutput(part.output);
         emitEvent({
           timestamp: new Date().toISOString(),
-          type: "user",
+          type: "tool_result",
           sessionId,
-          message: {
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: part.toolCallId,
-                content: formatToolOutput(part.output),
-              },
-            ],
-          },
-          toolUseResult: {
-            stdout:
-              typeof part.output === "object" &&
-              part.output !== null &&
-              "output" in part.output
-                ? String((part.output as { output: unknown }).output)
-                : String(part.output),
-            exitCode:
-              typeof part.output === "object" &&
-              part.output !== null &&
-              "exitCode" in part.output
-                ? Number((part.output as { exitCode: unknown }).exitCode)
-                : 0,
-          },
+          tool_call_id: part.toolCallId,
+          output: toolOutput.stdout,
+          error: toolOutput.error,
+          exit_code: toolOutput.exitCode,
         });
         break;
+      }
       default:
         break;
     }
@@ -170,12 +155,9 @@ const processAgentResponse = async (
       timestamp: new Date().toISOString(),
       type: "assistant",
       sessionId,
-      message: {
-        role: "assistant",
-        content: currentText,
-        model: modelId,
-        reasoning_content: currentReasoning || undefined,
-      },
+      content: currentText,
+      model: modelId,
+      reasoning_content: currentReasoning || undefined,
     });
   }
 };
@@ -192,10 +174,7 @@ const run = async (): Promise<void> => {
     timestamp: new Date().toISOString(),
     type: "user",
     sessionId,
-    message: {
-      role: "user",
-      content: prompt,
-    },
+    content: prompt,
   });
 
   messageHistory.addUserMessage(prompt);

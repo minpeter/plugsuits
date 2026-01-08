@@ -67,120 +67,76 @@ class CodeEditingAgent(BaseInstalledAgent):
         for event in events:
             event_type = event.get("type")
             timestamp = event.get("timestamp")
-            message = event.get("message", {})
 
             if event_type == "user":
-                content = message.get("content", "")
-
-                # Check if this is a tool_result (response to previous tool call)
-                is_tool_result = False
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "tool_result":
-                            is_tool_result = True
-                            break
-
-                if is_tool_result:
-                    # This is a tool result - find the matching tool call in any previous step
-                    tool_result = event.get("toolUseResult")
-                    if tool_result and steps:
-                        # Find the tool_call_id from the content
-                        tool_use_id = None
-                        for item in content:
-                            if (
-                                isinstance(item, dict)
-                                and item.get("type") == "tool_result"
-                            ):
-                                tool_use_id = item.get("tool_use_id")
-                                break
-
-                        if tool_use_id:
-                            # Search all previous agent steps for the matching tool_call_id
-                            # This handles parallel tool calls where results may arrive out of order
-                            for step in reversed(steps):
-                                if step.source == "agent" and step.tool_calls:
-                                    matching_call = None
-                                    for tc in step.tool_calls:
-                                        if tc.tool_call_id == tool_use_id:
-                                            matching_call = tc
-                                            break
-
-                                    if matching_call:
-                                        # Found the step with matching tool call
-                                        result = ObservationResult(
-                                            source_call_id=tool_use_id,
-                                            content=tool_result.get("stdout", ""),
-                                        )
-                                        if step.observation:
-                                            # Append to existing observation results
-                                            step.observation.results.append(result)
-                                        else:
-                                            # Create new observation
-                                            step.observation = Observation(
-                                                results=[result]
-                                            )
-                                        break
-                else:
-                    # This is actual user input
-                    step_id += 1
-                    text_content = (
-                        str(content) if isinstance(content, list) else str(content)
-                    )
-                    steps.append(
-                        Step(
-                            step_id=step_id,
-                            timestamp=timestamp,
-                            source="user",
-                            message=text_content,
-                        )
-                    )
-
-            elif event_type == "assistant":
                 step_id += 1
-                content = message.get("content", "")
-                model_name = message.get("model")
-                reasoning_content = message.get("reasoning_content")
-                usage = message.get("usage", {})
-
-                tool_calls: list[ToolCall] = []
-                text_content = ""
-
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_use":
-                            tool_calls.append(
-                                ToolCall(
-                                    tool_call_id=block.get("id", ""),
-                                    function_name=block.get("name", ""),
-                                    arguments=block.get("input", {}),
-                                )
-                            )
-                        elif isinstance(block, dict) and block.get("type") == "text":
-                            text_content += block.get("text", "")
-                        elif isinstance(block, str):
-                            text_content += block
-                else:
-                    text_content = str(content)
-
-                metrics = None
-                if usage:
-                    metrics = Metrics(
-                        prompt_tokens=usage.get("input_tokens"),
-                        completion_tokens=usage.get("output_tokens"),
-                        cached_tokens=usage.get("cache_read_input_tokens"),
+                steps.append(
+                    Step(
+                        step_id=step_id,
+                        timestamp=timestamp,
+                        source="user",
+                        message=event.get("content", ""),
                     )
+                )
 
+            elif event_type == "tool_call":
+                step_id += 1
                 steps.append(
                     Step(
                         step_id=step_id,
                         timestamp=timestamp,
                         source="agent",
-                        message=text_content or "Tool execution",
-                        model_name=model_name or self.model_name,
-                        reasoning_content=reasoning_content,
-                        tool_calls=tool_calls if tool_calls else None,
+                        message="Tool execution",
+                        model_name=event.get("model") or self.model_name,
+                        reasoning_content=event.get("reasoning_content"),
+                        tool_calls=[
+                            ToolCall(
+                                tool_call_id=event.get("tool_call_id", ""),
+                                function_name=event.get("tool_name", ""),
+                                arguments=event.get("tool_input", {}),
+                            )
+                        ],
                         observation=None,
-                        metrics=metrics,
+                    )
+                )
+
+            elif event_type == "tool_result":
+                tool_call_id = event.get("tool_call_id")
+                output = event.get("output", "")
+                error = event.get("error")
+                if error:
+                    output = (
+                        f"{output}\nSTDERR: {error}" if output else f"STDERR: {error}"
+                    )
+
+                if tool_call_id and steps:
+                    for step in reversed(steps):
+                        if step.source == "agent" and step.tool_calls:
+                            matching = any(
+                                tc.tool_call_id == tool_call_id
+                                for tc in step.tool_calls
+                            )
+                            if matching:
+                                result = ObservationResult(
+                                    source_call_id=tool_call_id,
+                                    content=output,
+                                )
+                                if step.observation:
+                                    step.observation.results.append(result)
+                                else:
+                                    step.observation = Observation(results=[result])
+                                break
+
+            elif event_type == "assistant":
+                step_id += 1
+                steps.append(
+                    Step(
+                        step_id=step_id,
+                        timestamp=timestamp,
+                        source="agent",
+                        message=event.get("content", ""),
+                        model_name=event.get("model") or self.model_name,
+                        reasoning_content=event.get("reasoning_content"),
                     )
                 )
 
