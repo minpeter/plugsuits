@@ -1,18 +1,32 @@
 ## Shell Tools
 
-You have access to a persistent terminal session through two complementary tools:
-
 ### shell_execute
-- Runs shell commands and waits for completion (up to 10 seconds timeout)
-- Best for: `git`, `npm/pip install`, `make`, `docker`, running tests, build commands
-- On timeout: Returns current terminal screen so you can see what's happening
+- Runs shell commands (10 second timeout)
+- Best for: git, npm/pip install, make, docker, tests, build
+- On timeout: Returns current terminal screen
 
 ### shell_interact  
 - Sends raw keystrokes to the terminal
-- Best for: interactive programs, responding to prompts (y/n), or recovering from timeouts
-- IMPORTANT: You must include `<Enter>` or `\n` to execute commands
+- Best for: interactive programs, prompts (y/n), recovering from timeouts
+- Must include `<Enter>` or `\n` to execute
 
 ### Key Points
-- Both tools share the SAME terminal session - state persists between calls
-- If shell_execute times out, the process may still be running; use shell_interact with `<Ctrl+C>` to interrupt
-- For file operations, prefer dedicated tools: read_file, glob, grep (faster and safer than shell commands)
+- Both tools share the SAME persistent terminal session
+- If timeout occurs, use shell_interact with `<Ctrl+C>` to interrupt
+
+### Use Dedicated Tools Instead of Shell Commands
+- Use `read_file` instead of `cat`, `head`, `tail`, etc.
+- Use `edit_file` instead of `sed`, `awk`, etc.
+- Use `write_file` instead of `echo >`, `cat <<EOF`, etc.
+- Use `delete_file` instead of `rm`, etc.
+- Use `grep` instead of shell `grep`, `rg`, etc.
+- Use `glob` instead of `find`, `ls`, etc.
+
+### Shell Escaping (when using $ literally)
+```bash
+# WRONG - shell interprets as empty variable
+echo "$time_local"
+
+# CORRECT - single quotes preserve $
+echo '$time_local'
+```

@@ -1,0 +1,13 @@
+## Explore Tools
+
+### read_file
+- Reads file contents with line numbers
+- Always read before editing
+
+### glob
+- Finds files matching a pattern (e.g., `**/*.ts`, `src/**/*.json`)
+- Preferred over shell `find` or `ls`
+
+### grep
+- Searches file contents for patterns (supports regex)
+- Preferred over shell `grep`

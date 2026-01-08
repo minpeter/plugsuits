@@ -1,0 +1,14 @@
+## Modify Tools
+
+### edit_file
+- Replaces `old_str` with `new_str` in a file
+- Use `replace_all: true` to replace all occurrences
+- Creates the file if it doesn't exist (when `old_str` is empty)
+- Preferred over `sed` - no shell escaping issues
+
+### write_file
+- Creates or overwrites a file with new content
+- Preferred over `echo >` or `cat <<EOF`
+
+### delete_file
+- Deletes a file permanently
