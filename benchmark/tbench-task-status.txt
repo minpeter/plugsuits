@@ -1,0 +1,14 @@
+[PASS]
+prove-plus-comm
+multi-source-data-merger
+git-leak-recovery
+modernize-scientific-stack
+nginx-request-logging
+
+[FAIL]
+pypi-server
+configure-git-webserver
+qemu-startup
+cancel-async-tasks
+openssl-selfsigned-cert
+hf-model-inference
