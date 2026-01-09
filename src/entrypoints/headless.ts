@@ -235,12 +235,6 @@ const processAgentResponse = async (
   }
 };
 
-const VERIFICATION_PROMPT = `Before completing, please verify your solution:
-1. If you wrote any code, run it to make sure it works without errors
-2. If there are test files or the task mentions tests, run them
-3. Re-read the original requirements and confirm each one is satisfied
-4. If you find any issues, fix them now`;
-
 const run = async (): Promise<void> => {
   const { prompt, model } = parseArgs();
 
@@ -259,15 +253,6 @@ const run = async (): Promise<void> => {
   messageHistory.addUserMessage(prompt);
 
   try {
-    await processAgentResponse(messageHistory);
-
-    emitEvent({
-      timestamp: new Date().toISOString(),
-      type: "user",
-      sessionId,
-      content: VERIFICATION_PROMPT,
-    });
-    messageHistory.addUserMessage(VERIFICATION_PROMPT);
     await processAgentResponse(messageHistory);
   } catch (error) {
     emitEvent({
