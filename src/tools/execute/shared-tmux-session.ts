@@ -5,10 +5,7 @@ import {
   formatTerminalScreen,
   formatTimeoutMessage,
 } from "./format-utils";
-import {
-  detectInteractivePrompt,
-  formatDetectionResults,
-} from "./interactive-detector";
+import { isInteractiveState } from "./interactive-detector";
 import {
   buildEnvPrefix,
   wrapCommandNonInteractive,
@@ -331,32 +328,23 @@ class SharedTmuxSession {
       return { isBlocking: false, message: null };
     }
 
-    const screen = this.capturePane(false);
-    const results = detectInteractivePrompt({
-      terminalContent: screen,
-      sessionId: this.sessionId,
-    });
+    const result = isInteractiveState(this.sessionId);
 
-    const hasConfirmedInteractivePrompt = results.some(
-      (r) => r.confidence === "high"
-    );
-
-    if (!hasConfirmedInteractivePrompt) {
+    if (!result.isInteractive) {
       return { isBlocking: false, message: null };
     }
 
-    const detectionMessage = formatDetectionResults(results);
+    const screen = this.capturePane(false);
     const errorMessage = [
       "[ERROR] Cannot execute command - terminal is in interactive state",
       "",
-      detectionMessage,
+      `Current foreground process: ${result.currentProcess}`,
       "",
-      "[HOW TO RESOLVE]",
-      "1. Use shell_interact('<Ctrl+C>') to terminate the current process",
-      "2. Then use shell_execute with your command",
+      "Use shell_interact to send keys to the interactive process.",
       "",
-      "TIP: For servers/daemons, run in background to avoid blocking:",
-      "  shell_execute('nohup your_command > /tmp/output.log 2>&1 &')",
+      "=== Current Terminal Screen ===",
+      screen.trim(),
+      "=== End of Screen ===",
     ].join("\n");
 
     return { isBlocking: true, message: errorMessage };
@@ -407,6 +395,26 @@ class SharedTmuxSession {
     );
 
     if (waitResult.exitCode !== 0) {
+      const interactiveResult = isInteractiveState(this.sessionId);
+
+      if (interactiveResult.isInteractive) {
+        const currentScreen = this.capturePane(false);
+        return {
+          exitCode: 1,
+          output: [
+            "[ERROR] Command blocked - terminal entered interactive state",
+            "",
+            `Current foreground process: ${interactiveResult.currentProcess}`,
+            "",
+            "Use shell_interact to send keys to the interactive process.",
+            "",
+            "=== Current Terminal Screen ===",
+            currentScreen.trim(),
+            "=== End of Screen ===",
+          ].join("\n"),
+        };
+      }
+
       const currentScreen = this.capturePane(false);
       return {
         exitCode: 124,

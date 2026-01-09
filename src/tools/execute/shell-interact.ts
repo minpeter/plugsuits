@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { formatTerminalScreen } from "./format-utils";
+import { isInteractiveState } from "./interactive-detector";
 import { getSharedSession } from "./shared-tmux-session";
 
 const SPECIAL_KEYS: Record<string, string> = {
@@ -93,9 +94,24 @@ export const shellInteractTool = tool({
       minTimeoutMs: waitTime,
     });
 
+    const formattedOutput = formatTerminalScreen(output);
+    const interactiveResult = isInteractiveState(session.getSessionId());
+
+    if (interactiveResult.isInteractive) {
+      const reminder = [
+        `[SYSTEM REMINDER] Terminal is in interactive state (foreground: ${interactiveResult.currentProcess})`,
+        "Use shell_interact to continue interacting with the process.",
+      ].join("\n");
+
+      return {
+        success: true,
+        output: `${formattedOutput}\n\n${reminder}`,
+      };
+    }
+
     return {
       success: true,
-      output: formatTerminalScreen(output),
+      output: formattedOutput,
     };
   },
 });
