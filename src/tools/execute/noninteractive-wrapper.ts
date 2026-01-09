@@ -275,7 +275,7 @@ export function buildEnvPrefix(env: Record<string, string>): string {
   }
 
   return `${Object.entries(env)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(([key, value]) => `${key}='${value.replace(/'/g, "'\\''")}'`)
     .join(" ")} `;
 }
 
