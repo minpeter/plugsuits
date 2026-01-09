@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSharedSession } from "./shared-tmux-session";
 
 const MAX_OUTPUT_LENGTH = 50_000;
-const DEFAULT_TIMEOUT_MS = 2_000;
+const DEFAULT_TIMEOUT_MS = 2000;
 
 export interface CommandResult {
   exitCode: number;

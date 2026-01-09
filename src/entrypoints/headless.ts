@@ -67,11 +67,13 @@ const parseArgs = (): {
   prompt: string;
   model?: string;
   thinking: boolean;
+  toolFallback: boolean;
 } => {
   const args = process.argv.slice(2);
   let prompt = "";
   let model: string | undefined;
   let thinking = false;
+  let toolFallback = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-p" || args[i] === "--prompt") {
@@ -82,17 +84,19 @@ const parseArgs = (): {
       i++;
     } else if (args[i] === "--think") {
       thinking = true;
+    } else if (args[i] === "--tool-fallback") {
+      toolFallback = true;
     }
   }
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--tool-fallback]"
     );
     process.exit(1);
   }
 
-  return { prompt, model, thinking };
+  return { prompt, model, thinking, toolFallback };
 };
 
 const extractToolOutput = (
@@ -243,11 +247,12 @@ const processAgentResponse = async (
 };
 
 const run = async (): Promise<void> => {
-  const { prompt, model, thinking } = parseArgs();
+  const { prompt, model, thinking, toolFallback } = parseArgs();
 
   agentManager.setHeadlessMode(true);
   agentManager.setModelId(model || DEFAULT_MODEL_ID);
   agentManager.setThinkingEnabled(thinking);
+  agentManager.setToolFallbackEnabled(toolFallback);
 
   const messageHistory = new MessageHistory();
 

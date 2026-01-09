@@ -59,17 +59,20 @@ const processAgentResponse = async (rl: Interface): Promise<void> => {
   }
 };
 
-const parseCliArgs = (): { thinking: boolean } => {
+const parseCliArgs = (): { thinking: boolean; toolFallback: boolean } => {
   const args = process.argv.slice(2);
   let thinking = false;
+  let toolFallback = false;
 
   for (const arg of args) {
     if (arg === "--think") {
       thinking = true;
+    } else if (arg === "--tool-fallback") {
+      toolFallback = true;
     }
   }
 
-  return { thinking };
+  return { thinking, toolFallback };
 };
 
 const handleGracefulShutdown = () => {
@@ -112,8 +115,9 @@ const handleAgentResponse = async (rl: Interface): Promise<void> => {
 };
 
 const run = async (): Promise<void> => {
-  const { thinking } = parseCliArgs();
+  const { thinking, toolFallback } = parseCliArgs();
   agentManager.setThinkingEnabled(thinking);
+  agentManager.setToolFallbackEnabled(toolFallback);
 
   const rl = createInterface({
     input: process.stdin,
