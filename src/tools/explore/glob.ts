@@ -11,32 +11,22 @@ interface FileWithMtime {
 
 export const globTool = tool({
   description:
-    "Efficiently finds files matching specific glob patterns (e.g., `src/**/*.ts`, `**/*.md`), " +
-    "returning absolute paths sorted by modification time (newest first). " +
-    "Ideal for quickly locating files based on their name or path structure.",
+    "Find files by pattern (e.g., '**/*.ts', 'src/**/*.json'). " +
+    "Returns absolute paths sorted by modification time (newest first).",
   inputSchema: z.object({
-    pattern: z
-      .string()
-      .describe(
-        "The glob pattern to match against (e.g., '**/*.py', 'docs/*.md')."
-      ),
-    dir_path: z
+    pattern: z.string().describe("Glob pattern (e.g., '**/*.py', 'docs/*.md')"),
+    path: z
       .string()
       .optional()
-      .describe(
-        "Optional: The absolute path to the directory to search within. " +
-          "If omitted, searches the current working directory."
-      ),
+      .describe("Directory to search (default: current directory)"),
     respect_git_ignore: z
       .boolean()
       .optional()
       .default(true)
-      .describe(
-        "Optional: Whether to respect .gitignore patterns when finding files. Defaults to true."
-      ),
+      .describe("Respect .gitignore (default: true)"),
   }),
-  execute: async ({ pattern, dir_path, respect_git_ignore }) => {
-    const searchDir = dir_path ? resolve(dir_path) : process.cwd();
+  execute: async ({ pattern, path, respect_git_ignore }) => {
+    const searchDir = path ? resolve(path) : process.cwd();
 
     const glob = new Bun.Glob(pattern);
     const filesWithMtime: FileWithMtime[] = [];

@@ -2,10 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { cleanupSession, getSharedSession } from "./shared-tmux-session";
 import { type InteractResult, shellInteractTool } from "./shell-interact";
 
-// Helper to execute shell interact tool
 async function interact(
   keystrokes: string,
-  duration = 200
+  timeout_ms = 200
 ): Promise<InteractResult> {
   const execute = shellInteractTool.execute;
   if (!execute) {
@@ -13,7 +12,7 @@ async function interact(
   }
 
   const result = await execute(
-    { keystrokes, duration },
+    { keystrokes, timeout_ms },
     {
       toolCallId: `test-${Date.now()}`,
       messages: [],
@@ -215,8 +214,8 @@ describe("shellInteractTool", () => {
     });
   });
 
-  describe("duration parameter", () => {
-    it("uses default duration when not specified", async () => {
+  describe("timeout_ms parameter", () => {
+    it("uses default timeout_ms when not specified", async () => {
       const execute = shellInteractTool.execute;
       if (!execute) {
         throw new Error("shellInteractTool.execute is undefined");
@@ -237,7 +236,7 @@ describe("shellInteractTool", () => {
       expect(elapsed).toBeGreaterThanOrEqual(400);
     });
 
-    it("respects custom duration", async () => {
+    it("respects custom timeout_ms", async () => {
       const start = Date.now();
       await interact("test", 100);
       const elapsed = Date.now() - start;

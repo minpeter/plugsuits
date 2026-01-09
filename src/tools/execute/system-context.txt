@@ -1,23 +1,60 @@
 ## Shell Tools
 
+Use these tools for operations that REQUIRE shell execution. For file operations, use dedicated tools instead.
+
 ### shell_execute
-- Runs shell commands (10 second timeout)
-- Best for: git, npm/pip install, make, docker, tests, build
-- On timeout: Returns current terminal screen
+**Purpose**: Run shell commands with 10-second timeout
 
-### shell_interact  
-- Sends raw keystrokes to the terminal
-- Best for: interactive programs, prompts (y/n), recovering from timeouts
-- Must include `<Enter>` or `\n` to execute
+**When to use**:
+- Package management: `npm install`, `pip install`, `cargo build`
+- Version control: `git status`, `git commit`, `git push`
+- Build systems: `make`, `npm run build`, `docker build`
+- Running tests: `npm test`, `pytest`, `cargo test`
+- System commands: `mkdir -p`, `chmod`, `ln -s`
 
-### Key Points
-- Both tools share the SAME persistent terminal session
-- If timeout occurs, use shell_interact with `<Ctrl+C>` to interrupt
+**Timeout behavior**:
+- Commands timeout after 10 seconds (configurable)
+- On timeout, returns `[TIMEOUT]` message with current terminal screen
+- Terminal output format: `=== Current Terminal Screen ===\n...\n=== End of Screen ===`
+- Use `shell_interact` with `<Ctrl+C>` to interrupt hung processes
 
-### Use Dedicated Tools Instead of Shell Commands
-- Use `read_file` instead of `cat`, `head`, `tail`, etc.
-- Use `edit_file` instead of `sed`, `awk`, etc.
-- Use `write_file` instead of `echo >`, `cat <<EOF`, etc.
-- Use `delete_file` instead of `rm`, etc.
-- Use `grep` instead of shell `grep`, `rg`, etc.
-- Use `glob` instead of `find`, `ls`, etc.
+**Example**: `shell_execute("npm install express")`
+
+### shell_interact
+**Purpose**: Send raw keystrokes to the terminal (for interactive programs)
+
+**When to use**:
+- Responding to interactive prompts (y/n questions)
+- Recovering from timeouts (send `<Ctrl+C>`)
+- Navigating interactive CLIs (vim, less, interactive REPLs)
+- Sending input to running programs
+
+**Key points**:
+- Must include `<Enter>` or `\n` to execute commands
+- Shares the SAME persistent terminal session with `shell_execute`
+- Returns terminal screen in format: `=== Current Terminal Screen ===\n...\n=== End of Screen ===`
+
+**Example**: 
+```
+shell_interact("y<Enter>")  # Answer yes to prompt
+shell_interact("<Ctrl+C>")  # Interrupt hung process
+```
+
+### Important: Use Dedicated Tools for File Operations
+
+**DO NOT use shell commands for these operations**:
+
+| Instead of Shell Command | Use This Tool |
+|--------------------------|---------------|
+| `cat`, `head`, `tail` | `read_file` |
+| `sed`, `awk`, `perl -i` | `edit_file` |
+| `echo >`, `cat <<EOF` | `write_file` |
+| `rm`, `rm -rf` | `delete_file` |
+| `grep`, `rg`, `ag` | `grep` |
+| `find`, `ls`, `tree` | `glob` |
+
+**Why?** Dedicated tools are:
+- Safer (no shell escaping issues)
+- More reliable (no platform differences)
+- Easier to use (simpler syntax)
+- Better error handling

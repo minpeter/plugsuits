@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { formatTerminalScreen } from "./format-utils";
 import { getSharedSession } from "./shared-tmux-session";
 
 const SPECIAL_KEYS: Record<string, string> = {
@@ -63,31 +64,29 @@ export interface InteractResult {
 
 export const shellInteractTool = tool({
   description:
-    "Send keystrokes to the SAME terminal session as shell_execute. " +
-    "IMPORTANT: Keystrokes are sent verbatim - you MUST include '<Enter>' or '\\n' to execute commands. " +
-    "Use for: (1) interactive programs, (2) responding to prompts, (3) recovering from shell_execute timeout with '<Ctrl+C>'. " +
-    "Special keys: <Enter>, <Tab>, <Escape>, <Up>, <Down>, <Left>, <Right>, " +
-    "<Ctrl+C>, <Ctrl+D>, <Ctrl+Z>, <Ctrl+L>, <Backspace>, <Delete>, <Home>, <End>. " +
-    "Examples: 'ls -la<Enter>' to run command, 'y<Enter>' for yes, '<Ctrl+C>' to interrupt.",
+    "Send keystrokes to terminal (same session as shell_execute). " +
+    "MUST include '<Enter>' to execute. " +
+    "Use for: prompts (y/n), interactive programs, timeout recovery ('<Ctrl+C>').",
 
   inputSchema: z.object({
     keystrokes: z
       .string()
       .describe(
-        "Keystrokes to send. Use <SpecialKey> syntax for special keys. Example: 'yes<Enter>', '<Ctrl+C>', 'n<Enter>'"
+        "Keystrokes to send. Use <SpecialKey> syntax. " +
+          "Examples: 'y<Enter>', '<Ctrl+C>', 'ls<Enter>'"
       ),
-    duration: z
+    timeout_ms: z
       .number()
       .optional()
-      .describe("Time to wait after sending keys in ms (default: 500)"),
+      .describe("Wait time after sending keys (default: 500)"),
   }),
 
   needsApproval: true,
 
-  execute: async ({ keystrokes, duration }): Promise<InteractResult> => {
+  execute: async ({ keystrokes, timeout_ms }): Promise<InteractResult> => {
     const session = getSharedSession();
     const parsedKeys = parseKeys(keystrokes);
-    const waitTime = duration ?? 500;
+    const waitTime = timeout_ms ?? 500;
 
     const output = await session.sendKeys(parsedKeys, {
       block: false,
@@ -96,7 +95,7 @@ export const shellInteractTool = tool({
 
     return {
       success: true,
-      output: output.trim() || "(no visible output)",
+      output: formatTerminalScreen(output),
     };
   },
 });

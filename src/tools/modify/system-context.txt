@@ -1,14 +1,48 @@
 ## Modify Tools
 
+Use these tools to make changes to files. ALWAYS read files before modifying them.
+
 ### edit_file
-- Replaces `old_str` with `new_str` in a file
-- Use `replace_all: true` to replace all occurrences
-- Creates the file if it doesn't exist (when `old_str` is empty)
-- Preferred over `sed` - no shell escaping issues
+**Purpose**: Replace specific text in a file (surgical edits)
+
+**When to use**:
+- Modifying existing files (changing functions, fixing bugs)
+- Replacing specific patterns across a file
+- Making targeted changes without rewriting entire file
+
+**Key features**:
+- `replace_all: true` replaces all occurrences (useful for renaming)
+- `replace_all: false` (default) replaces first occurrence only
+- Creates file if it doesn't exist (when `old_str` is empty)
+
+**DO NOT use shell commands**: Use this instead of `sed`, `awk`, or `perl -i`
+
+**Example**: 
+```
+edit_file("config.ts", "port: 3000", "port: 8080")
+edit_file("app.ts", "oldName", "newName", replace_all=true)
+```
 
 ### write_file
-- Creates or overwrites a file with new content
-- Preferred over `echo >` or `cat <<EOF`
+**Purpose**: Create new file or completely overwrite existing file
+
+**When to use**:
+- Creating new files from scratch
+- Completely replacing file contents (when most of the file changes)
+- Writing generated code or configuration
+
+**DO NOT use shell commands**: Use this instead of `echo >`, `cat <<EOF`, or `printf >`
+
+**Example**: `write_file("output.json", '{"status": "ok"}')`
 
 ### delete_file
-- Deletes a file permanently
+**Purpose**: Permanently delete a file
+
+**When to use**:
+- Removing obsolete files
+- Cleaning up temporary files
+- Deleting files as part of refactoring
+
+**DO NOT use shell commands**: Use this instead of `rm`
+
+**Example**: `delete_file("old-config.js")`

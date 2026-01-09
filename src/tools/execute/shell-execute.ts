@@ -48,18 +48,16 @@ export async function executeCommand(
 
 export const shellExecuteTool = tool({
   description:
-    "Run a shell command and capture output. " +
-    "SHARES the same terminal session with shell_interact - use shell_interact to control interactive programs or recover from timeouts. " +
-    "On timeout, the process may still be running; use shell_interact with '<Ctrl+C>' to interrupt. " +
-    "For long-running processes (servers), use '&' to run in background. " +
-    "Avoid interactive commands (vim, nano, less) - use shell_interact for those.",
+    "Execute shell commands (git, npm, build, tests). " +
+    "Shares terminal session with shell_interact. " +
+    "10s timeout (configurable). On timeout, use shell_interact with '<Ctrl+C>' to interrupt.",
 
   inputSchema: z.object({
-    command: z.string().describe("The shell command to execute"),
+    command: z.string().describe("Shell command to execute"),
     workdir: z
       .string()
       .optional()
-      .describe("Absolute path for command execution"),
+      .describe("Working directory (absolute path)"),
     timeout_ms: z
       .number()
       .optional()

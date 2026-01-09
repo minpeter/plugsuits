@@ -24,11 +24,10 @@ const inputSchema = z.object({
 
 export const editFileTool = tool({
   description:
-    "Make edits to a text file.\n\n" +
-    "Replaces 'old_str' with 'new_str' in the given file.\n" +
-    "'old_str' and 'new_str' MUST be different from each other.\n" +
-    "Use 'replace_all: true' to replace all occurrences.\n\n" +
-    "If the file specified with path doesn't exist, it will be created.",
+    "Replace text in file (surgical edits). " +
+    "old_str must match exactly. " +
+    "Use replace_all: true for multiple replacements. " +
+    "Creates file if it doesn't exist (when old_str is empty).",
   needsApproval: true,
   inputSchema,
   execute: async ({

@@ -1,13 +1,37 @@
 ## Explore Tools
 
+Use these tools to understand the codebase before making changes.
+
 ### read_file
-- Reads file contents with line numbers
-- Always read before editing
+**Purpose**: Read file contents with line numbers
+
+**When to use**:
+- ALWAYS read a file before editing it
+- Inspecting data files (CSV, JSON, etc.) to understand structure
+- Understanding existing code behavior
+
+**Example**: `read_file("src/config.ts")`
 
 ### glob
-- Finds files matching a pattern (e.g., `**/*.ts`, `src/**/*.json`)
-- Preferred over shell `find` or `ls`
+**Purpose**: Find files matching patterns
+
+**When to use**:
+- Finding files by name or extension: `**/*.ts`, `src/**/*.json`
+- Locating configuration files: `**/tsconfig.json`
+- Discovering project structure
+
+**DO NOT use shell commands**: Use this instead of `find`, `ls`, or `tree`
+
+**Example**: `glob("**/*.test.ts")` finds all test files
 
 ### grep
-- Searches file contents for patterns (supports regex)
-- Preferred over shell `grep`
+**Purpose**: Search file contents for patterns (supports regex)
+
+**When to use**:
+- Finding where a function/variable is used
+- Searching for specific patterns across files
+- Locating TODO comments or error messages
+
+**DO NOT use shell commands**: Use this instead of `grep`, `rg`, or `ag`
+
+**Example**: `grep("function.*calculate", "src/**/*.ts")` finds all calculate functions

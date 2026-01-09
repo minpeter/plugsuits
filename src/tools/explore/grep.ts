@@ -53,72 +53,46 @@ function runRipgrep(args: string[], cwd: string): Promise<GrepResult> {
 
 export const grepTool = tool({
   description:
-    "FAST, optimized search powered by ripgrep. " +
-    "Searches file contents using regular expressions or literal strings. " +
-    "Returns matching lines with file paths and line numbers.",
+    "Search file contents (regex or literal). " +
+    "Returns matches with file:line:content format. " +
+    "Powered by ripgrep.",
   inputSchema: z.object({
     pattern: z
       .string()
       .describe(
-        "The pattern to search for. By default, treated as a regular expression. " +
-          "Use '\\b' for precise symbol matching (e.g., '\\bMatchMe\\b')."
+        "Pattern to search (regex by default). " +
+          "Use '\\b' for word boundaries: '\\bfunctionName\\b'"
       ),
-    dir_path: z
+    path: z
       .string()
       .optional()
-      .describe(
-        "Directory or file to search. Directories are searched recursively. " +
-          "Defaults to current working directory if omitted."
-      ),
+      .describe("Directory to search (default: current directory)"),
     include: z
       .string()
       .optional()
-      .describe(
-        "Glob pattern to filter files (e.g., '*.ts', 'src/**'). " +
-          "Recommended for large repositories to reduce noise."
-      ),
+      .describe("Filter files by glob (e.g., '*.ts', 'src/**')"),
     case_sensitive: z
       .boolean()
       .optional()
       .default(false)
-      .describe("If true, search is case-sensitive. Defaults to false."),
+      .describe("Case-sensitive search (default: false)"),
     fixed_strings: z
       .boolean()
       .optional()
       .default(false)
-      .describe(
-        "If true, treats the pattern as a literal string instead of a regular expression. " +
-          "Defaults to false."
-      ),
-    context: z
-      .number()
-      .optional()
-      .describe(
-        "Show this many lines of context around each match (equivalent to grep -C)."
-      ),
-    before: z
-      .number()
-      .optional()
-      .describe(
-        "Show this many lines before each match (equivalent to grep -B)."
-      ),
-    after: z
-      .number()
-      .optional()
-      .describe(
-        "Show this many lines after each match (equivalent to grep -A)."
-      ),
+      .describe("Treat pattern as literal string (default: false)"),
+    context: z.number().optional().describe("Lines of context around matches"),
+    before: z.number().optional().describe("Lines before matches"),
+    after: z.number().optional().describe("Lines after matches"),
     no_ignore: z
       .boolean()
       .optional()
       .default(false)
-      .describe(
-        "If true, searches all files including those in .gitignore. Defaults to false."
-      ),
+      .describe("Search .gitignore files too (default: false)"),
   }),
   execute: async ({
     pattern,
-    dir_path,
+    path,
     include,
     case_sensitive,
     fixed_strings,
@@ -127,7 +101,7 @@ export const grepTool = tool({
     after,
     no_ignore,
   }) => {
-    const searchDir = dir_path ? resolve(dir_path) : process.cwd();
+    const searchDir = path ? resolve(path) : process.cwd();
 
     const args: string[] = [
       "--line-number",

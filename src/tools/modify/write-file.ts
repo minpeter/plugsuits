@@ -5,14 +5,13 @@ import { z } from "zod";
 
 export const writeFileTool = tool({
   description:
-    "Write content to a file, creating it if it doesn't exist or overwriting if it does. " +
-    "Supports both absolute paths (e.g., /app/file.txt) and relative paths. " +
-    "Parent directories will be created automatically if needed. " +
-    "Use this for creating new files or completely replacing file contents.",
+    "Create new file or completely overwrite existing file. " +
+    "Creates parent directories automatically. " +
+    "Use edit_file for surgical changes to existing files.",
   needsApproval: true,
   inputSchema: z.object({
-    path: z.string().describe("The path to the file to write."),
-    content: z.string().describe("The content to write to the file."),
+    path: z.string().describe("File path (absolute or relative)"),
+    content: z.string().describe("Content to write"),
   }),
   execute: async ({ path, content }) => {
     const dir = dirname(path);

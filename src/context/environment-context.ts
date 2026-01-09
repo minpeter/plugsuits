@@ -3,6 +3,9 @@ export const getEnvironmentContext = (): string => {
 
   return `
 ## Environment
-- Working Directory: ${cwd}
+
+- **Working Directory**: ${cwd}
+- **Path Resolution**: All relative paths are resolved from the working directory
+- **Shell Session**: Persistent across shell_execute and shell_interact calls
 `;
 };

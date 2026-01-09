@@ -1,4 +1,9 @@
 import { type SpawnSyncReturns, spawn, spawnSync } from "node:child_process";
+import {
+  formatBackgroundMessage,
+  formatTerminalScreen,
+  formatTimeoutMessage,
+} from "./format-utils";
 
 const SESSION_PREFIX = "cea";
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -285,7 +290,7 @@ class SharedTmuxSession {
 
     if (this.previousBuffer === null) {
       this.previousBuffer = currentBuffer;
-      return `Current Terminal Screen:\n${this.getVisibleScreen()}`;
+      return formatTerminalScreen(this.getVisibleScreen());
     }
 
     const newContent = this.findNewContent(currentBuffer);
@@ -294,12 +299,12 @@ class SharedTmuxSession {
     if (newContent !== null) {
       const trimmed = newContent.trim();
       if (trimmed) {
-        return `New Terminal Output:\n${trimmed}`;
+        return formatTerminalScreen(trimmed);
       }
-      return `Current Terminal Screen:\n${this.getVisibleScreen()}`;
+      return formatTerminalScreen(this.getVisibleScreen());
     }
 
-    return `Current Terminal Screen:\n${this.getVisibleScreen()}`;
+    return formatTerminalScreen(this.getVisibleScreen());
   }
 
   private endsWithBackgroundOperator(command: string): boolean {
@@ -323,12 +328,7 @@ class SharedTmuxSession {
     const screen = this.capturePane(false);
     return {
       exitCode: 0,
-      output:
-        "[Background process started]\n\n" +
-        `=== Current Terminal Screen ===\n${screen}\n` +
-        "=== End of Screen ===\n\n" +
-        "[SYSTEM REMINDER] The process is running in the background. " +
-        "Use shell_interact to check status or send signals.",
+      output: formatBackgroundMessage(screen),
     };
   }
 
@@ -355,12 +355,7 @@ class SharedTmuxSession {
       const currentScreen = this.capturePane(false);
       return {
         exitCode: 124,
-        output:
-          `Command timed out after ${timeoutMs}ms. ` +
-          "The process may still be running in the terminal.\n\n" +
-          `=== Current Terminal Screen ===\n${currentScreen}\n` +
-          "=== End of Screen ===\n\n" +
-          "[SYSTEM REMINDER] Use shell_interact to send keystrokes to this terminal (e.g., '<Ctrl+C>' to interrupt).",
+        output: formatTimeoutMessage(timeoutMs, currentScreen),
       };
     }
 
