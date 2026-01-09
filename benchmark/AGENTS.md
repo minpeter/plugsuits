@@ -20,12 +20,29 @@ harbor run -d 'terminal-bench@2.0' \
   -m 'Qwen/Qwen3-235B-A22B-Thinking-2507' \
   --force-build -n 1
 
+# Run with reasoning + tool fallback (for models without native tool support)
+AGENT_ENABLE_THINKING=1 AGENT_ENABLE_TOOL_FALLBACK=1 \
+harbor run -d 'terminal-bench@2.0' \
+  -t 'modernize-scientific-stack' \
+  --agent-import-path benchmark.harbor_agent:CodeEditingAgent \
+  -m 'zhipuai-org/GLM-4.6' \
+  --force-build -n 1
+
 # Run full benchmark
 harbor run -d 'terminal-bench@2.0' \
   --agent-import-path benchmark.harbor_agent:CodeEditingAgent \
   -m 'Qwen/Qwen3-235B-A22B-Thinking-2507' \
   --force-build
 ```
+
+## Configuration
+
+Control agent behavior via environment variables:
+
+| Variable | Values | Effect |
+|----------|--------|--------|
+| `AGENT_ENABLE_THINKING` | `1`, `true`, `yes` | Enable `--think` flag (captures reasoning content) |
+| `AGENT_ENABLE_TOOL_FALLBACK` | `1`, `true`, `yes` | Enable `--tool-fallback` flag (XML-based tool calling for non-native models) |
 
 ## Event Flow
 

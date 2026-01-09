@@ -226,13 +226,26 @@ class CodeEditingAgent(BaseInstalledAgent):
         # Build command with optional model parameter
         model_arg = f"-m {shlex.quote(self.model_name)}" if self.model_name else ""
 
+        # Optional flags controlled by environment variables
+        flags = []
+        if os.environ.get("AGENT_ENABLE_THINKING", "").lower() in ("1", "true", "yes"):
+            flags.append("--think")
+        if os.environ.get("AGENT_ENABLE_TOOL_FALLBACK", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            flags.append("--tool-fallback")
+
+        flags_str = " ".join(flags)
+
         return [
             ExecInput(
                 command="mkdir -p /logs/agent",
             ),
             ExecInput(
                 command=(
-                    f"/root/.bun/bin/bun /agent/src/entrypoints/headless.ts -p {escaped_instruction} {model_arg} "
+                    f"/root/.bun/bin/bun /agent/src/entrypoints/headless.ts -p {escaped_instruction} {model_arg} {flags_str} "
                     f"2>&1 | tee /logs/agent/output.jsonl"
                 ),
                 env=env,
