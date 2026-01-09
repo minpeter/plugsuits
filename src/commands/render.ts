@@ -2,6 +2,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { ModelMessage, ToolSet } from "ai";
 import { generateText } from "ai";
 import { env } from "../env";
+import { Spinner } from "../interaction/spinner";
 import type { Command, CommandResult } from "./types";
 
 const customFetch = (thinkingEnabled: boolean) =>
@@ -109,6 +110,7 @@ export const createRenderCommand = (getData: () => RenderData): Command => ({
   name: "render",
   description: "Render conversation as raw prompt text",
   execute: async (): Promise<CommandResult> => {
+    const spinner = new Spinner("Rendering prompt...");
     const data = getData();
 
     if (data.messages.length === 0) {
@@ -116,9 +118,12 @@ export const createRenderCommand = (getData: () => RenderData): Command => ({
     }
 
     try {
+      spinner.start();
       const text = await withTimeout(renderChatPrompt(data), RENDER_TIMEOUT_MS);
+      spinner.stop();
       return { success: true, message: text || "(empty render result)" };
     } catch (error) {
+      spinner.stop();
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: `Render failed: ${errorMessage}` };
