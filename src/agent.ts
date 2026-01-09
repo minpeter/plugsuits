@@ -8,7 +8,7 @@ import { trimLeadingNewlinesMiddleware } from "./middleware/trim-leading-newline
 import { tools } from "./tools";
 
 export const DEFAULT_MODEL_ID = "Qwen/Qwen3-235B-A22B-Instruct-2507";
-const OUTPUT_TOKEN_MAX = 16_000;
+const OUTPUT_TOKEN_MAX = 64_000;
 
 const friendli = createFriendli({
   apiKey: env.FRIENDLI_TOKEN,
