@@ -19,6 +19,16 @@ ${PLANNING_TOOLS_CONTEXT}
 
 ---
 
+## Specialized Skills
+
+For complex workflows, specialized skill documents are available that provide detailed guidance:
+- **Git Workflow**: Branch management, commits, and GitHub PR creation using gh CLI
+- Skills are automatically loaded and available in your context
+
+When handling git operations or PR creation requests, refer to the Git Workflow skill for complete workflow patterns.
+
+---
+
 ## Core Principles
 
 ### 1. Understand Before Acting

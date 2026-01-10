@@ -2,6 +2,7 @@ import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
 import { ToolLoopAgent, wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
+import { loadSkills } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
 import { env } from "./env";
 import { buildMiddlewares } from "./middleware";
@@ -113,6 +114,11 @@ class AgentManager {
 
   async getInstructions(): Promise<string> {
     let instructions = SYSTEM_PROMPT + getEnvironmentContext();
+
+    const skillContext = await loadSkills();
+    if (skillContext) {
+      instructions += skillContext;
+    }
 
     const incompleteTodos = await getIncompleteTodos();
     if (incompleteTodos.length > 0) {
