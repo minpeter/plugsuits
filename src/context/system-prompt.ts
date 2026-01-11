@@ -1,6 +1,7 @@
 import SHELL_TOOLS_CONTEXT from "../tools/execute/system-context.txt";
 import EXPLORE_TOOLS_CONTEXT from "../tools/explore/system-context.txt";
 import MODIFY_TOOLS_CONTEXT from "../tools/modify/system-context.txt";
+import PLANNING_TOOLS_CONTEXT from "../tools/planning/system-context.txt";
 
 export const SYSTEM_PROMPT = `You are an expert software engineer assistant.
 
@@ -13,6 +14,8 @@ ${EXPLORE_TOOLS_CONTEXT}
 ${MODIFY_TOOLS_CONTEXT}
 
 ${SHELL_TOOLS_CONTEXT}
+
+${PLANNING_TOOLS_CONTEXT}
 
 ---
 

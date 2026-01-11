@@ -243,7 +243,7 @@ describe("buildEnvPrefix", () => {
   it("builds single env var prefix", () => {
     const result = buildEnvPrefix({ CI: "true" });
 
-    expect(result).toBe("CI=true ");
+    expect(result).toBe("CI='true' ");
   });
 
   it("builds multiple env var prefix", () => {
@@ -252,8 +252,8 @@ describe("buildEnvPrefix", () => {
       CI: "true",
     });
 
-    expect(result).toContain("DEBIAN_FRONTEND=noninteractive");
-    expect(result).toContain("CI=true");
+    expect(result).toContain("DEBIAN_FRONTEND='noninteractive'");
+    expect(result).toContain("CI='true'");
     expect(result).toEndWith(" ");
   });
 });
@@ -262,7 +262,7 @@ describe("getFullWrappedCommand", () => {
   it("returns full command with env prefix for apt", () => {
     const result = getFullWrappedCommand("apt-get install nginx");
 
-    expect(result).toContain("DEBIAN_FRONTEND=noninteractive");
+    expect(result).toContain("DEBIAN_FRONTEND='noninteractive'");
     expect(result).toContain("apt-get install nginx");
     expect(result).toContain("-y");
   });

@@ -3,12 +3,50 @@ import type { ModelMessage, ToolSet } from "ai";
 import { generateText, wrapLanguageModel } from "ai";
 import type { ModelType } from "../agent";
 import { env } from "../env";
+import { colors } from "../interaction/colors";
 import { Spinner } from "../interaction/spinner";
 import { buildMiddlewares } from "../middleware";
 import type { Command, CommandResult } from "./types";
 
-const customFetch = (thinkingEnabled: boolean, isDedicated: boolean) =>
-  Object.assign(
+interface RenderData {
+  model: string;
+  modelType: ModelType;
+  instructions: string;
+  tools: ToolSet;
+  messages: ModelMessage[];
+  thinkingEnabled: boolean;
+  toolFallbackEnabled: boolean;
+}
+
+/**
+ * Render chat prompt to raw text.
+ *
+ * Why use generateText + capturedText pattern:
+ * - Request: Must go through AI SDK middleware and conversion layer
+ *   to match actual API request format (tool definitions, message format, etc.)
+ * - Response: Must show raw text AS-IS, but AI SDK parses XML tool calls
+ *   and strips them from result.text
+ *
+ * Solution: Capture raw API response before AI SDK processes it,
+ * return empty content to AI SDK so it has nothing to parse.
+ */
+async function renderChatPrompt({
+  model,
+  modelType,
+  instructions,
+  tools,
+  messages,
+  thinkingEnabled,
+  toolFallbackEnabled,
+}: RenderData): Promise<string> {
+  const isDedicated = modelType === "dedicated";
+  const baseURL = isDedicated
+    ? "https://api.friendli.ai/dedicated/v1"
+    : "https://api.friendli.ai/serverless/v1";
+
+  let capturedText = "";
+
+  const customFetch = Object.assign(
     async (
       _url: RequestInfo | URL,
       options?: RequestInit
@@ -39,6 +77,7 @@ const customFetch = (thinkingEnabled: boolean, isDedicated: boolean) =>
       }
 
       const data = (await resp.json()) as { text: string };
+      capturedText = data.text;
 
       const result = {
         id: "chatcmpl-render",
@@ -49,7 +88,7 @@ const customFetch = (thinkingEnabled: boolean, isDedicated: boolean) =>
             index: 0,
             message: {
               role: "assistant",
-              content: data.text,
+              content: "",
             },
             finish_reason: "stop",
           },
@@ -66,38 +105,14 @@ const customFetch = (thinkingEnabled: boolean, isDedicated: boolean) =>
     { preconnect: fetch.preconnect }
   );
 
-interface RenderData {
-  model: string;
-  modelType: ModelType;
-  instructions: string;
-  tools: ToolSet;
-  messages: ModelMessage[];
-  thinkingEnabled: boolean;
-  toolFallbackEnabled: boolean;
-}
-
-async function renderChatPrompt({
-  model,
-  modelType,
-  instructions,
-  tools,
-  messages,
-  thinkingEnabled,
-  toolFallbackEnabled,
-}: RenderData): Promise<string> {
-  const isDedicated = modelType === "dedicated";
-  const baseURL = isDedicated
-    ? "https://api.friendli.ai/dedicated/v1"
-    : "https://api.friendli.ai/serverless/v1";
-
   const friendli = createOpenAICompatible({
     name: "friendli",
     apiKey: env.FRIENDLI_TOKEN,
     baseURL,
-    fetch: customFetch(thinkingEnabled, isDedicated),
+    fetch: customFetch,
   });
 
-  const result = await generateText({
+  await generateText({
     model: wrapLanguageModel({
       model: friendli(model),
       middleware: buildMiddlewares({
@@ -109,7 +124,7 @@ async function renderChatPrompt({
     messages,
   });
 
-  return result.text;
+  return capturedText;
 }
 
 const RENDER_TIMEOUT_MS = 5000;
@@ -123,12 +138,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-export const createRenderCommand = (getData: () => RenderData): Command => ({
+export const createRenderCommand = (
+  getData: () => RenderData | Promise<RenderData>
+): Command => ({
   name: "render",
   description: "Render conversation as raw prompt text",
   execute: async (): Promise<CommandResult> => {
     const spinner = new Spinner("Rendering prompt...");
-    const data = getData();
+    const data = await getData();
 
     if (data.messages.length === 0) {
       return { success: false, message: "No messages to render." };
@@ -138,7 +155,10 @@ export const createRenderCommand = (getData: () => RenderData): Command => ({
       spinner.start();
       const text = await withTimeout(renderChatPrompt(data), RENDER_TIMEOUT_MS);
       spinner.stop();
-      return { success: true, message: text || "(empty render result)" };
+      const styledText = text
+        ? `${colors.dim}${text}${colors.reset}`
+        : "(empty render result)";
+      return { success: true, message: styledText };
     } catch (error) {
       spinner.stop();
       const errorMessage =

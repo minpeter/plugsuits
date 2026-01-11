@@ -1,0 +1,56 @@
+# Planning Tools
+
+## todo_write
+
+Create and manage structured task lists for complex coding sessions.
+
+**When to use:**
+- Tasks with 3+ distinct steps
+- User provides multiple requirements
+- Need to demonstrate systematic approach
+- Complex refactoring or feature implementation
+
+**Parameters:**
+- todos: Array of todo items with:
+  - id: Unique identifier (string)
+  - content: Task description (string)
+  - status: "pending" | "in_progress" | "completed" | "cancelled"
+  - priority: "high" | "medium" | "low"
+  - description: Optional detailed description
+
+**Example:**
+```
+todo_write({
+  todos: [
+    { id: "1", content: "Setup project structure", status: "pending", priority: "high" },
+    { id: "2", content: "Implement core feature", status: "pending", priority: "high" },
+    { id: "3", content: "Write tests", status: "pending", priority: "medium" }
+  ]
+})
+```
+
+**Task Status Workflow:**
+1. Create todos with status="pending"
+2. Mark as "in_progress" before starting work
+3. **EXECUTE THE TASK IMMEDIATELY** - use shell_execute, write_file, etc.
+4. Mark as "completed" when done
+5. **AUTOMATICALLY continue to next task** - do NOT wait for user
+
+**CRITICAL EXECUTION RULES:**
+- DO NOT just tell the user what commands to run
+- ACTUALLY EXECUTE the commands using shell_execute tool
+- DO NOT stop after each task - continue automatically to the next
+- If a task requires shell commands, USE shell_execute immediately
+- The user will approve tools when needed, but YOU must call them
+
+**Example Flow:**
+```
+1. todo_write (mark task 1 as in_progress)
+2. shell_execute (run the actual command)
+3. todo_write (mark task 1 as completed, task 2 as in_progress)
+4. shell_execute (run next command)
+... continue until all tasks completed
+```
+
+**Auto-continuation:**
+If conversation ends with incomplete todos, they will automatically continue in the next message. You don't need to manually check the todo list - the system will automatically remind you of incomplete tasks.

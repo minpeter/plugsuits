@@ -46,6 +46,11 @@ export async function executeCommand(
   };
 }
 
+export interface ToolOutput {
+  exit_code: number;
+  output: string;
+}
+
 export const shellExecuteTool = tool({
   description:
     "Execute shell commands (git, npm, build, tests). " +
@@ -66,7 +71,14 @@ export const shellExecuteTool = tool({
 
   needsApproval: true,
 
-  execute: async ({ command, workdir, timeout_ms }): Promise<CommandResult> => {
-    return await executeCommand(command, { workdir, timeoutMs: timeout_ms });
+  execute: async ({ command, workdir, timeout_ms }): Promise<ToolOutput> => {
+    const result = await executeCommand(command, {
+      workdir,
+      timeoutMs: timeout_ms,
+    });
+    return {
+      exit_code: result.exitCode,
+      output: result.output,
+    };
   },
 });

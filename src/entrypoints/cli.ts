@@ -10,6 +10,7 @@ import { createRenderCommand } from "../commands/render";
 import { createThinkCommand } from "../commands/think";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { MessageHistory } from "../context/message-history";
+import { initializeSession } from "../context/session";
 import { env } from "../env";
 import { colorize } from "../interaction/colors";
 import { renderFullStream } from "../interaction/stream-renderer";
@@ -29,10 +30,10 @@ process.on("exit", () => {
 });
 
 registerCommand(
-  createRenderCommand(() => ({
+  createRenderCommand(async () => ({
     model: agentManager.getModelId(),
     modelType: agentManager.getModelType(),
-    instructions: agentManager.getInstructions(),
+    instructions: await agentManager.getInstructions(),
     tools: agentManager.getTools(),
     messages: messageHistory.toModelMessages(),
     thinkingEnabled: agentManager.isThinkingEnabled(),
@@ -116,6 +117,9 @@ const handleAgentResponse = async (rl: Interface): Promise<void> => {
 };
 
 const run = async (): Promise<void> => {
+  const sessionId = initializeSession();
+  console.log(colorize("dim", `Session: ${sessionId}\n`));
+
   const { thinking, toolFallback } = parseCliArgs();
   agentManager.setThinkingEnabled(thinking);
   agentManager.setToolFallbackEnabled(toolFallback);

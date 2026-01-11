@@ -4,8 +4,17 @@ export const colors = {
   green: "\u001b[92m",
   cyan: "\u001b[96m",
   red: "\u001b[91m",
+  magenta: "\u001b[95m",
+  white: "\u001b[97m",
+  brightBlue: "\u001b[94m",
+  brightGreen: "\u001b[92m",
+  brightYellow: "\u001b[93m",
+  brightCyan: "\u001b[96m",
+  brightMagenta: "\u001b[95m",
   dim: "\u001b[2m",
+  bold: "\u001b[1m",
   italic: "\u001b[3m",
+  underline: "\u001b[4m",
   gray: "\u001b[90m",
   reset: "\u001b[0m",
 } as const;
@@ -15,11 +24,13 @@ export function colorize(color: keyof typeof colors, text: string): string {
 }
 
 export function printYou(): void {
-  process.stdout.write(`${colorize("blue", "You")}: `);
+  process.stdout.write(
+    `${colors.bold}${colors.brightBlue}You${colors.reset}: `
+  );
 }
 
 export function printAIPrefix(): void {
-  process.stdout.write(`${colorize("yellow", "AI")}: `);
+  process.stdout.write(`${colors.bold}${colors.brightCyan}AI${colors.reset}: `);
 }
 
 export function printReasoningPrefix(): void {
@@ -43,11 +54,12 @@ export function printNewline(): void {
 }
 
 export function printTool(name: string, input: unknown): void {
-  console.log(
-    `${colorize("green", "tool")}: ${name}(${JSON.stringify(input)})`
-  );
+  const toolLabel = `${colors.bold}${colors.brightGreen}tool${colors.reset}`;
+  const toolName = `${colors.bold}${colors.brightYellow}${name}${colors.reset}`;
+  console.log(`${toolLabel} ${toolName}(${JSON.stringify(input)})`);
 }
 
 export function printError(message: string): void {
-  console.error(`${colorize("red", "error")}: ${message}`);
+  const errorLabel = `${colors.bold}${colors.red}error${colors.reset}`;
+  console.error(`${errorLabel}: ${message}`);
 }

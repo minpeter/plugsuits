@@ -62,15 +62,21 @@ const applyColor = (
 };
 
 const renderLabel = (ctx: RenderContext, label: string): string => {
-  return applyColor(ctx, "cyan", label);
+  return applyColor(ctx, "magenta", label);
 };
 
 const renderToolLabel = (ctx: RenderContext): string => {
-  return applyColor(ctx, "green", "tool");
+  if (!ctx.useColor) {
+    return "tool";
+  }
+  return `${colors.bold}${colors.brightGreen}tool${colors.reset}`;
 };
 
 const renderErrorLabel = (ctx: RenderContext): string => {
-  return applyColor(ctx, "red", "error");
+  if (!ctx.useColor) {
+    return "error";
+  }
+  return `${colors.bold}${colors.red}error${colors.reset}`;
 };
 
 const renderReasoningPrefix = (ctx: RenderContext): string => {
@@ -88,7 +94,10 @@ const renderReasoningEnd = (ctx: RenderContext): string => {
 const handleTextStart = (ctx: RenderContext, mode: StreamMode): StreamMode => {
   if (mode !== "text") {
     writeLine(ctx);
-    write(ctx, `${applyColor(ctx, "yellow", "AI")}: `);
+    const aiLabel = ctx.useColor
+      ? `${colors.bold}${colors.brightCyan}AI${colors.reset}`
+      : "AI";
+    write(ctx, `${aiLabel}: `);
   }
   return "text";
 };
@@ -100,7 +109,10 @@ const handleTextDelta = (
 ): StreamMode => {
   if (mode !== "text") {
     writeLine(ctx);
-    write(ctx, `${applyColor(ctx, "yellow", "AI")}: `);
+    const aiLabel = ctx.useColor
+      ? `${colors.bold}${colors.brightCyan}AI${colors.reset}`
+      : "AI";
+    write(ctx, `${aiLabel}: `);
   }
   write(ctx, part.text);
   return "text";
@@ -170,11 +182,17 @@ const handleToolCall = (
   part: Extract<StreamPart, { type: "tool-call" }>
 ): StreamMode => {
   writeLine(ctx);
-  writeLine(
-    ctx,
-    `${renderToolLabel(ctx)} ${part.toolName} (${part.toolCallId})`
-  );
-  writeLine(ctx, formatBlock(part.input));
+  const toolName = ctx.useColor
+    ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
+    : part.toolName;
+  const callId = ctx.useColor
+    ? `${colors.dim}${colors.gray}(${part.toolCallId})${colors.reset}`
+    : `(${part.toolCallId})`;
+  writeLine(ctx, `${renderToolLabel(ctx)} ${toolName} ${callId}`);
+  const inputLabel = ctx.useColor
+    ? `${colors.cyan}input:${colors.reset}`
+    : "input:";
+  writeLine(ctx, `${inputLabel} ${formatBlock(part.input)}`);
   return "none";
 };
 
@@ -183,11 +201,20 @@ const handleToolResult = (
   part: Extract<StreamPart, { type: "tool-result" }>
 ): StreamMode => {
   writeLine(ctx);
-  writeLine(
-    ctx,
-    `${renderToolLabel(ctx)} ${part.toolName} (${part.toolCallId})`
-  );
-  writeLine(ctx, formatBlock(part.output));
+  const toolName = ctx.useColor
+    ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
+    : part.toolName;
+  const callId = ctx.useColor
+    ? `${colors.dim}${colors.gray}(${part.toolCallId})${colors.reset}`
+    : `(${part.toolCallId})`;
+  const resultLabel = ctx.useColor
+    ? `${colors.green}result${colors.reset}`
+    : "result";
+  writeLine(ctx, `${resultLabel} ${toolName} ${callId}`);
+  const outputLabel = ctx.useColor
+    ? `${colors.cyan}output:${colors.reset}`
+    : "output:";
+  writeLine(ctx, `${outputLabel} ${formatBlock(part.output)}`);
   return "none";
 };
 
@@ -196,11 +223,17 @@ const handleToolError = (
   part: Extract<StreamPart, { type: "tool-error" }>
 ): StreamMode => {
   writeLine(ctx);
-  writeLine(
-    ctx,
-    `${renderErrorLabel(ctx)} ${part.toolName} (${part.toolCallId})`
-  );
-  writeLine(ctx, formatBlock(part.error));
+  const toolName = ctx.useColor
+    ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
+    : part.toolName;
+  const callId = ctx.useColor
+    ? `${colors.dim}${colors.gray}(${part.toolCallId})${colors.reset}`
+    : `(${part.toolCallId})`;
+  writeLine(ctx, `${renderErrorLabel(ctx)} ${toolName} ${callId}`);
+  const errorLabel = ctx.useColor
+    ? `${colors.red}message:${colors.reset}`
+    : "message:";
+  writeLine(ctx, `${errorLabel} ${formatBlock(part.error)}`);
   return "none";
 };
 
@@ -209,10 +242,16 @@ const handleToolOutputDenied = (
   part: Extract<StreamPart, { type: "tool-output-denied" }>
 ): StreamMode => {
   writeLine(ctx);
-  writeLine(
-    ctx,
-    `${renderToolLabel(ctx)} output denied ${part.toolName} (${part.toolCallId})`
-  );
+  const toolName = ctx.useColor
+    ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
+    : part.toolName;
+  const callId = ctx.useColor
+    ? `${colors.dim}${colors.gray}(${part.toolCallId})${colors.reset}`
+    : `(${part.toolCallId})`;
+  const deniedLabel = ctx.useColor
+    ? `${colors.bold}${colors.red}output denied${colors.reset}`
+    : "output denied";
+  writeLine(ctx, `${deniedLabel} ${toolName} ${callId}`);
   return "none";
 };
 
