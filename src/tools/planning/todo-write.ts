@@ -7,10 +7,7 @@ import { getSessionId } from "../../context/session";
 
 const todoItemSchema = z.object({
   id: z.string().describe("Unique identifier for the todo item"),
-  content: z
-    .string()
-    .min(1, "Todo content must not be empty")
-    .describe("Brief description of the task"),
+  content: z.string().describe("Brief description of the task"),
   status: z
     .enum(["pending", "in_progress", "completed", "cancelled"])
     .describe("Current status of the task"),
@@ -83,6 +80,13 @@ function generateMarkdown(todos: TodoItem[]): string {
 export async function executeTodoWrite({
   todos,
 }: TodoWriteInput): Promise<string> {
+  // Validate content is not empty (runtime check to avoid minLength in JSON schema)
+  for (const todo of todos) {
+    if (!todo.content || todo.content.trim() === "") {
+      throw new Error(`Todo item with id "${todo.id}" has empty content`);
+    }
+  }
+
   const sessionId = getSessionId();
   const cwd = process.cwd();
   const todoDir = join(cwd, TODO_DIR);
