@@ -231,6 +231,24 @@ const collectMultilineInput = (
   rl: ReadlineInterface,
   prompt: string
 ): Promise<string | null> => {
+  // Non-TTY fallback: read input using readline events for piped input
+  if (!process.stdin.isTTY) {
+    return new Promise((resolve) => {
+      process.stdout.write(prompt);
+      let allInput = "";
+      const onLine = (line: string) => {
+        allInput += `${line}\n`;
+      };
+      const onClose = () => {
+        rl.removeListener("line", onLine);
+        rl.removeListener("close", onClose);
+        resolve(allInput.length > 0 ? allInput.trim() : null);
+      };
+      rl.on("line", onLine);
+      rl.on("close", onClose);
+    });
+  }
+
   return new Promise((resolve) => {
     const state: InputState = {
       buffer: "",
@@ -239,10 +257,9 @@ const collectMultilineInput = (
     };
 
     // Store and remove existing stdin listeners to prevent double processing
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingListeners = process.stdin.listeners("data") as Array<
-      (...args: unknown[]) => void
-    >;
+    const existingListeners = process.stdin.listeners("data") as ((
+      chunk: Buffer
+    ) => void)[];
     for (const listener of existingListeners) {
       process.stdin.removeListener("data", listener);
     }
@@ -253,14 +270,14 @@ const collectMultilineInput = (
     const enableRawMode = () => {
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(true);
+        process.stdout.write(ENABLE_BRACKETED_PASTE);
       }
       process.stdin.resume();
-      process.stdout.write(ENABLE_BRACKETED_PASTE);
     };
 
     const disableRawMode = () => {
-      process.stdout.write(DISABLE_BRACKETED_PASTE);
       if (process.stdin.isTTY) {
+        process.stdout.write(DISABLE_BRACKETED_PASTE);
         process.stdin.setRawMode(false);
       }
     };
