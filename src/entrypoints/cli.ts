@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import type { Interface } from "node:readline/promises";
-import { createInterface } from "node:readline/promises";
+import type { Interface as ReadlineInterface } from "node:readline";
+import { createInterface } from "node:readline";
 import { agentManager } from "../agent";
 import { executeCommand, isCommand, registerCommand } from "../commands";
 import { createClearCommand } from "../commands/clear";
@@ -17,9 +17,19 @@ import { renderFullStream } from "../interaction/stream-renderer";
 import { askBatchApproval } from "../interaction/tool-approval";
 import { cleanupSession } from "../tools/execute/shared-tmux-session";
 
+// Bracketed paste mode escape sequences
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+// Enable/disable bracketed paste mode
+const ENABLE_BRACKETED_PASTE = "\x1b[?2004h";
+const DISABLE_BRACKETED_PASTE = "\x1b[?2004l";
+// Regex patterns for line ending normalization
+const LINE_ENDING_REGEX = /\r\n|\r|\n/g;
+const LAST_LINE_REGEX = /[^\r\n]*$/;
+
 const messageHistory = new MessageHistory();
 
-let rlInstance: Interface | null = null;
+let rlInstance: ReadlineInterface | null = null;
 let shouldExit = false;
 
 process.on("exit", () => {
@@ -45,7 +55,7 @@ registerCommand(createClearCommand(messageHistory));
 registerCommand(createThinkCommand());
 registerCommand(createToolFallbackCommand());
 
-const processAgentResponse = async (rl: Interface): Promise<void> => {
+const processAgentResponse = async (rl: ReadlineInterface): Promise<void> => {
   const stream = await agentManager.stream(messageHistory.toModelMessages());
   const { approvalRequests } = await renderFullStream(stream.fullStream, {
     showSteps: false,
@@ -106,7 +116,7 @@ const handleCommandExecution = async (command: string): Promise<void> => {
   }
 };
 
-const handleAgentResponse = async (rl: Interface): Promise<void> => {
+const handleAgentResponse = async (rl: ReadlineInterface): Promise<void> => {
   try {
     await processAgentResponse(rl);
   } catch (error) {
@@ -114,6 +124,216 @@ const handleAgentResponse = async (rl: Interface): Promise<void> => {
     console.error(`\nError: ${errorMessage}`);
     console.error("Returning to prompt...\n");
   }
+};
+
+// Control character codes
+const CTRL_C = 3;
+const CTRL_D = 4;
+const TAB = 9;
+const LF = 10;
+const CR = 13;
+const BACKSPACE_1 = 8;
+const BACKSPACE_2 = 127;
+
+interface InputState {
+  buffer: string;
+  isPasting: boolean;
+  rawBuffer: string;
+}
+
+type InputAction = "submit" | "cancel" | "continue";
+
+const isBackspace = (code: number): boolean =>
+  code === BACKSPACE_1 || code === BACKSPACE_2;
+
+const isEnter = (code: number): boolean => code === CR || code === LF;
+
+const isAllowedControlChar = (code: number): boolean => code === TAB;
+
+const handleBackspace = (state: InputState): void => {
+  if (state.buffer.length > 0) {
+    const chars = [...state.buffer];
+    chars.pop();
+    state.buffer = chars.join("");
+    process.stdout.write("\b \b");
+  }
+};
+
+const processCharacter = (
+  char: string,
+  state: InputState
+): InputAction | null => {
+  const code = char.charCodeAt(0);
+
+  if (code === CTRL_C) {
+    return "cancel";
+  }
+  if (code === CTRL_D) {
+    return state.buffer.length === 0 ? "cancel" : "submit";
+  }
+  if (isEnter(code)) {
+    return "submit";
+  }
+
+  if (isBackspace(code)) {
+    handleBackspace(state);
+    return null;
+  }
+
+  // Ignore non-allowed control characters
+  if (code < 32 && !isAllowedControlChar(code)) {
+    return null;
+  }
+
+  // Regular character
+  state.buffer += char;
+  process.stdout.write(char);
+  return null;
+};
+
+const processPasteSequences = (state: InputState): boolean => {
+  const pasteStartIdx = state.rawBuffer.indexOf(PASTE_START);
+  if (pasteStartIdx !== -1) {
+    state.isPasting = true;
+    state.rawBuffer = state.rawBuffer.slice(pasteStartIdx + PASTE_START.length);
+  }
+
+  const pasteEndIdx = state.rawBuffer.indexOf(PASTE_END);
+  if (pasteEndIdx !== -1) {
+    const pastedContent = state.rawBuffer.slice(0, pasteEndIdx);
+    state.buffer += pastedContent;
+
+    // Normalize all line endings to \r\n for raw mode display
+    const displayContent = pastedContent.replace(LINE_ENDING_REGEX, "\r\n");
+    process.stdout.write(displayContent);
+
+    // Ensure cursor is at end of last line by rewriting it
+    const lastLineMatch = pastedContent.match(LAST_LINE_REGEX);
+    if (lastLineMatch && lastLineMatch[0].length > 0) {
+      process.stdout.write(`\r${lastLineMatch[0]}`);
+    }
+
+    state.rawBuffer = state.rawBuffer.slice(pasteEndIdx + PASTE_END.length);
+    state.isPasting = false;
+    return true; // Paste completed
+  }
+
+  return false;
+};
+
+/**
+ * Collects user input with support for multi-line pastes using bracketed paste mode.
+ * - When text is pasted, newlines within the paste are preserved in the buffer
+ * - Input is only submitted when Enter is pressed outside of a paste operation
+ * - Supports basic line editing (backspace, Ctrl+C, Ctrl+D)
+ */
+const collectMultilineInput = (
+  rl: ReadlineInterface,
+  prompt: string
+): Promise<string | null> => {
+  // Non-TTY fallback: read input using readline events for piped input
+  if (!process.stdin.isTTY) {
+    return new Promise((resolve) => {
+      process.stdout.write(prompt);
+      let allInput = "";
+      const onLine = (line: string) => {
+        allInput += `${line}\n`;
+      };
+      const onClose = () => {
+        rl.removeListener("line", onLine);
+        rl.removeListener("close", onClose);
+        resolve(allInput.length > 0 ? allInput.trim() : null);
+      };
+      rl.on("line", onLine);
+      rl.on("close", onClose);
+    });
+  }
+
+  return new Promise((resolve) => {
+    const state: InputState = {
+      buffer: "",
+      isPasting: false,
+      rawBuffer: "",
+    };
+
+    // Store and remove existing stdin listeners to prevent double processing
+    const existingListeners = process.stdin.listeners("data") as ((
+      chunk: Buffer
+    ) => void)[];
+    for (const listener of existingListeners) {
+      process.stdin.removeListener("data", listener);
+    }
+
+    // Pause readline
+    rl.pause();
+
+    const enableRawMode = () => {
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        process.stdout.write(ENABLE_BRACKETED_PASTE);
+      }
+      process.stdin.resume();
+    };
+
+    const disableRawMode = () => {
+      if (process.stdin.isTTY) {
+        process.stdout.write(DISABLE_BRACKETED_PASTE);
+        process.stdin.setRawMode(false);
+      }
+    };
+
+    const cleanup = () => {
+      process.stdin.removeListener("data", onData);
+      disableRawMode();
+      // Restore previous stdin listeners
+      for (const listener of existingListeners) {
+        process.stdin.on("data", listener);
+      }
+    };
+
+    const finalize = (result: string | null) => {
+      cleanup();
+      rl.resume(); // Resume readline for tool approval prompts
+      process.stdout.write("\n");
+      resolve(result);
+    };
+
+    const onData = (data: Buffer) => {
+      state.rawBuffer += data.toString();
+
+      // Process all content in rawBuffer
+      while (state.rawBuffer.length > 0) {
+        // Check for paste sequences first
+        const pasteHandled = processPasteSequences(state);
+
+        if (state.isPasting) {
+          return; // Wait for paste end sequence
+        }
+
+        if (pasteHandled) {
+          continue; // Paste was handled, continue processing remaining buffer
+        }
+
+        // No paste sequence, process one character at a time
+        const char = state.rawBuffer[0];
+        state.rawBuffer = state.rawBuffer.slice(1);
+
+        const action = processCharacter(char, state);
+        if (action === "submit") {
+          finalize(state.buffer);
+          return;
+        }
+        if (action === "cancel") {
+          finalize(null);
+          return;
+        }
+      }
+    };
+
+    enableRawMode();
+    process.stdout.write(prompt);
+    process.stdin.on("data", onData);
+  });
 };
 
 const run = async (): Promise<void> => {
@@ -134,9 +354,15 @@ const run = async (): Promise<void> => {
 
   try {
     while (!shouldExit) {
-      const input = await rl
-        .question(`${colorize("blue", "You")}: `)
-        .catch(() => "");
+      const input = await collectMultilineInput(
+        rl,
+        `${colorize("blue", "You")}: `
+      );
+
+      if (input === null) {
+        break;
+      }
+
       const trimmed = input.trim();
 
       if (shouldExitFromInput(trimmed)) {

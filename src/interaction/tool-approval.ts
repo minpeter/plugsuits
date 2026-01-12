@@ -1,4 +1,4 @@
-import type { Interface } from "node:readline/promises";
+import type { Interface as ReadlineInterface } from "node:readline";
 import type { ToolApprovalResponse } from "ai";
 import { colorize } from "./colors";
 import type { ToolApprovalRequestPart } from "./stream-renderer";
@@ -8,6 +8,29 @@ const TOOL_DENIAL_GUIDANCE =
 
 const createDenialReason = (toolNames: string): string =>
   `User denied the following tools: ${toolNames}. ${TOOL_DENIAL_GUIDANCE}`;
+
+/**
+ * Promisified question for basic readline interface.
+ * Only reads the first line (no multiline buffering needed for y/n prompts).
+ */
+const question = (rl: ReadlineInterface, prompt: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const onLine = (line: string) => {
+      rl.removeListener("line", onLine);
+      rl.removeListener("close", onClose);
+      resolve(line);
+    };
+
+    const onClose = () => {
+      rl.removeListener("line", onLine);
+      resolve("");
+    };
+
+    rl.once("line", onLine);
+    rl.once("close", onClose);
+    process.stdout.write(prompt);
+  });
+};
 
 const formatToolInput = (input: unknown): string => {
   try {
@@ -61,20 +84,18 @@ const renderApprovalBox = (requests: ToolApprovalRequestPart[]): void => {
 };
 
 const askSingleApproval = async (
-  rl: Interface,
+  rl: ReadlineInterface,
   request: ToolApprovalRequestPart,
   index: number,
   total: number
 ): Promise<ToolApprovalResponse> => {
   const { approvalId, toolCall } = request;
-  console.log(
-    colorize(
-      "yellow",
-      `\n[${index + 1}/${total}] Approve "${toolCall.toolName}"? (y/N): `
-    )
+  const prompt = colorize(
+    "yellow",
+    `\n[${index + 1}/${total}] Approve "${toolCall.toolName}"? (y/N): `
   );
 
-  const answer = await rl.question("");
+  const answer = await question(rl, prompt);
   const approved = answer.toLowerCase() === "y";
 
   return {
@@ -88,7 +109,7 @@ const askSingleApproval = async (
 };
 
 export const askBatchApproval = async (
-  rl: Interface,
+  rl: ReadlineInterface,
   requests: ToolApprovalRequestPart[]
 ): Promise<ToolApprovalResponse[]> => {
   renderApprovalBox(requests);
@@ -98,7 +119,7 @@ export const askBatchApproval = async (
       ? colorize("yellow", "\nChoice [a/y/n]: ")
       : colorize("yellow", "\nChoice [y/n]: ");
 
-  const answer = (await rl.question(prompt)).toLowerCase().trim();
+  const answer = (await question(rl, prompt)).toLowerCase().trim();
 
   if (requests.length > 1 && answer === "a") {
     return requests.map((req) => ({
