@@ -25,7 +25,7 @@
     },
   },
   "packages": {
-    "@ai-sdk-tool/parser": ["@ai-sdk-tool/parser@3.3.0", "", { "dependencies": { "@ai-sdk/provider": "3.0.4", "@ai-sdk/provider-utils": "4.0.8", "dedent": "^1.7.1", "yaml": "^2.8.2" } }, "sha512-VXahw4cEJ0W5X4+cUlw/OOT4vQ0rYTqdHIAsBity2elO0TaHinzEZY+Dy+IGr6dF/SfFMZe1NBy32HulC63/yQ=="],
+    "@ai-sdk-tool/parser": ["@ai-sdk-tool/parser@3.3.1", "", { "dependencies": { "@ai-sdk/provider": "3.0.4", "@ai-sdk/provider-utils": "4.0.8", "dedent": "^1.7.1", "yaml": "^2.8.2" } }, "sha512-PxbyiXZypfnEnd+m0bFFhiQK9seqSezNJuiIhBBJpuiuZQ3ZE0EBgwLx1P4ul/uPnLRJJP5T5JLp05I59MAXdA=="],
 
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.16", "", { "dependencies": { "@ai-sdk/provider": "3.0.4", "@ai-sdk/provider-utils": "4.0.8", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-OOY5CfRJiHvh/8np2vs1RQaCZ5hWv2qOeEmmeiABXK3gLQHUVnCO+1hhoLsZdHM5iElu6M407dAOfyvTsKJqcQ=="],
 

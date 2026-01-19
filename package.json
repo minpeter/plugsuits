@@ -31,7 +31,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@ai-sdk-tool/parser": "^3.3.0",
+    "@ai-sdk-tool/parser": "^3.3.1",
     "@ai-sdk/openai-compatible": "^2.0.13",
     "@friendliai/ai-provider": "^1.0.4",
     "@t3-oss/env-core": "^0.13.10",
