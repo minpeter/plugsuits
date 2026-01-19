@@ -1131,6 +1131,9 @@ const collectMultilineInput = (
     const finalize = (result: string | null) => {
       cleanup();
       rl.resume(); // Resume readline for tool approval prompts
+      // Clear inline suggestion and suggestion list, but keep the actual input
+      // ANSI_CLEAR_TO_END clears from cursor to end of screen (removes inline hint + suggestion list)
+      process.stdout.write(ANSI_CLEAR_TO_END);
       process.stdout.write("\n");
       resolve(result);
     };
