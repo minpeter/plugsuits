@@ -11,8 +11,6 @@ import {
   isSkillCommandResult,
   registerCommand,
 } from "../commands";
-import type { SkillInfo } from "../context/skills";
-import { loadAllSkills } from "../context/skills";
 import { createClearCommand } from "../commands/clear";
 import { createModelCommand } from "../commands/model";
 import { createRenderCommand } from "../commands/render";
@@ -20,6 +18,8 @@ import { createThinkCommand } from "../commands/think";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { MessageHistory } from "../context/message-history";
 import { initializeSession } from "../context/session";
+import type { SkillInfo } from "../context/skills";
+import { loadAllSkills } from "../context/skills";
 import { env } from "../env";
 import { colorize } from "../interaction/colors";
 import { StdinBuffer } from "../interaction/stdin-buffer";
@@ -40,6 +40,14 @@ const ENABLE_BRACKETED_PASTE = "\x1b[?2004h";
 const DISABLE_BRACKETED_PASTE = "\x1b[?2004l";
 // Regex patterns for line ending normalization
 const LINE_ENDING_REGEX = /\r\n|\r|\n/g;
+
+// ANSI escape codes for styling
+const ANSI_DIM = "\x1b[90m";
+const ANSI_CYAN = "\x1b[36m";
+const ANSI_RESET = "\x1b[0m";
+const ANSI_CURSOR_UP = (n: number) => `\x1b[${n}A`;
+const ANSI_CURSOR_FORWARD = (n: number) => `\x1b[${n}C`;
+const ANSI_CLEAR_TO_END = "\x1b[J";
 
 const messageHistory = new MessageHistory();
 
@@ -88,20 +96,29 @@ const processAgentResponse = async (rl: ReadlineInterface): Promise<void> => {
   }
 };
 
-const parseCliArgs = (): { thinking: boolean; toolFallback: boolean } => {
+const parseCliArgs = (): {
+  thinking: boolean;
+  toolFallback: boolean;
+  model: string | null;
+} => {
   const args = process.argv.slice(2);
   let thinking = false;
   let toolFallback = false;
+  let model: string | null = null;
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === "--think") {
       thinking = true;
     } else if (arg === "--tool-fallback") {
       toolFallback = true;
+    } else if (arg === "--model" && i + 1 < args.length) {
+      model = args[i + 1];
+      i++;
     }
   }
 
-  return { thinking, toolFallback };
+  return { thinking, toolFallback, model };
 };
 
 const handleGracefulShutdown = () => {
@@ -412,6 +429,147 @@ const calculateDisplayMetrics = (
 };
 
 const MAX_VISIBLE_SUGGESTIONS = 8;
+const MIN_DESCRIPTION_LENGTH = 20;
+const SUGGESTION_PADDING = 10;
+
+/**
+ * Create a suggestion object for a command argument.
+ */
+const createArgumentSuggestion = (
+  commandName: string,
+  arg: string
+): Suggestion => ({
+  value: `/${commandName} ${arg}`,
+  description: `Argument: ${arg}`,
+});
+
+/**
+ * Determine if the suggestion list should be displayed.
+ */
+const shouldDisplaySuggestionList = (
+  state: InputState,
+  cursorAtEnd: boolean
+): boolean => {
+  if (state.suggestions.length === 0) {
+    return false;
+  }
+  if (!cursorAtEnd) {
+    return false;
+  }
+  if (state.buffer.length === 0) {
+    return false;
+  }
+  // Hide list when the only suggestion exactly matches the buffer
+  const isFullyTyped =
+    state.suggestions.length === 1 &&
+    state.suggestions[0].value === state.buffer;
+  return !isFullyTyped;
+};
+
+/**
+ * Calculate the maximum description length based on terminal width.
+ * Returns a safe minimum even for very small terminals.
+ */
+const calculateMaxDescriptionLength = (
+  columns: number,
+  valueLength: number
+): number => {
+  const available = columns - valueLength - SUGGESTION_PADDING;
+  return Math.max(MIN_DESCRIPTION_LENGTH, available);
+};
+
+/**
+ * Truncate description to fit within the given max length.
+ */
+const truncateDescription = (description: string, maxLen: number): string => {
+  if (description.length <= maxLen) {
+    return description;
+  }
+  return `${description.slice(0, maxLen - 3)}...`;
+};
+
+/**
+ * Calculate the scroll window for suggestion list display.
+ */
+const calculateScrollWindow = (
+  total: number,
+  selectedIndex: number,
+  maxVisible: number
+): { startIndex: number; endIndex: number } => {
+  let startIndex = 0;
+  if (total > maxVisible) {
+    const scrollPadding = Math.floor(maxVisible / 2);
+    startIndex = Math.max(0, selectedIndex - scrollPadding);
+    startIndex = Math.min(startIndex, total - maxVisible);
+  }
+  return { startIndex, endIndex: startIndex + maxVisible };
+};
+
+/**
+ * Render a single suggestion item.
+ */
+const renderSuggestionItem = (
+  suggestion: Suggestion,
+  isSelected: boolean,
+  columns: number
+): void => {
+  const prefix = isSelected ? `${ANSI_CYAN}› ` : "  ";
+  const reset = isSelected ? ANSI_RESET : "";
+  const maxDescLen = calculateMaxDescriptionLength(
+    columns,
+    suggestion.value.length
+  );
+  const desc = truncateDescription(suggestion.description, maxDescLen);
+  process.stdout.write(
+    `${prefix}${suggestion.value}${ANSI_DIM} - ${desc}${ANSI_RESET}${reset}\n`
+  );
+};
+
+/**
+ * Render the suggestion list below the input.
+ * Returns the number of rows rendered.
+ */
+const renderSuggestionList = (state: InputState, columns: number): number => {
+  const total = state.suggestions.length;
+  const maxVisible = Math.min(MAX_VISIBLE_SUGGESTIONS, total);
+  const { startIndex, endIndex } = calculateScrollWindow(
+    total,
+    state.suggestionIndex,
+    maxVisible
+  );
+
+  process.stdout.write("\n");
+  let rows = 1;
+
+  // Show scroll indicator at top if not at beginning
+  if (startIndex > 0) {
+    process.stdout.write(
+      `${ANSI_DIM}  ↑ ${startIndex} more above${ANSI_RESET}\n`
+    );
+    rows++;
+  }
+
+  // Render visible suggestions
+  for (let i = startIndex; i < endIndex; i++) {
+    renderSuggestionItem(
+      state.suggestions[i],
+      i === state.suggestionIndex,
+      columns
+    );
+    rows++;
+  }
+
+  // Show scroll indicator at bottom if not at end
+  if (endIndex < total) {
+    const remaining = total - endIndex;
+    process.stdout.write(
+      `${ANSI_DIM}  ↓ ${remaining} more below${ANSI_RESET}\n`
+    );
+    rows++;
+  }
+
+  return rows;
+};
 
 const renderInput = (
   state: InputState,
@@ -446,10 +604,10 @@ const renderInput = (
   if (state.renderedRows > 0) {
     const rowsUp = state.renderedRows - 1;
     if (rowsUp > 0) {
-      process.stdout.write(`\x1b[${rowsUp}A`);
+      process.stdout.write(ANSI_CURSOR_UP(rowsUp));
     }
     process.stdout.write("\r");
-    process.stdout.write("\x1b[J");
+    process.stdout.write(ANSI_CLEAR_TO_END);
   }
 
   // Write prompt and buffer
@@ -458,81 +616,26 @@ const renderInput = (
 
   // Write inline suggestion in gray
   if (suggestionText.length > 0) {
-    process.stdout.write(`\x1b[90m${suggestionText}\x1b[0m`);
+    process.stdout.write(`${ANSI_DIM}${suggestionText}${ANSI_RESET}`);
   }
 
   // Render suggestion list below input
-  // Show when: has suggestions, cursor at end, buffer not empty, and not fully typed
-  let suggestionRows = 0;
-  const isFullyTyped =
-    state.suggestions.length === 1 &&
-    state.suggestions[0].value === state.buffer;
-  const shouldShowList =
-    state.suggestions.length > 0 &&
-    cursorAtEnd &&
-    state.buffer.length > 0 &&
-    !isFullyTyped;
-
-  if (shouldShowList) {
-    const total = state.suggestions.length;
-    const maxVisible = Math.min(MAX_VISIBLE_SUGGESTIONS, total);
-
-    // Calculate scroll window to keep selected item visible
-    let startIndex = 0;
-    if (total > maxVisible) {
-      // Keep selected item in view with some context
-      const scrollPadding = Math.floor(maxVisible / 2);
-      startIndex = Math.max(0, state.suggestionIndex - scrollPadding);
-      startIndex = Math.min(startIndex, total - maxVisible);
-    }
-    const endIndex = startIndex + maxVisible;
-
-    process.stdout.write("\n");
-    suggestionRows = 1;
-
-    // Show scroll indicator at top if not at beginning
-    if (startIndex > 0) {
-      process.stdout.write(`\x1b[90m  ↑ ${startIndex} more above\x1b[0m\n`);
-      suggestionRows++;
-    }
-
-    for (let i = startIndex; i < endIndex; i++) {
-      const s = state.suggestions[i];
-      const isSelected = i === state.suggestionIndex;
-      const prefix = isSelected ? "\x1b[36m› " : "  ";
-      const reset = isSelected ? "\x1b[0m" : "";
-
-      // Truncate description to fit in terminal
-      const maxDescLen = Math.max(20, columns - s.value.length - 10);
-      const desc =
-        s.description.length > maxDescLen
-          ? `${s.description.slice(0, maxDescLen - 3)}...`
-          : s.description;
-
-      process.stdout.write(
-        `${prefix}${s.value}\x1b[90m - ${desc}\x1b[0m${reset}\n`
-      );
-      suggestionRows++;
-    }
-
-    // Show scroll indicator at bottom if not at end
-    if (endIndex < total) {
-      const remaining = total - endIndex;
-      process.stdout.write(`\x1b[90m  ↓ ${remaining} more below\x1b[0m\n`);
-      suggestionRows++;
-    }
-  }
+  const shouldShowList = shouldDisplaySuggestionList(state, cursorAtEnd);
+  const suggestionRows = shouldShowList
+    ? renderSuggestionList(state, columns)
+    : 0;
 
   state.renderedRows = metrics.totalRows + suggestionRows;
 
   // Move cursor back to correct position
-  const totalRowsUp = metrics.endPos.row - metrics.cursorPos.row + suggestionRows;
+  const totalRowsUp =
+    metrics.endPos.row - metrics.cursorPos.row + suggestionRows;
   if (totalRowsUp > 0) {
-    process.stdout.write(`\x1b[${totalRowsUp}A`);
+    process.stdout.write(ANSI_CURSOR_UP(totalRowsUp));
   }
   process.stdout.write("\r");
   if (metrics.cursorPos.col > 0) {
-    process.stdout.write(`\x1b[${metrics.cursorPos.col}C`);
+    process.stdout.write(ANSI_CURSOR_FORWARD(metrics.cursorPos.col));
   }
 };
 
@@ -901,10 +1004,9 @@ const getCommandSuggestions = (buffer: string): Suggestion[] => {
 
   // If no argument typed yet, return all suggestions with full command prefix
   if (argPart === "") {
-    return command.argumentSuggestions.map((arg) => ({
-      value: `/${commandName} ${arg}`,
-      description: `Argument: ${arg}`,
-    }));
+    return command.argumentSuggestions.map((arg) =>
+      createArgumentSuggestion(commandName, arg)
+    );
   }
 
   // Check if argPart exactly matches one of the suggestions
@@ -914,10 +1016,9 @@ const getCommandSuggestions = (buffer: string): Suggestion[] => {
 
   // If exact match, return all suggestions for cycling
   if (exactMatch) {
-    return command.argumentSuggestions.map((arg) => ({
-      value: `/${commandName} ${arg}`,
-      description: `Argument: ${arg}`,
-    }));
+    return command.argumentSuggestions.map((arg) =>
+      createArgumentSuggestion(commandName, arg)
+    );
   }
 
   // Filter argument suggestions that start with the typed argument
@@ -925,10 +1026,7 @@ const getCommandSuggestions = (buffer: string): Suggestion[] => {
     arg.toLowerCase().startsWith(argPart.toLowerCase())
   );
 
-  return matches.map((arg) => ({
-    value: `/${commandName} ${arg}`,
-    description: `Argument: ${arg}`,
-  }));
+  return matches.map((arg) => createArgumentSuggestion(commandName, arg));
 };
 
 /**
@@ -1228,9 +1326,12 @@ const run = async (): Promise<void> => {
   const sessionId = initializeSession();
   console.log(colorize("dim", `Session: ${sessionId}\n`));
 
-  const { thinking, toolFallback } = parseCliArgs();
+  const { thinking, toolFallback, model } = parseCliArgs();
   agentManager.setThinkingEnabled(thinking);
   agentManager.setToolFallbackEnabled(toolFallback);
+  if (model) {
+    agentManager.setModelId(model);
+  }
 
   const rl = createInterface({
     input: process.stdin,
