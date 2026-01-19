@@ -229,7 +229,6 @@ interface Suggestion {
 interface InputState {
   buffer: string;
   cursor: number;
-  renderedRows: number;
   suggestions: Suggestion[];
   suggestionIndex: number;
 }
@@ -603,38 +602,11 @@ const renderInput = (
     }
   }
 
-  const metrics = calculateDisplayMetrics(
-    promptPlain,
-    state.buffer,
-    state.cursor,
-    columns
-  );
+  // Clear current line and rewrite (like spinner.ts does)
+  process.stdout.write("\r\x1B[K");
 
-  // Clear previous output - only clear the lines we rendered, not the entire screen
-  if (state.renderedRows > 0) {
-    const rowsUp = state.renderedRows - 1;
-    if (rowsUp > 0) {
-      process.stdout.write(ANSI_CURSOR_UP(rowsUp));
-    }
-    process.stdout.write("\r");
-    
-    // Clear each line individually instead of clearing to end of screen
-    for (let i = 0; i < state.renderedRows; i++) {
-      process.stdout.write(ANSI_CLEAR_LINE);
-      if (i < state.renderedRows - 1) {
-        process.stdout.write("\n");
-      }
-    }
-    
-    // Move back to start position
-    if (state.renderedRows > 1) {
-      process.stdout.write(ANSI_CURSOR_UP(state.renderedRows - 1));
-    }
-    process.stdout.write("\r");
-  }
-
-  // Write prompt and buffer
-  const displayBuffer = state.buffer.replace(LINE_ENDING_REGEX, "\r\n");
+  // Write prompt and buffer (single line only - no multiline rendering)
+  const displayBuffer = state.buffer.replace(/\n/g, " "); // Replace newlines with spaces for single-line display
   process.stdout.write(`${prompt}${displayBuffer}`);
 
   // Write inline suggestion in gray
@@ -642,23 +614,15 @@ const renderInput = (
     process.stdout.write(`${ANSI_DIM}${suggestionText}${ANSI_RESET}`);
   }
 
-  // Render suggestion list below input
-  const shouldShowList = shouldDisplaySuggestionList(state, cursorAtEnd);
-  const suggestionRows = shouldShowList
-    ? renderSuggestionList(state, columns)
-    : 0;
+  // Calculate cursor position within the line
+  const graphemes = splitGraphemes(displayBuffer);
+  const beforeCursor = graphemes.slice(0, state.cursor).join("");
+  const cursorCol = getStringWidth(promptPlain) + getStringWidth(beforeCursor);
 
-  state.renderedRows = metrics.totalRows + suggestionRows;
-
-  // Move cursor back to correct position
-  const totalRowsUp =
-    metrics.endPos.row - metrics.cursorPos.row + suggestionRows;
-  if (totalRowsUp > 0) {
-    process.stdout.write(ANSI_CURSOR_UP(totalRowsUp));
-  }
+  // Move cursor to correct position using absolute positioning
   process.stdout.write("\r");
-  if (metrics.cursorPos.col > 0) {
-    process.stdout.write(ANSI_CURSOR_FORWARD(metrics.cursorPos.col));
+  if (cursorCol > 0) {
+    process.stdout.write(ANSI_CURSOR_FORWARD(cursorCol));
   }
 };
 
@@ -1092,7 +1056,6 @@ const collectMultilineInput = (
     const state: InputState = {
       buffer: "",
       cursor: 0,
-      renderedRows: 0,
       suggestions: [],
       suggestionIndex: 0,
     };
