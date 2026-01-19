@@ -6,8 +6,10 @@ import { stripVTControlCharacters } from "node:util";
 import { agentManager } from "../agent";
 import {
   executeCommand,
+  getAvailableSkillIds,
   getCommands,
   isCommand,
+  isSkillCommandResult,
   registerCommand,
 } from "../commands";
 import { createClearCommand } from "../commands/clear";
@@ -42,6 +44,7 @@ const messageHistory = new MessageHistory();
 
 let rlInstance: ReadlineInterface | null = null;
 let shouldExit = false;
+let cachedSkillIds: string[] = [];
 
 const TODO_CONTINUATION_MAX_LOOPS = 5;
 
@@ -114,19 +117,6 @@ const handleGracefulShutdown = () => {
 
 const shouldExitFromInput = (input: string): boolean => {
   return shouldExit || input.length === 0 || input.toLowerCase() === "exit";
-};
-
-const handleCommandExecution = async (command: string): Promise<void> => {
-  try {
-    const result = await executeCommand(command);
-    if (result?.message) {
-      console.log(result.message);
-    }
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
-    console.error(`Command error: ${errorMessage}`);
-  }
 };
 
 const handleAgentResponse = async (rl: ReadlineInterface): Promise<void> => {
@@ -778,6 +768,7 @@ const readEscapeTokenFromSequence = (sequence: string): InputToken | null => {
 /**
  * Get command suggestions based on the current input buffer.
  * Returns an array of matching command names (with "/" prefix) or arguments.
+ * Also includes available skills.
  */
 const getCommandSuggestions = (buffer: string): string[] => {
   if (!buffer.startsWith("/")) {
@@ -790,18 +781,20 @@ const getCommandSuggestions = (buffer: string): string[] => {
   const spaceIndex = buffer.indexOf(" ");
 
   if (spaceIndex === -1) {
-    // No space: suggest command names
+    // No space: suggest command names and skills
     const commandNames = Array.from(commandMap.keys()).map(
       (name) => `/${name}`
     );
+    const skillNames = cachedSkillIds.map((id) => `/${id}`);
+    const allNames = [...new Set([...commandNames, ...skillNames])];
 
-    // If the buffer is exactly "/", return all commands
+    // If the buffer is exactly "/", return all commands and skills
     if (buffer === "/") {
-      return commandNames.sort();
+      return allNames.sort();
     }
 
-    // Filter commands that start with the current buffer
-    const matches = commandNames.filter((cmd) =>
+    // Filter commands/skills that start with the current buffer
+    const matches = allNames.filter((cmd) =>
       cmd.toLowerCase().startsWith(buffer.toLowerCase())
     );
 
@@ -1129,6 +1122,9 @@ const run = async (): Promise<void> => {
   // Initialize required tools (ripgrep, tmux)
   await initializeTools();
 
+  // Load skill IDs for autocomplete
+  cachedSkillIds = await getAvailableSkillIds();
+
   const sessionId = initializeSession();
   console.log(colorize("dim", `Session: ${sessionId}\n`));
 
@@ -1162,7 +1158,15 @@ const run = async (): Promise<void> => {
       }
 
       if (isCommand(trimmed)) {
-        await handleCommandExecution(trimmed);
+        const result = await executeCommand(trimmed);
+        if (isSkillCommandResult(result)) {
+          // Inject skill content into conversation
+          const skillMessage = `<command-name>/${result.skillId}</command-name>\n\n${result.skillContent}`;
+          messageHistory.addUserMessage(skillMessage);
+          await handleAgentResponse(rl);
+        } else if (result?.message) {
+          console.log(result.message);
+        }
         continue;
       }
 

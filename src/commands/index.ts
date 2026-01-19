@@ -1,5 +1,12 @@
+import { loadAllSkills, loadSkillById } from "../context/skills";
 import { createHelpCommand } from "./help";
 import type { Command, CommandContext, CommandResult } from "./types";
+
+export interface SkillCommandResult extends CommandResult {
+  isSkill: true;
+  skillId: string;
+  skillContent: string;
+}
 
 const commands = new Map<string, Command>();
 
@@ -38,7 +45,7 @@ export const parseCommand = (
 
 export const executeCommand = async (
   input: string
-): Promise<CommandResult | null> => {
+): Promise<CommandResult | SkillCommandResult | null> => {
   const parsed = parseCommand(input);
 
   if (!parsed) {
@@ -48,6 +55,17 @@ export const executeCommand = async (
   const command = commands.get(parsed.name);
 
   if (!command) {
+    // Check if it's a skill
+    const skill = await loadSkillById(parsed.name);
+    if (skill) {
+      return {
+        success: true,
+        isSkill: true,
+        skillId: skill.info.id,
+        skillContent: skill.content,
+      } as SkillCommandResult;
+    }
+
     return {
       success: false,
       message: `Unknown command: /${parsed.name}. Type /help for available commands.`,
@@ -57,4 +75,15 @@ export const executeCommand = async (
   const context: CommandContext = { args: parsed.args };
 
   return await command.execute(context);
+};
+
+export const isSkillCommandResult = (
+  result: CommandResult | SkillCommandResult | null
+): result is SkillCommandResult => {
+  return result !== null && "isSkill" in result && result.isSkill === true;
+};
+
+export const getAvailableSkillIds = async (): Promise<string[]> => {
+  const skills = await loadAllSkills();
+  return skills.map((s) => s.id);
 };

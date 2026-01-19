@@ -19,15 +19,21 @@ export interface SkillInfo {
   name: string;
   description: string;
   version?: string;
-  format: "legacy" | "v2";
+  format: "legacy" | "v2" | "command";
   path: string;
-  source: "bundled" | "global" | "project";
+  source:
+    | "bundled"
+    | "global"
+    | "project"
+    | "global-command"
+    | "project-command";
   dirPath?: string; // Only for v2 skills
+  argumentHint?: string; // For slash commands
 }
 
 interface SkillFrontmatter {
-  name: string;
-  description: string;
+  name?: string;
+  description?: string;
   version?: string;
   triggers?: string[];
   license?: string;
@@ -38,6 +44,9 @@ interface SkillFrontmatter {
     [key: string]: unknown;
   };
   "allowed-tools"?: string;
+  "argument-hint"?: string;
+  model?: string;
+  "disable-model-invocation"?: boolean;
 }
 
 // ============================================================================
@@ -198,7 +207,7 @@ async function loadSkillV2(
     const content = await readFile(skillPath, "utf-8");
     const frontmatter = parseFrontmatterYAML(content);
 
-    if (!frontmatter) {
+    if (!(frontmatter?.name && frontmatter.description)) {
       return null;
     }
 
@@ -209,7 +218,7 @@ async function loadSkillV2(
     if (frontmatter.name !== dirName) {
       return null;
     }
-    if (!frontmatter.description || frontmatter.description.length > 1024) {
+    if (frontmatter.description.length > 1024) {
       return null;
     }
 
@@ -288,14 +297,120 @@ async function loadV2Skills(
       continue;
     }
 
-    // Priority: project > global > bundled
-    const priority = { project: 3, global: 2, bundled: 1 };
+    // Priority: project > global > bundled (commands have lower priority)
+    const priority: Record<SkillInfo["source"], number> = {
+      project: 5,
+      global: 4,
+      bundled: 3,
+      "project-command": 2,
+      "global-command": 1,
+    };
     if (priority[skill.source] > priority[existing.source]) {
       seen.set(skill.id, skill);
     }
   }
 
   return Array.from(seen.values());
+}
+
+// ============================================================================
+// Slash Commands (*.md files in commands directories)
+// ============================================================================
+
+interface SlashCommandInfo {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  source: "global-command" | "project-command";
+  argumentHint?: string;
+}
+
+async function loadSlashCommands(
+  dirPath: string,
+  source: "global-command" | "project-command"
+): Promise<SlashCommandInfo[]> {
+  try {
+    // Find all .md files including subdirectories
+    const commandFiles = await glob("**/*.md", {
+      cwd: dirPath,
+      absolute: false,
+      nodir: true,
+    });
+
+    if (commandFiles.length === 0) {
+      return [];
+    }
+
+    const commands = await Promise.all(
+      commandFiles.map(async (file) => {
+        const filePath = join(dirPath, file);
+        try {
+          const content = await readFile(filePath, "utf-8");
+
+          // Parse frontmatter with YAML
+          const frontmatter = parseFrontmatterYAML(content);
+
+          // Command ID is filename without .md extension
+          // Subdirectory is used for namespacing but not part of the ID
+          const commandId = basename(file, ".md");
+
+          // Use description from frontmatter, or generate from filename
+          const description =
+            frontmatter?.description || `Slash command: ${commandId}`;
+
+          return {
+            id: commandId,
+            name: frontmatter?.name || commandId,
+            description,
+            path: filePath,
+            source,
+            argumentHint: frontmatter?.["argument-hint"],
+          } as SlashCommandInfo;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return commands.filter((cmd): cmd is SlashCommandInfo => cmd !== null);
+  } catch {
+    return [];
+  }
+}
+
+async function loadAllSlashCommands(): Promise<SkillInfo[]> {
+  const globalCommandsPath = join(homedir(), ".claude", "commands");
+  const projectCommandsPath = join(cwd(), ".claude", "commands");
+
+  const [globalCommands, projectCommands] = await Promise.all([
+    loadSlashCommands(globalCommandsPath, "global-command"),
+    loadSlashCommands(projectCommandsPath, "project-command"),
+  ]);
+
+  // Convert to SkillInfo format
+  const toSkillInfo = (cmd: SlashCommandInfo): SkillInfo => ({
+    id: cmd.id,
+    name: cmd.name,
+    description: cmd.description,
+    format: "command",
+    path: cmd.path,
+    source: cmd.source,
+    argumentHint: cmd.argumentHint,
+  });
+
+  // Project commands take priority over global commands with same ID
+  const commandsMap = new Map<string, SkillInfo>();
+
+  for (const cmd of globalCommands) {
+    commandsMap.set(cmd.id, toSkillInfo(cmd));
+  }
+
+  for (const cmd of projectCommands) {
+    commandsMap.set(cmd.id, toSkillInfo(cmd));
+  }
+
+  return Array.from(commandsMap.values());
 }
 
 // ============================================================================
@@ -306,18 +421,24 @@ export async function loadAllSkills(): Promise<SkillInfo[]> {
   const projectSkillsPath = join(cwd(), ".claude", "skills");
   const globalSkillsPath = join(homedir(), ".claude", "skills");
 
-  const [bundledLegacy, globalLegacy, projectLegacy, v2Skills] =
+  const [bundledLegacy, globalLegacy, projectLegacy, v2Skills, slashCommands] =
     await Promise.all([
       loadLegacySkills(BUNDLED_SKILLS_DIR, "bundled"),
       loadLegacySkills(globalSkillsPath, "global"),
       loadLegacySkills(projectSkillsPath, "project"),
       loadV2Skills(BUNDLED_SKILLS_DIR, projectSkillsPath),
+      loadAllSlashCommands(),
     ]);
 
   const allLegacy = [...bundledLegacy, ...globalLegacy, ...projectLegacy];
   const skillsMap = new Map<string, SkillInfo>();
 
-  // Add legacy skills first
+  // Add slash commands first (lowest priority)
+  for (const cmd of slashCommands) {
+    skillsMap.set(cmd.id, cmd);
+  }
+
+  // Add legacy skills (overrides commands with same ID)
   for (const skill of allLegacy) {
     skillsMap.set(skill.id, skill);
   }
