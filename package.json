@@ -36,10 +36,10 @@
     "@ai-sdk/openai-compatible": "^2.0.13",
     "@friendliai/ai-provider": "^1.0.4",
     "@t3-oss/env-core": "^0.13.10",
-    "ai": "^6.0.39",
+    "ai": "^6.0.40",
     "glob": "^13.0.0",
     "ignore": "^7.0.5",
-    "yaml": "^2.3.4",
+    "yaml": "^2.8.2",
     "zod": "^4.3.5"
   },
   "devDependencies": {
