@@ -1292,6 +1292,23 @@ const collectMultilineInput = (
     const onSequence = (sequence: string) => {
       const action = handleSequence(sequence);
       if (action === "submit") {
+        // If suggestions are displayed and cursor is at end, apply the selected suggestion first (like Tab)
+        const cursorAtEnd =
+          state.cursor === splitGraphemes(state.buffer).length;
+        if (
+          state.suggestions.length > 0 &&
+          state.suggestionIndex < state.suggestions.length &&
+          cursorAtEnd &&
+          state.buffer !== state.suggestions[state.suggestionIndex].value
+        ) {
+          // Apply suggestion without submitting (same as Tab behavior)
+          const suggestion = state.suggestions[state.suggestionIndex];
+          state.buffer = suggestion.value;
+          state.cursor = splitGraphemes(suggestion.value).length;
+          updateSuggestions(state);
+          render();
+          return;
+        }
         finalize(state.buffer);
         return;
       }
