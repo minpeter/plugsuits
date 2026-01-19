@@ -47,7 +47,10 @@ async function renderChatPrompt({
   let capturedText = "";
 
   const customFetch = Object.assign(
-    async (options?: RequestInit): Promise<Response> => {
+    async (
+      _url: RequestInfo | URL,
+      options?: RequestInit
+    ): Promise<Response> => {
       const parsedBody = options?.body
         ? JSON.parse(options.body as string)
         : {};
@@ -59,6 +62,11 @@ async function renderChatPrompt({
 
       const resp = await fetch(endpoint, {
         ...options,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+        },
         body: JSON.stringify({
           ...bodyWithoutToolChoice,
           chat_template_kwargs: {
