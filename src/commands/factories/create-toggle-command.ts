@@ -25,6 +25,7 @@ export function createToggleCommand(config: ToggleCommandConfig): Command {
   return {
     name,
     description,
+    argumentSuggestions: ["on", "off"],
     execute: ({ args }): CommandResult => {
       if (args.length === 0) {
         const currentStatus = getter();

@@ -5,6 +5,8 @@ const commands = new Map<string, Command>();
 
 const getCommands = (): Map<string, Command> => commands;
 
+export { getCommands };
+
 export const registerCommand = (command: Command): void => {
   commands.set(command.name, command);
 };

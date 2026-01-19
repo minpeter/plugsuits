@@ -4,7 +4,12 @@ import type { Interface as ReadlineInterface } from "node:readline";
 import { createInterface } from "node:readline";
 import * as nodeUtil from "node:util";
 import { agentManager } from "../agent";
-import { executeCommand, isCommand, registerCommand } from "../commands";
+import {
+  executeCommand,
+  getCommands,
+  isCommand,
+  registerCommand,
+} from "../commands";
 import { createClearCommand } from "../commands/clear";
 import { createModelCommand } from "../commands/model";
 import { createRenderCommand } from "../commands/render";
@@ -180,7 +185,9 @@ const stripVtControlCharacters =
     ? nodeUtil.stripVTControlCharacters
     : null;
 const getNodeStringWidth =
-  typeof nodeUtil.getStringWidth === "function" ? nodeUtil.getStringWidth : null;
+  typeof (nodeUtil as any).getStringWidth === "function"
+    ? (nodeUtil as any).getStringWidth
+    : null;
 
 const graphemeSegmenter =
   typeof Intl !== "undefined" && "Segmenter" in Intl
@@ -191,6 +198,8 @@ interface InputState {
   buffer: string;
   cursor: number;
   renderedRows: number;
+  suggestions: string[];
+  suggestionIndex: number;
 }
 
 type InputAction = "submit" | "cancel" | "continue";
@@ -198,6 +207,8 @@ type InputAction = "submit" | "cancel" | "continue";
 type EscapeAction =
   | "left"
   | "right"
+  | "up"
+  | "down"
   | "home"
   | "end"
   | "delete"
@@ -403,6 +414,21 @@ const renderInput = (
   promptPlain: string
 ): void => {
   const columns = process.stdout.columns || 80;
+
+  // Get suggestion if available
+  let suggestionText = "";
+
+  if (
+    state.suggestions.length > 0 &&
+    state.suggestionIndex < state.suggestions.length &&
+    state.cursor === splitGraphemes(state.buffer).length // Cursor at end
+  ) {
+    const suggestion = state.suggestions[state.suggestionIndex];
+    if (suggestion.toLowerCase().startsWith(state.buffer.toLowerCase())) {
+      suggestionText = suggestion.slice(state.buffer.length);
+    }
+  }
+
   const metrics = calculateDisplayMetrics(
     promptPlain,
     state.buffer,
@@ -421,6 +447,12 @@ const renderInput = (
 
   const displayBuffer = state.buffer.replace(LINE_ENDING_REGEX, "\r\n");
   process.stdout.write(`${prompt}${displayBuffer}`);
+
+  // Write suggestion in gray
+  if (suggestionText.length > 0) {
+    process.stdout.write(`\x1b[90m${suggestionText}\x1b[0m`);
+  }
+
   state.renderedRows = metrics.totalRows;
 
   const rowsUp = metrics.endPos.row - metrics.cursorPos.row;
@@ -602,6 +634,12 @@ const parseCsiAction = (
   if (final === "C") {
     return actionForDirection("right");
   }
+  if (final === "A") {
+    return "up";
+  }
+  if (final === "B") {
+    return "down";
+  }
   if (final === "H") {
     return "home";
   }
@@ -731,6 +769,77 @@ const readEscapeTokenFromSequence = (sequence: string): InputToken | null => {
 };
 
 /**
+ * Get command suggestions based on the current input buffer.
+ * Returns an array of matching command names (with "/" prefix) or arguments.
+ */
+const getCommandSuggestions = (buffer: string): string[] => {
+  if (!buffer.startsWith("/")) {
+    return [];
+  }
+
+  const commandMap = getCommands();
+
+  // Check if buffer contains a space (command + argument)
+  const spaceIndex = buffer.indexOf(" ");
+
+  if (spaceIndex === -1) {
+    // No space: suggest command names
+    const commandNames = Array.from(commandMap.keys()).map((name) => `/${name}`);
+
+    // If the buffer is exactly "/", return all commands
+    if (buffer === "/") {
+      return commandNames.sort();
+    }
+
+    // Filter commands that start with the current buffer
+    const matches = commandNames.filter((cmd) =>
+      cmd.toLowerCase().startsWith(buffer.toLowerCase())
+    );
+
+    return matches.sort();
+  }
+
+  // Space found: suggest arguments
+  const commandName = buffer.slice(1, spaceIndex); // Remove "/" and get command name
+  const argPart = buffer.slice(spaceIndex + 1); // Get argument part
+
+  const command = commandMap.get(commandName);
+  if (!command || !command.argumentSuggestions) {
+    return [];
+  }
+
+  // If no argument typed yet, return all suggestions with full command prefix
+  if (argPart === "") {
+    return command.argumentSuggestions.map((arg) => `/${commandName} ${arg}`);
+  }
+
+  // Check if argPart exactly matches one of the suggestions
+  const exactMatch = command.argumentSuggestions.some(
+    (arg) => arg.toLowerCase() === argPart.toLowerCase()
+  );
+
+  // If exact match, return all suggestions for cycling
+  if (exactMatch) {
+    return command.argumentSuggestions.map((arg) => `/${commandName} ${arg}`);
+  }
+
+  // Filter argument suggestions that start with the typed argument
+  const matches = command.argumentSuggestions.filter((arg) =>
+    arg.toLowerCase().startsWith(argPart.toLowerCase())
+  );
+
+  return matches.map((arg) => `/${commandName} ${arg}`);
+};
+
+/**
+ * Update suggestions based on the current buffer.
+ */
+const updateSuggestions = (state: InputState): void => {
+  state.suggestions = getCommandSuggestions(state.buffer);
+  state.suggestionIndex = 0;
+};
+
+/**
  * Collects user input with support for multi-line pastes using bracketed paste mode.
  * - When text is pasted, newlines within the paste are preserved in the buffer
  * - Input is only submitted when Enter is pressed outside of a paste operation
@@ -763,6 +872,8 @@ const collectMultilineInput = (
       buffer: "",
       cursor: 0,
       renderedRows: 0,
+      suggestions: [],
+      suggestionIndex: 0,
     };
     const utf8Decoder = new TextDecoder("utf-8");
     const promptPlain = stripAnsi(prompt);
@@ -816,6 +927,7 @@ const collectMultilineInput = (
 
     const applyAndRender = (action: () => void): InputAction | null => {
       action();
+      updateSuggestions(state);
       render();
       return null;
     };
@@ -827,6 +939,20 @@ const collectMultilineInput = (
           break;
         case "right":
           moveCursorRight(state);
+          break;
+        case "up":
+          if (state.suggestions.length > 0) {
+            state.suggestionIndex =
+              state.suggestionIndex > 0
+                ? state.suggestionIndex - 1
+                : state.suggestions.length - 1;
+          }
+          break;
+        case "down":
+          if (state.suggestions.length > 0) {
+            state.suggestionIndex =
+              (state.suggestionIndex + 1) % state.suggestions.length;
+          }
           break;
         case "word-left":
           moveWordLeft(state);
@@ -908,11 +1034,46 @@ const collectMultilineInput = (
         return handler();
       }
 
-      if (code < 32 && code !== TAB) {
+      // Handle Tab key for autocomplete
+      if (code === TAB) {
+        if (state.suggestions.length > 0) {
+          // Check if current buffer exactly matches a suggestion
+          const currentMatchIndex = state.suggestions.findIndex(
+            (s) => s === state.buffer
+          );
+
+          if (
+            currentMatchIndex !== -1 &&
+            state.suggestions.length > 1 &&
+            state.cursor === splitGraphemes(state.buffer).length
+          ) {
+            // Current buffer matches a suggestion and there are multiple suggestions
+            // Cycle to the next suggestion
+            state.suggestionIndex =
+              (currentMatchIndex + 1) % state.suggestions.length;
+            const nextSuggestion = state.suggestions[state.suggestionIndex];
+            state.buffer = nextSuggestion;
+            state.cursor = splitGraphemes(nextSuggestion).length;
+            updateSuggestions(state);
+            render();
+          } else if (state.suggestionIndex < state.suggestions.length) {
+            // Complete with the current suggestion
+            const suggestion = state.suggestions[state.suggestionIndex];
+            state.buffer = suggestion;
+            state.cursor = splitGraphemes(suggestion).length;
+            updateSuggestions(state);
+            render();
+          }
+        }
+        return null;
+      }
+
+      if (code < 32) {
         return null;
       }
 
       insertText(state, normalizeLineEndings(value));
+      updateSuggestions(state);
       render();
       return null;
     };

@@ -128,7 +128,11 @@ export class MessageHistory {
         return part;
       }
 
-      const result = part as { type: "tool-result"; output: unknown; [key: string]: unknown };
+      const result = part as unknown as {
+        type: "tool-result";
+        output: unknown;
+        [key: string]: unknown;
+      };
 
       // Recursively serialize Error objects in output
       const sanitizedOutput = this.serializeValue(result.output);
@@ -145,7 +149,7 @@ export class MessageHistory {
 
     return {
       ...message,
-      content: sanitizedContent,
+      content: sanitizedContent as any,
     };
   }
 
