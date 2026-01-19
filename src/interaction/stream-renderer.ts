@@ -12,6 +12,8 @@ export interface StreamRenderOptions {
   showSources?: boolean;
   showFiles?: boolean;
   useColor?: boolean;
+  smoothStream?: boolean;
+  smoothDelayMs?: number;
 }
 
 type StreamMode = "text" | "reasoning" | "none";
@@ -27,6 +29,10 @@ interface RenderContext {
   useColor: boolean;
   reasoningLineLength: number;
   terminalWidth: number;
+  smoothStream: boolean;
+  smoothDelayMs: number;
+  textBuffer: string;
+  segmenter: Intl.Segmenter;
 }
 
 type StreamPart = TextStreamPart<ToolSet>;
@@ -104,11 +110,40 @@ const handleTextStart = (ctx: RenderContext, mode: StreamMode): StreamMode => {
   return "text";
 };
 
-const handleTextDelta = (
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const flushTextBuffer = async (ctx: RenderContext): Promise<void> => {
+  if (!ctx.smoothStream || ctx.textBuffer.length === 0) {
+    if (ctx.textBuffer.length > 0) {
+      write(ctx, ctx.textBuffer);
+      ctx.textBuffer = "";
+    }
+    return;
+  }
+
+  const segments = ctx.segmenter.segment(ctx.textBuffer);
+  let flushed = "";
+
+  for (const { segment, isWordLike } of segments) {
+    flushed += segment;
+    if (isWordLike || segment.includes("\n")) {
+      write(ctx, flushed);
+      flushed = "";
+      if (ctx.smoothDelayMs > 0) {
+        await sleep(ctx.smoothDelayMs);
+      }
+    }
+  }
+
+  ctx.textBuffer = flushed;
+};
+
+const handleTextDelta = async (
   ctx: RenderContext,
   part: Extract<StreamPart, { type: "text-delta" }>,
   mode: StreamMode
-): StreamMode => {
+): Promise<StreamMode> => {
   if (mode !== "text") {
     writeLine(ctx);
     const aiLabel = ctx.useColor
@@ -116,11 +151,22 @@ const handleTextDelta = (
       : "AI";
     write(ctx, `${aiLabel}: `);
   }
-  write(ctx, part.text);
+
+  if (ctx.smoothStream) {
+    ctx.textBuffer += part.text;
+    await flushTextBuffer(ctx);
+  } else {
+    write(ctx, part.text);
+  }
+
   return "text";
 };
 
 const handleTextEnd = (ctx: RenderContext, mode: StreamMode): StreamMode => {
+  if (ctx.textBuffer.length > 0) {
+    write(ctx, ctx.textBuffer);
+    ctx.textBuffer = "";
+  }
   if (mode === "text") {
     writeLine(ctx);
   }
@@ -347,6 +393,10 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
     useColor: options.useColor ?? Boolean(process.stdout.isTTY),
     reasoningLineLength: 0,
     terminalWidth: process.stdout.columns || 80,
+    smoothStream: options.smoothStream ?? true,
+    smoothDelayMs: options.smoothDelayMs ?? 10,
+    textBuffer: "",
+    segmenter: new Intl.Segmenter("ko", { granularity: "word" }),
   };
 
   let mode: StreamMode = "none";
@@ -358,10 +408,10 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
         mode = handleTextStart(ctx, mode);
         break;
       case "text-delta":
-        mode = handleTextDelta(ctx, part, mode);
+        mode = await handleTextDelta(ctx, part, mode);
         break;
       case "text-end":
-        mode = handleTextEnd(ctx, mode);
+        mode = await handleTextEnd(ctx, mode);
         break;
       case "reasoning-start":
         mode = handleReasoningStart(ctx);
