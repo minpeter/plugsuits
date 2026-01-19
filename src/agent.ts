@@ -14,14 +14,14 @@ import {
 import { tools } from "./tools";
 
 export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.1";
-export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-5-20250514";
+export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-5-20250929";
 const OUTPUT_TOKEN_MAX = 64_000;
 
 export type ProviderType = "friendli" | "anthropic";
 
 export const ANTHROPIC_MODELS = [
-  { id: "claude-sonnet-4-5-20250514", name: "Claude Sonnet 4.5 (Latest)" },
-  { id: "claude-opus-4-5-20250514", name: "Claude Opus 4.5 (Latest)" },
+  { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5 (Latest)" },
+  { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5 (Latest)" },
 ] as const;
 
 const friendli = env.FRIENDLI_TOKEN
