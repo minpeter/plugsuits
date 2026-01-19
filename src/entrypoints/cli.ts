@@ -530,6 +530,48 @@ const renderSuggestionList = (state: InputState, columns: number): number => {
   return rows;
 };
 
+/**
+ * =============================================================================
+ * INPUT RENDERING SYSTEM - SAFETY CRITICAL DOCUMENTATION
+ * =============================================================================
+ *
+ * CORE PRINCIPLE: Never destroy content in the scrollback buffer.
+ *
+ * The terminal has two regions:
+ * 1. Scrollback buffer: Previously output text (model responses, etc.)
+ * 2. Input area: Current user input + suggestion list (managed by us)
+ *
+ * INVARIANT: We may ONLY modify the input area. The scrollback is READ-ONLY.
+ *
+ * STATE TRACKING:
+ * - lastInputRows: Number of rows the input text occupied in previous render
+ * - lastSuggestionRows: Number of rows the suggestion list occupied
+ * - lastCursorRow: Which row (0-indexed) within the input area the cursor was on
+ *
+ * SAFE NAVIGATION RULE:
+ * - To reach input area start: move UP by lastCursorRow (cursor's current row)
+ * - To clear input area: clear lastInputRows lines going DOWN
+ * - To clear suggestion area: continue DOWN and clear lastSuggestionRows lines
+ * - NEVER move UP more than lastCursorRow from current position
+ *
+ * EXAMPLE (cursor at row 0, input 1 line, suggestions 5 lines):
+ *   [scrollback - DO NOT TOUCH]
+ *   [input row 0] ← cursor here, lastCursorRow=0
+ *   [suggestion row 0]
+ *   [suggestion row 1]
+ *   ...
+ *
+ *   To clear: move up 0, clear 1 line, move down & clear 5 lines
+ *
+ * PENDING WRAP HANDLING:
+ * - When output width exactly equals terminal columns, cursor may be in
+ *   "pending wrap" state (still on current line, or already on next line)
+ * - Solution: Output " \x1B[D\x1B[K" (space, cursor-left, clear-to-end)
+ *   This forces wrap and leaves cursor at known position (next line, col 0)
+ *
+ * =============================================================================
+ */
+
 const getInlineSuggestion = (
   state: InputState,
   cursorAtEnd: boolean

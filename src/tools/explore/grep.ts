@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { ensureTool } from "../../utils/tools-manager";
@@ -56,8 +57,14 @@ async function runRipgrep(args: string[], cwd: string): Promise<GrepResult> {
       }
     });
 
-    rg.on("error", (err) => {
-      reject(new Error(`Failed to spawn ripgrep: ${err.message}`));
+    rg.on("error", (err: NodeJS.ErrnoException) => {
+      const code = err.code ?? "UNKNOWN";
+      reject(
+        new Error(
+          `Failed to spawn ripgrep (${code}): ${err.message}. ` +
+            `Path: "${rgPath}", cwd: "${cwd}"`
+        )
+      );
     });
   });
 }
@@ -99,6 +106,35 @@ const inputSchema = z.object({
 
 export type GrepInput = z.input<typeof inputSchema>;
 
+/**
+ * Resolve a path to a valid search directory.
+ * If path is a file, returns its parent directory.
+ * If path doesn't exist, throws an error.
+ */
+function resolveSearchDir(path: string | undefined): string {
+  if (!path) {
+    return process.cwd();
+  }
+
+  const resolved = resolve(path);
+
+  if (!existsSync(resolved)) {
+    throw new Error(`Path does not exist: ${resolved}`);
+  }
+
+  const stats = statSync(resolved);
+  if (stats.isFile()) {
+    // If a file path was provided, use its parent directory
+    return dirname(resolved);
+  }
+
+  if (!stats.isDirectory()) {
+    throw new Error(`Path is not a directory: ${resolved}`);
+  }
+
+  return resolved;
+}
+
 export async function executeGrep({
   pattern,
   path,
@@ -110,7 +146,7 @@ export async function executeGrep({
   after,
   no_ignore = false,
 }: GrepInput): Promise<string> {
-  const searchDir = path ? resolve(path) : process.cwd();
+  const searchDir = resolveSearchDir(path);
 
   const args: string[] = ["--line-number", "--with-filename", "--color=never"];
 

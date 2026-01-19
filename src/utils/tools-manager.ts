@@ -66,13 +66,17 @@ const TOOLS: Record<string, ToolConfig> = {
 };
 
 /**
- * Check if a command exists in PATH by trying to run it
+ * Check if a command exists and is executable
  */
 function commandExists(cmd: string): boolean {
+  const plat = platform();
+  const whichCmd = plat === "win32" ? "where" : "which";
   try {
-    const result = spawnSync(cmd, ["--version"], { stdio: "pipe" });
-    // Check for ENOENT error (command not found)
-    return result.error === undefined || result.error === null;
+    const result = spawnSync(whichCmd, [cmd], {
+      stdio: "pipe",
+      timeout: 5000,
+    });
+    return result.status === 0;
   } catch {
     return false;
   }
