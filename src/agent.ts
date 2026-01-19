@@ -77,21 +77,48 @@ const getModel = (modelId: string, provider: ProviderType) => {
   return friendli(modelId);
 };
 
+const ANTHROPIC_THINKING_BUDGET_TOKENS = 10000;
+const ANTHROPIC_MAX_OUTPUT_TOKENS = 64000;
+
 const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   const provider = options.provider ?? "friendli";
   const model = getModel(modelId, provider);
+  const thinkingEnabled = options.enableThinking ?? false;
+
+  const getAnthropicProviderOptions = () => {
+    if (!thinkingEnabled) return undefined;
+
+    // Opus 4.5: use effort parameter
+    // Sonnet 4.5: use thinking with budgetTokens
+    const isOpus = modelId.includes("opus");
+    if (isOpus) {
+      return { anthropic: { effort: "high" } };
+    }
+    return {
+      anthropic: {
+        thinking: { type: "enabled", budgetTokens: ANTHROPIC_THINKING_BUDGET_TOKENS },
+      },
+    };
+  };
 
   const providerOptions =
     provider === "anthropic"
-      ? undefined
+      ? getAnthropicProviderOptions()
       : {
           friendli: {
             chat_template_kwargs: {
-              enable_thinking: options.enableThinking ?? true,
-              thinking: options.enableThinking ?? true,
+              enable_thinking: thinkingEnabled,
+              thinking: thinkingEnabled,
             },
           },
         };
+
+  // Anthropic with thinking: maxOutputTokens + thinkingBudget must be <= 64000
+  const isAnthropicWithThinking =
+    provider === "anthropic" && thinkingEnabled && !modelId.includes("opus");
+  const maxOutputTokens = isAnthropicWithThinking
+    ? ANTHROPIC_MAX_OUTPUT_TOKENS - ANTHROPIC_THINKING_BUDGET_TOKENS
+    : OUTPUT_TOKEN_MAX;
 
   return new ToolLoopAgent({
     model: wrapLanguageModel({
@@ -102,8 +129,9 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
     }),
     instructions: options.instructions || SYSTEM_PROMPT,
     tools: options.disableApproval ? disableApprovalForTools(tools) : tools,
-    maxOutputTokens: OUTPUT_TOKEN_MAX,
-    providerOptions,
+    maxOutputTokens,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    providerOptions: providerOptions as any,
   });
 };
 
