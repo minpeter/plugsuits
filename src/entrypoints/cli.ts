@@ -47,6 +47,7 @@ const ANSI_DIM = "\x1b[90m";
 const ANSI_CYAN = "\x1b[36m";
 const ANSI_RESET = "\x1b[0m";
 const ANSI_CURSOR_UP = (n: number) => `\x1b[${n}A`;
+const ANSI_CURSOR_DOWN = (n: number) => `\x1b[${n}B`;
 const ANSI_CURSOR_FORWARD = (n: number) => `\x1b[${n}C`;
 const ANSI_CLEAR_TO_END = "\x1b[J";
 
@@ -231,9 +232,11 @@ interface InputState {
   cursor: number;
   suggestions: Suggestion[];
   suggestionIndex: number;
-  lastSuggestionRows: number; // Track suggestion area for clean repainting
-  historyIndex: number; // Current position in command history (-1 = not browsing)
-  originalBuffer: string; // Save current input when browsing history
+  lastSuggestionRows: number;
+  lastInputRows: number;
+  lastCursorRow: number;
+  historyIndex: number;
+  originalBuffer: string;
 }
 
 type InputAction = "submit" | "cancel" | "continue";
@@ -527,17 +530,10 @@ const renderSuggestionList = (state: InputState, columns: number): number => {
   return rows;
 };
 
-const renderInput = (
+const getInlineSuggestion = (
   state: InputState,
-  prompt: string,
-  promptPlain: string
-): void => {
-  const columns = process.stdout.columns || 80;
-
-  // Get inline suggestion hint if available
-  let suggestionText = "";
-  const cursorAtEnd = state.cursor === splitGraphemes(state.buffer).length;
-
+  cursorAtEnd: boolean
+): string => {
   if (
     state.suggestions.length > 0 &&
     state.suggestionIndex < state.suggestions.length &&
@@ -545,54 +541,135 @@ const renderInput = (
   ) {
     const suggestion = state.suggestions[state.suggestionIndex];
     if (suggestion.value.toLowerCase().startsWith(state.buffer.toLowerCase())) {
-      suggestionText = suggestion.value.slice(state.buffer.length);
+      return suggestion.value.slice(state.buffer.length);
+    }
+  }
+  return "";
+};
+
+const clearPreviousInputArea = (
+  lastInputRows: number,
+  lastSuggestionRows: number,
+  lastCursorRow: number
+): void => {
+  if (lastCursorRow > 0) {
+    process.stdout.write(ANSI_CURSOR_UP(lastCursorRow));
+  }
+  process.stdout.write("\r");
+
+  for (let i = 0; i < lastInputRows; i++) {
+    process.stdout.write("\x1B[K");
+    if (i < lastInputRows - 1) {
+      process.stdout.write("\n");
     }
   }
 
-  // Clear current line and rewrite (like spinner.ts does)
-  process.stdout.write("\r\x1B[K");
+  for (let i = 0; i < lastSuggestionRows; i++) {
+    process.stdout.write("\n");
+    process.stdout.write("\x1B[K");
+  }
 
-  // Write prompt and buffer (single line only - no multiline rendering)
-  const displayBuffer = state.buffer.replace(/\n/g, " "); // Replace newlines with spaces for single-line display
+  const totalMoved = lastInputRows - 1 + lastSuggestionRows;
+  if (totalMoved > 0) {
+    process.stdout.write(ANSI_CURSOR_UP(totalMoved));
+  }
+  process.stdout.write("\r");
+};
+
+const writeInputContent = (
+  prompt: string,
+  displayBuffer: string,
+  suggestionText: string,
+  fullWidth: number,
+  columns: number
+): void => {
   process.stdout.write(`${prompt}${displayBuffer}`);
 
-  // Write inline suggestion in gray
   if (suggestionText.length > 0) {
     process.stdout.write(`${ANSI_DIM}${suggestionText}${ANSI_RESET}`);
   }
 
-  // Clear old suggestion area if it exists (move down and clear)
-  if (state.lastSuggestionRows > 0) {
-    for (let i = 0; i < state.lastSuggestionRows; i++) {
-      process.stdout.write("\n\r\x1B[K"); // Move down one line and clear it
-    }
-    // Move back to input line
-    process.stdout.write(ANSI_CURSOR_UP(state.lastSuggestionRows));
-    process.stdout.write("\r");
+  if (fullWidth > 0 && fullWidth % columns === 0) {
+    process.stdout.write(" \x1B[D\x1B[K");
+  }
+};
+
+const positionCursor = (
+  promptWidth: number,
+  displayBuffer: string,
+  cursorPos: number,
+  fullWidth: number,
+  columns: number
+): number => {
+  const graphemes = splitGraphemes(displayBuffer);
+  const beforeCursor = graphemes.slice(0, cursorPos).join("");
+  const beforeCursorWidth = getStringWidth(beforeCursor);
+  const cursorTotalWidth = promptWidth + beforeCursorWidth;
+  const cursorRow = Math.floor(cursorTotalWidth / columns);
+  const cursorCol = cursorTotalWidth % columns;
+
+  const currentRow =
+    fullWidth > 0 && fullWidth % columns === 0
+      ? fullWidth / columns
+      : Math.floor(fullWidth / columns);
+
+  if (currentRow > 0) {
+    process.stdout.write(ANSI_CURSOR_UP(currentRow));
+  }
+  process.stdout.write("\r");
+
+  if (cursorRow > 0) {
+    process.stdout.write(ANSI_CURSOR_DOWN(cursorRow));
+  }
+  if (cursorCol > 0) {
+    process.stdout.write(ANSI_CURSOR_FORWARD(cursorCol));
   }
 
-  // Render new suggestion list (renderSuggestionList will handle \n and positioning)
+  return cursorRow;
+};
+
+const renderInput = (
+  state: InputState,
+  prompt: string,
+  promptPlain: string
+): void => {
+  const columns = process.stdout.columns || 80;
+  const promptWidth = getStringWidth(promptPlain);
+  const cursorAtEnd = state.cursor === splitGraphemes(state.buffer).length;
+
+  const suggestionText = getInlineSuggestion(state, cursorAtEnd);
+  const displayBuffer = state.buffer.replace(/\n/g, " ");
+  const fullWidth =
+    promptWidth + getStringWidth(displayBuffer + suggestionText);
+
+  clearPreviousInputArea(
+    state.lastInputRows,
+    state.lastSuggestionRows,
+    state.lastCursorRow
+  );
+
+  writeInputContent(prompt, displayBuffer, suggestionText, fullWidth, columns);
+
+  const newInputRows = fullWidth === 0 ? 1 : Math.ceil(fullWidth / columns);
+  state.lastInputRows = newInputRows;
+
   const shouldShowList = shouldDisplaySuggestionList(state, cursorAtEnd);
   if (shouldShowList) {
     const suggestionRows = renderSuggestionList(state, columns);
     state.lastSuggestionRows = suggestionRows;
-    // renderSuggestionList already moved us down, move back to input line
     process.stdout.write(ANSI_CURSOR_UP(suggestionRows));
     process.stdout.write("\r");
   } else {
     state.lastSuggestionRows = 0;
   }
 
-  // Calculate cursor position within the line
-  const graphemes = splitGraphemes(displayBuffer);
-  const beforeCursor = graphemes.slice(0, state.cursor).join("");
-  const cursorCol = getStringWidth(promptPlain) + getStringWidth(beforeCursor);
-
-  // Move cursor to correct position using absolute positioning
-  process.stdout.write("\r");
-  if (cursorCol > 0) {
-    process.stdout.write(ANSI_CURSOR_FORWARD(cursorCol));
-  }
+  state.lastCursorRow = positionCursor(
+    promptWidth,
+    displayBuffer,
+    state.cursor,
+    fullWidth,
+    columns
+  );
 };
 
 const insertText = (state: InputState, text: string): void => {
@@ -1028,6 +1105,8 @@ const collectMultilineInput = (
       suggestions: [],
       suggestionIndex: 0,
       lastSuggestionRows: 0,
+      lastInputRows: 1,
+      lastCursorRow: 0,
       historyIndex: -1,
       originalBuffer: "",
     };
