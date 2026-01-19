@@ -615,27 +615,24 @@ const renderInput = (
     process.stdout.write(`${ANSI_DIM}${suggestionText}${ANSI_RESET}`);
   }
 
-  // Clear previous suggestion area if it exists
+  // Clear old suggestion area if it exists (move down and clear)
   if (state.lastSuggestionRows > 0) {
-    // Move down to suggestion area and clear each line
     for (let i = 0; i < state.lastSuggestionRows; i++) {
-      process.stdout.write("\n\r\x1B[K"); // Move down and clear line
+      process.stdout.write("\n\r\x1B[K"); // Move down one line and clear it
     }
-    // Move back up to input line
+    // Move back to input line
     process.stdout.write(ANSI_CURSOR_UP(state.lastSuggestionRows));
+    process.stdout.write("\r");
   }
 
-  // Render new suggestion list BELOW input (never above - preserves AI output)
+  // Render new suggestion list (renderSuggestionList will handle \n and positioning)
   const shouldShowList = shouldDisplaySuggestionList(state, cursorAtEnd);
-  let suggestionRows = 0;
   if (shouldShowList) {
-    process.stdout.write("\n"); // Move to next line
-    suggestionRows = renderSuggestionList(state, columns);
+    const suggestionRows = renderSuggestionList(state, columns);
     state.lastSuggestionRows = suggestionRows;
-    // Move cursor back UP to input line (only moves within suggestion area)
-    if (suggestionRows > 0) {
-      process.stdout.write(ANSI_CURSOR_UP(suggestionRows));
-    }
+    // renderSuggestionList already moved us down, move back to input line
+    process.stdout.write(ANSI_CURSOR_UP(suggestionRows));
+    process.stdout.write("\r");
   } else {
     state.lastSuggestionRows = 0;
   }
