@@ -25,7 +25,6 @@ import { env } from "../env";
 import { colorize } from "../interaction/colors";
 import { StdinBuffer } from "../interaction/stdin-buffer";
 import { renderFullStream } from "../interaction/stream-renderer";
-import { askBatchApproval } from "../interaction/tool-approval";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
@@ -83,20 +82,14 @@ registerCommand(createClearCommand(messageHistory));
 registerCommand(createThinkCommand());
 registerCommand(createToolFallbackCommand());
 
-const processAgentResponse = async (rl: ReadlineInterface): Promise<void> => {
+const processAgentResponse = async (_rl: ReadlineInterface): Promise<void> => {
   const stream = await agentManager.stream(messageHistory.toModelMessages());
-  const { approvalRequests } = await renderFullStream(stream.fullStream, {
+  await renderFullStream(stream.fullStream, {
     showSteps: false,
   });
 
   const response = await stream.response;
   messageHistory.addModelMessages(response.messages);
-
-  if (approvalRequests.length > 0) {
-    const approvals = await askBatchApproval(rl, approvalRequests);
-    messageHistory.addToolApprovalResponses(approvals);
-    await processAgentResponse(rl);
-  }
 };
 
 const parseCliArgs = (): {
@@ -1193,7 +1186,7 @@ const collectMultilineInput = (
 
     const finalize = (result: string | null) => {
       cleanup();
-      rl.resume(); // Resume readline for tool approval prompts
+      rl.resume();
       // Clear inline suggestion and suggestion list, but keep the actual input
       // ANSI_CLEAR_TO_END clears from cursor to end of screen (removes inline hint + suggestion list)
       process.stdout.write(ANSI_CLEAR_TO_END);

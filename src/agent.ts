@@ -37,22 +37,7 @@ const anthropic = env.ANTHROPIC_API_KEY
     })
   : null;
 
-const disableApprovalForTools = <T extends Record<string, unknown>>(
-  toolsObj: T
-): T => {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(toolsObj)) {
-    if (typeof value === "object" && value !== null) {
-      result[key] = { ...value, needsApproval: false };
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
-};
-
 interface CreateAgentOptions {
-  disableApproval?: boolean;
   instructions?: string;
   enableThinking?: boolean;
   enableToolFallback?: boolean;
@@ -133,7 +118,7 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
       }),
     }),
     instructions: options.instructions || SYSTEM_PROMPT,
-    tools: options.disableApproval ? disableApprovalForTools(tools) : tools,
+    tools,
     maxOutputTokens,
     providerOptions,
   });
@@ -225,7 +210,6 @@ class AgentManager {
 
   async stream(messages: ModelMessage[]) {
     const agent = createAgent(this.modelId, {
-      disableApproval: this.headlessMode,
       instructions: await this.getInstructions(),
       enableThinking: this.thinkingEnabled,
       enableToolFallback: this.toolFallbackEnabled,

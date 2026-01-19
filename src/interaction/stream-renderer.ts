@@ -260,13 +260,6 @@ const handleToolOutputDenied = (
   return "none";
 };
 
-const handleToolApprovalRequest = (
-  _ctx: RenderContext,
-  _part: Extract<StreamPart, { type: "tool-approval-request" }>
-): StreamMode => {
-  return "none";
-};
-
 const handleStartStep = (ctx: RenderContext): StreamMode => {
   if (!ctx.showSteps) {
     return "none";
@@ -339,14 +332,10 @@ export interface ToolApprovalRequestPart {
   };
 }
 
-export interface StreamRenderResult {
-  approvalRequests: ToolApprovalRequestPart[];
-}
-
 export const renderFullStream = async <TOOLS extends ToolSet>(
   stream: AsyncIterable<TextStreamPart<TOOLS>>,
   options: StreamRenderOptions = {}
-): Promise<StreamRenderResult> => {
+): Promise<void> => {
   const ctx: RenderContext = {
     output: options.output ?? process.stdout,
     showReasoning: options.showReasoning ?? true,
@@ -361,7 +350,6 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
   };
 
   let mode: StreamMode = "none";
-  const approvalRequests: ToolApprovalRequestPart[] = [];
 
   for await (const rawPart of stream) {
     const part = rawPart as StreamPart;
@@ -401,8 +389,7 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
         mode = handleToolOutputDenied(ctx, part);
         break;
       case "tool-approval-request":
-        mode = handleToolApprovalRequest(ctx, part);
-        approvalRequests.push(part);
+        // Tool approval is disabled - all tools auto-approved
         break;
       case "start-step":
         mode = handleStartStep(ctx);
@@ -429,6 +416,4 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
         mode = "none";
     }
   }
-
-  return { approvalRequests };
 };
