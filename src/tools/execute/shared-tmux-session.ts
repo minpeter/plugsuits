@@ -102,7 +102,11 @@ class SharedTmuxSession {
     // Clean environment for tests
     const cleanEnv: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (!key.startsWith("npm_") && key !== "NODE_ENV") {
+      if (
+        !key.startsWith("npm_") &&
+        key !== "NODE_ENV" &&
+        value !== undefined
+      ) {
         cleanEnv[key] = value;
       }
     }
@@ -120,7 +124,11 @@ class SharedTmuxSession {
       // Clean environment for tests
       const cleanEnv: Record<string, string> = {};
       for (const [key, value] of Object.entries(process.env)) {
-        if (!key.startsWith("npm_") && key !== "NODE_ENV") {
+        if (
+          !key.startsWith("npm_") &&
+          key !== "NODE_ENV" &&
+          value !== undefined
+        ) {
           cleanEnv[key] = value;
         }
       }
