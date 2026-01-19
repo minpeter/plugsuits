@@ -69,8 +69,6 @@ export const shellExecuteTool = tool({
       .describe("Timeout in milliseconds (default: 2000)"),
   }),
 
-  needsApproval: true,
-
   execute: async ({ command, workdir, timeout_ms }): Promise<ToolOutput> => {
     const result = await executeCommand(command, {
       workdir,

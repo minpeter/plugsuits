@@ -75,7 +75,6 @@ export const deleteFileTool = tool({
     "Verify path with read_file or glob_files before deleting. " +
     "Use recursive: true for non-empty directories. " +
     "Use ignore_missing: true to skip if file doesn't exist.",
-  needsApproval: true,
   inputSchema,
   execute: executeDeleteFile,
 });

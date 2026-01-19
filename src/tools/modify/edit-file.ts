@@ -471,7 +471,6 @@ export const editFileTool = tool({
     "old_str must match exactly (including whitespace/indentation) - always copy-paste lines from read_file output. " +
     "replace_all: false (default) replaces FIRST match only; use replace_all: true for renaming across file. " +
     "For new files, prefer write_file instead.",
-  needsApproval: true,
   inputSchema,
   execute: executeEditFile,
 });

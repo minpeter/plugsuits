@@ -389,7 +389,6 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
         mode = handleToolOutputDenied(ctx, part);
         break;
       case "tool-approval-request":
-        // Tool approval is disabled - all tools auto-approved
         break;
       case "start-step":
         mode = handleStartStep(ctx);

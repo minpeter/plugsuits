@@ -80,7 +80,6 @@ export const writeFileTool = tool({
     "Create new file or completely overwrite existing file. " +
     "Creates parent directories automatically. " +
     "Use edit_file for surgical changes to existing files.",
-  needsApproval: true,
   inputSchema,
   execute: executeWriteFile,
 });

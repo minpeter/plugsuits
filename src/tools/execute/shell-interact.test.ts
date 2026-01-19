@@ -300,9 +300,5 @@ describe("shellInteractTool", () => {
     it("has correct tool name in description", () => {
       expect(shellInteractTool.description).toContain("shell_execute");
     });
-
-    it("requires approval", () => {
-      expect(shellInteractTool.needsApproval).toBe(true);
-    });
   });
 });

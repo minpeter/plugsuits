@@ -82,8 +82,6 @@ export const shellInteractTool = tool({
       .describe("Wait time after sending keys (default: 500)"),
   }),
 
-  needsApproval: true,
-
   execute: async ({ keystrokes, timeout_ms }): Promise<InteractResult> => {
     const session = getSharedSession();
     const parsedKeys = parseKeys(keystrokes);
