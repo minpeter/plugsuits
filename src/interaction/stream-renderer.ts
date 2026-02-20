@@ -309,24 +309,12 @@ const handleToolInputStart = (
     return "none";
   }
 
-  writeLine(ctx);
-  const toolName = ctx.useColor
-    ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
-    : part.toolName;
-  const callId = ctx.useColor
-    ? `${colors.dim}${colors.gray}(${toolCallId})${colors.reset}`
-    : `(${toolCallId})`;
-  writeLine(ctx, `${renderToolLabel(ctx)} ${toolName} ${callId}`);
-  const inputLabel = ctx.useColor
-    ? `${colors.cyan}input:${colors.reset}`
-    : "input:";
-  write(ctx, `${inputLabel} `);
   ctx.activeToolInputs.set(toolCallId, {
     toolName: part.toolName,
     hasContent: false,
   });
   ctx.streamedToolCallIds.add(toolCallId);
-  return "tool-input";
+  return "none";
 };
 
 const handleToolInputDelta = (
@@ -344,31 +332,34 @@ const handleToolInputDelta = (
       toolName: "tool",
       hasContent: false,
     });
-    writeLine(ctx);
-    const toolName = ctx.useColor
-      ? `${colors.bold}${colors.brightYellow}tool${colors.reset}`
-      : "tool";
-    const callId = ctx.useColor
-      ? `${colors.dim}${colors.gray}(${toolCallId})${colors.reset}`
-      : `(${toolCallId})`;
-    writeLine(ctx, `${renderToolLabel(ctx)} ${toolName} ${callId}`);
-    const inputLabel = ctx.useColor
-      ? `${colors.cyan}input:${colors.reset}`
-      : "input:";
-    write(ctx, `${inputLabel} `);
   }
 
   const chunk = getToolInputChunk(part);
   if (chunk) {
-    write(ctx, chunk);
     const currentState = ctx.activeToolInputs.get(toolCallId);
+    if (currentState && !currentState.hasContent) {
+      writeLine(ctx);
+      const toolName = ctx.useColor
+        ? `${colors.bold}${colors.brightYellow}${currentState.toolName}${colors.reset}`
+        : currentState.toolName;
+      const callId = ctx.useColor
+        ? `${colors.dim}${colors.gray}(${toolCallId})${colors.reset}`
+        : `(${toolCallId})`;
+      writeLine(ctx, `${renderToolLabel(ctx)} ${toolName} ${callId}`);
+      const inputLabel = ctx.useColor
+        ? `${colors.cyan}input:${colors.reset}`
+        : "input:";
+      write(ctx, `${inputLabel} `);
+    }
+
+    write(ctx, chunk);
     if (currentState) {
       currentState.hasContent = true;
     }
   }
 
   ctx.streamedToolCallIds.add(toolCallId);
-  return "tool-input";
+  return chunk ? "tool-input" : "none";
 };
 
 const handleToolInputEnd = (

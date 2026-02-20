@@ -147,6 +147,7 @@ describe("renderFullStream tool input streaming", () => {
       },
     ]);
 
+    expect((output.match(/tool bash \(call_4\)/g) ?? []).length).toBe(1);
     expect(output).toContain("tool bash (call_4)");
     expect(output).toContain('"command": "ls -la"');
   });
