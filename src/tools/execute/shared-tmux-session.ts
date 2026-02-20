@@ -618,16 +618,26 @@ class SharedTmuxSession {
 
     const rawOutput = this.capturePane(true);
     const startToken = `${startMarker}\n`;
-    const startIndex = rawOutput.lastIndexOf(startToken);
+    const startTokenIndex = rawOutput.lastIndexOf(startToken);
+    const startIndex =
+      startTokenIndex === -1
+        ? rawOutput.lastIndexOf(startMarker)
+        : startTokenIndex;
+    const startMarkerLength =
+      startTokenIndex === -1 ? startMarker.length : startToken.length;
 
     const exitMatches = Array.from(
-      rawOutput.matchAll(new RegExp(`${exitMarkerPrefix}(\\d+)__\\n`, "g"))
+      rawOutput.matchAll(
+        new RegExp(`${exitMarkerPrefix}(\\d+)__(?:\\r?\\n|$)`, "g")
+      )
     );
     const lastExitMatch = exitMatches.at(-1);
     const exitIndex = lastExitMatch?.index ?? -1;
     const exitCode = lastExitMatch ? Number.parseInt(lastExitMatch[1], 10) : 0;
 
-    if (startIndex === -1 || exitIndex === -1 || exitIndex <= startIndex) {
+    const hasInvalidMarkerOrder = startIndex !== -1 && exitIndex <= startIndex;
+
+    if (exitIndex === -1 || hasInvalidMarkerOrder) {
       const currentScreen = this.capturePane(false);
       return {
         exitCode: 1,
@@ -642,7 +652,7 @@ class SharedTmuxSession {
       };
     }
 
-    const contentStart = startIndex + startToken.length;
+    const contentStart = startIndex === -1 ? 0 : startIndex + startMarkerLength;
     const cleanOutput = stripInternalMarkers(
       rawOutput.slice(contentStart, exitIndex)
     );

@@ -91,6 +91,17 @@ describe("SharedTmuxSession", () => {
       expect(result.output).toBe("line1\nline2\nline3");
     });
 
+    it("returns command result when start marker is trimmed from history", async () => {
+      const session = getSharedSession();
+      const result = await session.executeCommand("seq 1 60000");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("60000");
+      expect(result.output).not.toContain(
+        "[ERROR] Internal output capture failed - marker boundaries not found."
+      );
+    });
+
     it("handles heredoc commands without hanging", async () => {
       const session = getSharedSession();
       const result = await session.executeCommand(
