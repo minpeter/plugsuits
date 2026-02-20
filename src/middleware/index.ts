@@ -1,5 +1,5 @@
 import type { LanguageModelV3Middleware } from "@ai-sdk/provider";
-import { xmlToolMiddleware } from "@ai-sdk-tool/parser";
+import { morphXmlToolMiddleware } from "@ai-sdk-tool/parser";
 import { trimLeadingNewlinesMiddleware as trimMiddleware } from "./trim-leading-newlines";
 
 export interface MiddlewareOptions {
@@ -12,7 +12,7 @@ export function buildMiddlewares(
   const middlewares: LanguageModelV3Middleware[] = [trimMiddleware];
 
   if (options.enableToolFallback) {
-    middlewares.push(xmlToolMiddleware);
+    middlewares.push(morphXmlToolMiddleware);
   }
 
   return middlewares;
