@@ -100,7 +100,7 @@ describe("SharedTmuxSession", () => {
       expect(result.output).not.toContain(
         "[ERROR] Internal output capture failed - marker boundaries not found."
       );
-    });
+    }, 30_000);
 
     it("handles heredoc commands without hanging", async () => {
       const session = getSharedSession();

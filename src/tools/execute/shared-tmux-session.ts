@@ -270,6 +270,10 @@ class SharedTmuxSession {
 
       this.execSync(`sleep ${SHELL_READY_POLL_MS / 1000}`);
     }
+
+    throw new Error(
+      `Shell prompt not detected within ${SHELL_READY_TIMEOUT_MS}ms`
+    );
   }
 
   private isEnterKey(key: string): boolean {
