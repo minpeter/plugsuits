@@ -3,13 +3,13 @@ export interface CommandContext {
 }
 
 export interface CommandResult {
-  success: boolean;
   message?: string;
+  success: boolean;
 }
 
 export interface Command {
-  name: string;
+  argumentSuggestions?: string[];
   description: string;
   execute: (context: CommandContext) => CommandResult | Promise<CommandResult>;
-  argumentSuggestions?: string[];
+  name: string;
 }

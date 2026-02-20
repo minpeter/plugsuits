@@ -5,6 +5,7 @@ import {
   formatBackgroundMessage,
   formatTerminalScreen,
   formatTimeoutMessage,
+  stripInternalMarkers,
 } from "./format-utils";
 import { isInteractiveState } from "./interactive-detector";
 import {
@@ -15,12 +16,15 @@ import {
 const SESSION_PREFIX = "cea";
 const DEFAULT_TIMEOUT_MS = 180_000;
 const BACKGROUND_STARTUP_WAIT_MS = 3000;
+const SHELL_READY_POLL_MS = 100;
+const SHELL_READY_TIMEOUT_MS = 5000;
 const PANE_WIDTH = 160;
 const PANE_HEIGHT = 40;
 
 const ENTER_KEYS = new Set(["Enter", "C-m", "KPEnter", "C-j", "^M", "^J"]);
 const NEWLINE_PATTERN = /[\r\n]$/;
 const TRAILING_NEWLINES = /[\r\n]+$/;
+const PROMPT_LINE_PATTERN = /[$#%]\s*$/;
 const COMPOUND_COMMAND_PATTERN =
   /^\s*(\(|\{|if\b|for\b|while\b|until\b|case\b|select\b|function\b|\[\[)/;
 
@@ -32,8 +36,8 @@ function generateCommandId(): string {
 
 export interface SendKeysOptions {
   block?: boolean;
-  minTimeoutMs?: number;
   maxTimeoutMs?: number;
+  minTimeoutMs?: number;
 }
 
 export interface ExecuteResult {
@@ -53,6 +57,27 @@ function escapeShellArg(arg: string): string {
 
 function startsWithCompoundCommand(command: string): boolean {
   return COMPOUND_COMMAND_PATTERN.test(command);
+}
+
+function normalizeMultilineCommand(command: string): string {
+  const normalizedLineEndings = command.replace(/\r\n/g, "\n");
+
+  if (
+    !(
+      normalizedLineEndings.includes("\n") ||
+      normalizedLineEndings.includes("\r")
+    )
+  ) {
+    return command;
+  }
+
+  const escaped = normalizedLineEndings
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "'\\''")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n");
+
+  return `eval "$(printf '%b' '${escaped}')"`;
 }
 
 class SharedTmuxSession {
@@ -98,8 +123,7 @@ class SharedTmuxSession {
     return this.sessionId;
   }
 
-  private execSync(command: string): SpawnSyncReturns<string> {
-    // Clean environment for tests
+  private getCleanEnv(): Record<string, string> {
     const cleanEnv: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (
@@ -110,9 +134,27 @@ class SharedTmuxSession {
         cleanEnv[key] = value;
       }
     }
+
+    cleanEnv.LANG = "en_US.UTF-8";
+    cleanEnv.TERM = "xterm-256color";
+    return cleanEnv;
+  }
+
+  private execSync(command: string): SpawnSyncReturns<string> {
     return spawnSync("/bin/bash", ["-c", command], {
       encoding: "utf-8",
-      env: { ...cleanEnv, LANG: "en_US.UTF-8", TERM: "xterm-256color" },
+      env: this.getCleanEnv(),
+    });
+  }
+
+  private execTmuxCommand(
+    args: string[],
+    options: { input?: string } = {}
+  ): SpawnSyncReturns<string> {
+    return spawnSync(this.tmuxPath, args, {
+      encoding: "utf-8",
+      env: this.getCleanEnv(),
+      input: options.input,
     });
   }
 
@@ -121,20 +163,9 @@ class SharedTmuxSession {
     timeoutMs: number
   ): Promise<{ exitCode: number; stdout: string }> {
     return new Promise((resolve) => {
-      // Clean environment for tests
-      const cleanEnv: Record<string, string> = {};
-      for (const [key, value] of Object.entries(process.env)) {
-        if (
-          !key.startsWith("npm_") &&
-          key !== "NODE_ENV" &&
-          value !== undefined
-        ) {
-          cleanEnv[key] = value;
-        }
-      }
       const child = spawn("/bin/bash", ["-c", command], {
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...cleanEnv, LANG: "en_US.UTF-8", TERM: "xterm-256color" },
+        env: this.getCleanEnv(),
       });
 
       let stdout = "";
@@ -195,7 +226,7 @@ class SharedTmuxSession {
       "export SHELL=/bin/bash",
       // Clean npm environment variables to avoid shell errors
       "unset $(env | grep '^npm_' | cut -d= -f1)",
-      `${this.tmuxPath} new-session -x ${PANE_WIDTH} -y ${PANE_HEIGHT} -d -s ${this.sessionId} 'bash --login'`,
+      `${this.tmuxPath} new-session -x ${PANE_WIDTH} -y ${PANE_HEIGHT} -d -s ${this.sessionId} 'bash +H'`,
       `${this.tmuxPath} set-option -t ${this.sessionId} history-limit 50000`,
     ].join(" && ");
 
@@ -207,8 +238,38 @@ class SharedTmuxSession {
     this.execSync(
       `${this.tmuxPath} send-keys -t ${this.sessionId} 'set +H' Enter`
     );
+    this.waitForPrompt();
 
     this.initialized = true;
+  }
+
+  private getLastNonEmptyPaneLine(): string {
+    const capture = this.execSync(
+      `${this.tmuxPath} capture-pane -p -t ${this.sessionId}`
+    );
+    const lines = (capture.stdout || "").split("\n");
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line.length > 0) {
+        return line;
+      }
+    }
+
+    return "";
+  }
+
+  private waitForPrompt(): void {
+    const deadline = Date.now() + SHELL_READY_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      const lastLine = this.getLastNonEmptyPaneLine();
+      if (PROMPT_LINE_PATTERN.test(lastLine)) {
+        return;
+      }
+
+      this.execSync(`sleep ${SHELL_READY_POLL_MS / 1000}`);
+    }
   }
 
   private isEnterKey(key: string): boolean {
@@ -259,6 +320,41 @@ class SharedTmuxSession {
   private buildSendKeysCommand(keys: string[]): string {
     const escapedKeys = keys.map(escapeShellArg).join(" ");
     return `${this.tmuxPath} send-keys -t ${this.sessionId} ${escapedKeys}`;
+  }
+
+  private sendCommandText(text: string): void {
+    const bufferName = `cea-buffer-${generateCommandId()}`;
+    const loadResult = this.execTmuxCommand(
+      ["load-buffer", "-b", bufferName, "-"],
+      { input: text }
+    );
+    if (loadResult.status !== 0) {
+      throw new Error(`Failed to load tmux buffer: ${loadResult.stderr}`);
+    }
+
+    const pasteResult = this.execTmuxCommand([
+      "paste-buffer",
+      "-d",
+      "-b",
+      bufferName,
+      "-t",
+      this.sessionId,
+    ]);
+
+    if (pasteResult.status !== 0) {
+      throw new Error(`Failed to paste tmux buffer: ${pasteResult.stderr}`);
+    }
+  }
+
+  private async disableHistoryExpansion(): Promise<void> {
+    const waitChannel = `${this.sessionId}-histexp-${generateCommandId()}`;
+    const command = `set +H; ${this.tmuxPath} wait -S ${waitChannel}`;
+
+    this.execSync(this.buildSendKeysCommand(["C-u"]));
+    this.sendCommandText(command);
+    this.execSync(this.buildSendKeysCommand(["Enter"]));
+
+    await this.execAsync(`${this.tmuxPath} wait ${waitChannel}`, 2000);
   }
 
   private runExclusive<T>(task: () => Promise<T>): Promise<T> {
@@ -441,10 +537,19 @@ class SharedTmuxSession {
   ): Promise<ExecuteResult> {
     const startupWaitMs = Math.min(timeoutMs, BACKGROUND_STARTUP_WAIT_MS);
 
-    await this.sendKeys(["C-u", fullCommand, "Enter"], {
-      block: false,
-      minTimeoutMs: startupWaitMs,
-    });
+    await this.disableHistoryExpansion();
+
+    const startedAt = Date.now();
+    this.execSync(this.buildSendKeysCommand(["C-u"]));
+    this.sendCommandText(fullCommand);
+    this.execSync(this.buildSendKeysCommand(["Enter"]));
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < startupWaitMs) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, startupWaitMs - elapsed)
+      );
+    }
 
     const screen = this.capturePane(false);
     return {
@@ -462,18 +567,17 @@ class SharedTmuxSession {
     const exitMarkerPrefix = `__CEA_E_${cmdId}_`;
     const waitChannel = `${this.sessionId}-${cmdId}`;
 
+    await this.disableHistoryExpansion();
+
     const wrappedCommand = [
       `echo ${startMarker};`,
       `( trap 'echo ${exitMarkerPrefix}$?__' EXIT; ${fullCommand}; ) || true;`,
       `${this.tmuxPath} wait -S ${waitChannel}`,
     ].join(" ");
 
-    const sendCommand = this.buildSendKeysCommand([
-      "C-u",
-      wrappedCommand,
-      "Enter",
-    ]);
-    this.execSync(sendCommand);
+    this.execSync(this.buildSendKeysCommand(["C-u"]));
+    this.sendCommandText(wrappedCommand);
+    this.execSync(this.buildSendKeysCommand(["Enter"]));
 
     const waitResult = await this.execAsync(
       `${this.tmuxPath} wait ${waitChannel}`,
@@ -513,19 +617,35 @@ class SharedTmuxSession {
     }
 
     const rawOutput = this.capturePane(true);
+    const startToken = `${startMarker}\n`;
+    const startIndex = rawOutput.lastIndexOf(startToken);
 
-    const startIdx = rawOutput.lastIndexOf(startMarker);
-    const exitIdx = rawOutput.lastIndexOf(exitMarkerPrefix);
+    const exitMatches = Array.from(
+      rawOutput.matchAll(new RegExp(`${exitMarkerPrefix}(\\d+)__\\n`, "g"))
+    );
+    const lastExitMatch = exitMatches.at(-1);
+    const exitIndex = lastExitMatch?.index ?? -1;
+    const exitCode = lastExitMatch ? Number.parseInt(lastExitMatch[1], 10) : 0;
 
-    if (startIdx === -1 || exitIdx === -1) {
-      return { exitCode: 0, output: rawOutput.trim() };
+    if (startIndex === -1 || exitIndex === -1 || exitIndex <= startIndex) {
+      const currentScreen = this.capturePane(false);
+      return {
+        exitCode: 1,
+        output: [
+          "[ERROR] Internal output capture failed - marker boundaries not found.",
+          "",
+          "Command may still be running in the terminal session.",
+          "Use shell_interact with '<Ctrl+C>' to recover if needed.",
+          "",
+          formatTerminalScreen(currentScreen),
+        ].join("\n"),
+      };
     }
 
-    const exitPattern = new RegExp(`${exitMarkerPrefix}(\\d+)__`);
-    const exitMatch = rawOutput.slice(exitIdx).match(exitPattern);
-    const exitCode = exitMatch ? Number.parseInt(exitMatch[1], 10) : 0;
-    const contentStart = startIdx + startMarker.length;
-    const cleanOutput = rawOutput.slice(contentStart, exitIdx).trim();
+    const contentStart = startIndex + startToken.length;
+    const cleanOutput = stripInternalMarkers(
+      rawOutput.slice(contentStart, exitIndex)
+    );
 
     return { exitCode, output: cleanOutput };
   }
@@ -568,11 +688,16 @@ class SharedTmuxSession {
         fullCommand = `cd ${escapeShellArg(workdir)} && ${wrappedCommand}`;
       }
 
-      if (this.endsWithBackgroundOperator(fullCommand)) {
-        return await this.executeAsBackgroundProcess(fullCommand, timeoutMs);
+      const normalizedCommand = normalizeMultilineCommand(fullCommand);
+
+      if (this.endsWithBackgroundOperator(normalizedCommand)) {
+        return await this.executeAsBackgroundProcess(
+          normalizedCommand,
+          timeoutMs
+        );
       }
 
-      return await this.executeWithUniqueMarkers(fullCommand, timeoutMs);
+      return await this.executeWithUniqueMarkers(normalizedCommand, timeoutMs);
     });
   }
 

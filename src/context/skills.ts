@@ -15,11 +15,12 @@ const BUNDLED_SKILLS_DIR = join(__dirname, "../skills");
 // ============================================================================
 
 export interface SkillInfo {
+  argumentHint?: string; // For slash commands
+  description: string;
+  dirPath?: string; // Only for v2 skills
+  format: "legacy" | "v2" | "command";
   id: string;
   name: string;
-  description: string;
-  version?: string;
-  format: "legacy" | "v2" | "command";
   path: string;
   source:
     | "bundled"
@@ -27,26 +28,25 @@ export interface SkillInfo {
     | "project"
     | "global-command"
     | "project-command";
-  dirPath?: string; // Only for v2 skills
-  argumentHint?: string; // For slash commands
+  version?: string;
 }
 
 interface SkillFrontmatter {
-  name?: string;
-  description?: string;
-  version?: string;
-  triggers?: string[];
-  license?: string;
+  "allowed-tools"?: string;
+  "argument-hint"?: string;
   compatibility?: string;
+  description?: string;
+  "disable-model-invocation"?: boolean;
+  license?: string;
   metadata?: {
     author?: string;
     version?: string;
     [key: string]: unknown;
   };
-  "allowed-tools"?: string;
-  "argument-hint"?: string;
   model?: string;
-  "disable-model-invocation"?: boolean;
+  name?: string;
+  triggers?: string[];
+  version?: string;
 }
 
 // ============================================================================
@@ -318,12 +318,12 @@ async function loadV2Skills(
 // ============================================================================
 
 interface SlashCommandInfo {
+  argumentHint?: string;
+  description: string;
   id: string;
   name: string;
-  description: string;
   path: string;
   source: "global-command" | "project-command";
-  argumentHint?: string;
 }
 
 async function loadSlashCommands(

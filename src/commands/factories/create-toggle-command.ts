@@ -2,13 +2,13 @@ import { colorize } from "../../interaction/colors";
 import type { Command, CommandResult } from "../types";
 
 export interface ToggleCommandConfig {
-  name: string;
   description: string;
-  getter: () => boolean;
-  setter: (value: boolean) => void;
-  featureName: string;
-  enabledMessage?: string;
   disabledMessage?: string;
+  enabledMessage?: string;
+  featureName: string;
+  getter: () => boolean;
+  name: string;
+  setter: (value: boolean) => void;
 }
 
 export function createToggleCommand(config: ToggleCommandConfig): Command {

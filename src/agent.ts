@@ -80,9 +80,9 @@ function getGeminiThinkingConfig(
 }
 
 interface CreateAgentOptions {
-  instructions?: string;
   enableThinking?: boolean;
   enableToolFallback?: boolean;
+  instructions?: string;
   provider?: ProviderType;
 }
 

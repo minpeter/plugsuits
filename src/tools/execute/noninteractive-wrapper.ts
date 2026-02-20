@@ -2,19 +2,19 @@ import { platform } from "node:os";
 
 export interface WrapperResult {
   command: string;
-  env: Record<string, string>;
-  wrapped: boolean;
-  tool: string | null;
   description: string | null;
+  env: Record<string, string>;
+  tool: string | null;
+  wrapped: boolean;
 }
 
 interface ToolPattern {
-  pattern: RegExp;
-  name: string;
+  description: string;
   env: Record<string, string>;
+  name: string;
+  pattern: RegExp;
   prefixArgs?: string[];
   suffixArgs?: string[];
-  description: string;
 }
 
 const TOOL_PATTERNS: ToolPattern[] = [
@@ -228,8 +228,9 @@ function appendArgs(command: string, args: string[]): string {
 }
 
 function getBaseEnv(): Record<string, string> {
+  const locale = process.env.LC_ALL ?? process.env.LANG ?? "en_US.UTF-8";
+
   const baseEnv: Record<string, string> = {
-    ...process.env,
     CI: "true",
     NONINTERACTIVE: "1",
     NO_TTY: "1",
@@ -245,7 +246,7 @@ function getBaseEnv(): Record<string, string> {
     baseEnv.GIT_PAGER = "cat";
     baseEnv.PAGER = "cat";
     baseEnv.LESS = "-FX";
-    baseEnv.LC_ALL = "en_US.UTF-8";
+    baseEnv.LC_ALL = locale;
   }
 
   return baseEnv;

@@ -9,8 +9,8 @@ import { formatBlock } from "./safety-utils";
 const MAX_MATCHES = 20_000;
 
 interface GrepResult {
-  matches: string;
   matchCount: number;
+  matches: string;
   truncated: boolean;
 }
 

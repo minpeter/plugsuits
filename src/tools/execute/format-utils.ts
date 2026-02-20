@@ -80,9 +80,9 @@ export function formatSystemReminder(message: string): string {
 }
 
 export interface TimeoutMessageOptions {
-  timeoutMs: number;
-  terminalScreen: string;
   sessionId?: string;
+  terminalScreen: string;
+  timeoutMs: number;
 }
 
 export function formatTimeoutMessage(options: TimeoutMessageOptions): string;

@@ -5,35 +5,75 @@ import { colorize, colors } from "./colors";
 
 export interface StreamRenderOptions {
   output?: Writable;
-  showReasoning?: boolean;
-  showSteps?: boolean;
-  showFinishReason?: boolean;
-  showToolResults?: boolean;
-  showSources?: boolean;
   showFiles?: boolean;
-  useColor?: boolean;
-  smoothStream?: boolean;
+  showFinishReason?: boolean;
+  showReasoning?: boolean;
+  showSources?: boolean;
+  showSteps?: boolean;
+  showToolResults?: boolean;
   smoothDelayMs?: number;
+  smoothStream?: boolean;
+  useColor?: boolean;
 }
 
-type StreamMode = "text" | "reasoning" | "none";
+type StreamMode = "text" | "reasoning" | "tool-input" | "none";
 
 interface RenderContext {
+  activeToolInputs: Map<string, ToolInputRenderState>;
   output: Writable;
-  showReasoning: boolean;
-  showSteps: boolean;
-  showFinishReason: boolean;
-  showToolResults: boolean;
-  showSources: boolean;
-  showFiles: boolean;
-  useColor: boolean;
   reasoningLineLength: number;
-  terminalWidth: number;
-  smoothStream: boolean;
-  smoothDelayMs: number;
-  textBuffer: string;
   segmenter: Intl.Segmenter;
+  showFiles: boolean;
+  showFinishReason: boolean;
+  showReasoning: boolean;
+  showSources: boolean;
+  showSteps: boolean;
+  showToolResults: boolean;
+  smoothDelayMs: number;
+  smoothStream: boolean;
+  streamedToolCallIds: Set<string>;
+  terminalWidth: number;
+  textBuffer: string;
+  useColor: boolean;
 }
+
+interface ToolInputRenderState {
+  hasContent: boolean;
+  toolName: string;
+}
+
+const getToolInputId = (
+  part:
+    | Extract<StreamPart, { type: "tool-input-start" }>
+    | Extract<StreamPart, { type: "tool-input-delta" }>
+    | Extract<StreamPart, { type: "tool-input-end" }>
+): string | undefined => {
+  const anyPart = part as {
+    id?: string;
+    toolCallId?: string;
+  };
+
+  return anyPart.id ?? anyPart.toolCallId;
+};
+
+const getToolInputChunk = (
+  part: Extract<StreamPart, { type: "tool-input-delta" }>
+): string | null => {
+  const anyPart = part as {
+    delta?: unknown;
+    inputTextDelta?: unknown;
+  };
+
+  if (typeof anyPart.delta === "string") {
+    return anyPart.delta;
+  }
+
+  if (typeof anyPart.inputTextDelta === "string") {
+    return anyPart.inputTextDelta;
+  }
+
+  return null;
+};
 
 type StreamPart = TextStreamPart<ToolSet>;
 
@@ -227,9 +267,21 @@ const handleReasoningEnd = (ctx: RenderContext): StreamMode => {
 
 const handleToolCall = (
   ctx: RenderContext,
-  part: Extract<StreamPart, { type: "tool-call" }>
+  part: Extract<StreamPart, { type: "tool-call" }>,
+  mode: StreamMode
 ): StreamMode => {
-  writeLine(ctx);
+  if (mode === "tool-input") {
+    writeLine(ctx);
+  }
+
+  if (ctx.streamedToolCallIds.has(part.toolCallId)) {
+    ctx.activeToolInputs.delete(part.toolCallId);
+    ctx.streamedToolCallIds.delete(part.toolCallId);
+    return "none";
+  }
+
+  ctx.activeToolInputs.delete(part.toolCallId);
+
   const toolName = ctx.useColor
     ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
     : part.toolName;
@@ -241,6 +293,95 @@ const handleToolCall = (
     ? `${colors.cyan}input:${colors.reset}`
     : "input:";
   writeLine(ctx, `${inputLabel} ${formatBlock(part.input)}`);
+  return "none";
+};
+
+const handleToolInputStart = (
+  ctx: RenderContext,
+  part: Extract<StreamPart, { type: "tool-input-start" }>
+): StreamMode => {
+  const toolCallId = getToolInputId(part);
+  if (!toolCallId) {
+    return "none";
+  }
+
+  writeLine(ctx);
+  const toolName = ctx.useColor
+    ? `${colors.bold}${colors.brightYellow}${part.toolName}${colors.reset}`
+    : part.toolName;
+  const callId = ctx.useColor
+    ? `${colors.dim}${colors.gray}(${toolCallId})${colors.reset}`
+    : `(${toolCallId})`;
+  writeLine(ctx, `${renderToolLabel(ctx)} ${toolName} ${callId}`);
+  const inputLabel = ctx.useColor
+    ? `${colors.cyan}input:${colors.reset}`
+    : "input:";
+  write(ctx, `${inputLabel} `);
+  ctx.activeToolInputs.set(toolCallId, {
+    toolName: part.toolName,
+    hasContent: false,
+  });
+  ctx.streamedToolCallIds.add(toolCallId);
+  return "tool-input";
+};
+
+const handleToolInputDelta = (
+  ctx: RenderContext,
+  part: Extract<StreamPart, { type: "tool-input-delta" }>
+): StreamMode => {
+  const toolCallId = getToolInputId(part);
+  if (!toolCallId) {
+    return "none";
+  }
+
+  const state = ctx.activeToolInputs.get(toolCallId);
+  if (!state) {
+    ctx.activeToolInputs.set(toolCallId, {
+      toolName: "tool",
+      hasContent: false,
+    });
+    writeLine(ctx);
+    const toolName = ctx.useColor
+      ? `${colors.bold}${colors.brightYellow}tool${colors.reset}`
+      : "tool";
+    const callId = ctx.useColor
+      ? `${colors.dim}${colors.gray}(${toolCallId})${colors.reset}`
+      : `(${toolCallId})`;
+    writeLine(ctx, `${renderToolLabel(ctx)} ${toolName} ${callId}`);
+    const inputLabel = ctx.useColor
+      ? `${colors.cyan}input:${colors.reset}`
+      : "input:";
+    write(ctx, `${inputLabel} `);
+  }
+
+  const chunk = getToolInputChunk(part);
+  if (chunk) {
+    write(ctx, chunk);
+    const currentState = ctx.activeToolInputs.get(toolCallId);
+    if (currentState) {
+      currentState.hasContent = true;
+    }
+  }
+
+  ctx.streamedToolCallIds.add(toolCallId);
+  return "tool-input";
+};
+
+const handleToolInputEnd = (
+  ctx: RenderContext,
+  part: Extract<StreamPart, { type: "tool-input-end" }>,
+  mode: StreamMode
+): StreamMode => {
+  const toolCallId = getToolInputId(part);
+  if (!toolCallId) {
+    return "none";
+  }
+
+  if (mode === "tool-input") {
+    writeLine(ctx);
+  }
+
+  ctx.activeToolInputs.delete(toolCallId);
   return "none";
 };
 
@@ -369,13 +510,13 @@ const handleFinish = (
 };
 
 export interface ToolApprovalRequestPart {
-  type: "tool-approval-request";
   approvalId: string;
   toolCall: {
     toolName: string;
     toolCallId: string;
     input: unknown;
   };
+  type: "tool-approval-request";
 }
 
 export const renderFullStream = async <TOOLS extends ToolSet>(
@@ -397,6 +538,8 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
     smoothDelayMs: options.smoothDelayMs ?? 10,
     textBuffer: "",
     segmenter: new Intl.Segmenter("ko", { granularity: "word" }),
+    activeToolInputs: new Map<string, ToolInputRenderState>(),
+    streamedToolCallIds: new Set<string>(),
   };
 
   let mode: StreamMode = "none";
@@ -411,7 +554,7 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
         mode = await handleTextDelta(ctx, part, mode);
         break;
       case "text-end":
-        mode = await handleTextEnd(ctx, mode);
+        mode = handleTextEnd(ctx, mode);
         break;
       case "reasoning-start":
         mode = handleReasoningStart(ctx);
@@ -423,11 +566,16 @@ export const renderFullStream = async <TOOLS extends ToolSet>(
         mode = handleReasoningEnd(ctx);
         break;
       case "tool-input-start":
+        mode = handleToolInputStart(ctx, part);
+        break;
       case "tool-input-delta":
+        mode = handleToolInputDelta(ctx, part);
+        break;
       case "tool-input-end":
+        mode = handleToolInputEnd(ctx, part, mode);
         break;
       case "tool-call":
-        mode = handleToolCall(ctx, part);
+        mode = handleToolCall(ctx, part, mode);
         break;
       case "tool-result":
         mode = handleToolResult(ctx, part);

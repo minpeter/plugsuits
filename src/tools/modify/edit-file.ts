@@ -4,21 +4,21 @@ import { tool } from "ai";
 import { z } from "zod";
 
 interface EditResult {
-  startLine: number;
-  endLine: number;
   context: string;
+  endLine: number;
+  startLine: number;
 }
 
 interface SimilarStringCandidate {
-  text: string;
+  context: string;
   lineNumber: number;
   similarity: number;
-  context: string;
+  text: string;
 }
 
 interface FileIssues {
-  hasNonAscii: boolean;
   hasCRLF: boolean;
+  hasNonAscii: boolean;
   hasReplacementChar: boolean;
   nonAsciiCount: number;
 }
@@ -348,9 +348,9 @@ async function handleFileCreation(
 }
 
 interface ReplaceResult {
+  editResults: EditResult[];
   newContent: string;
   replacementCount: number;
-  editResults: EditResult[];
 }
 
 function performReplaceAll(

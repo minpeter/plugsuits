@@ -33,34 +33,66 @@ const SPECIAL_KEYS: Record<string, string> = {
   "ctrl+r": "C-r",
 };
 
+const HTML_LT_PATTERN = /&lt;/gi;
+const HTML_GT_PATTERN = /&gt;/gi;
+const HTML_AMP_PATTERN = /&amp;/gi;
+const CTRL_DASH_SHORTCUT_PATTERN = /^c-[a-z]$/;
+const CTRL_DASH_PATTERN = /^ctrl-[a-z]$/;
+
+function normalizeSpecialToken(token: string): string {
+  const compact = token.toLowerCase().replace(/\s+/g, "");
+
+  if (CTRL_DASH_SHORTCUT_PATTERN.test(compact)) {
+    return `ctrl+${compact[2]}`;
+  }
+
+  if (CTRL_DASH_PATTERN.test(compact)) {
+    return `ctrl+${compact[5]}`;
+  }
+
+  return compact;
+}
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(HTML_LT_PATTERN, "<")
+    .replace(HTML_GT_PATTERN, ">")
+    .replace(HTML_AMP_PATTERN, "&");
+}
+
 function parseKeys(input: string): string[] {
+  const decodedInput = decodeHtmlEntities(input);
   const keys: string[] = [];
   let i = 0;
 
-  while (i < input.length) {
-    let matched = false;
+  while (i < decodedInput.length) {
+    const current = decodedInput[i];
 
-    for (const [name, tmuxKey] of Object.entries(SPECIAL_KEYS)) {
-      if (input.slice(i).toLowerCase().startsWith(`<${name}>`)) {
-        keys.push(tmuxKey);
-        i += name.length + 2;
-        matched = true;
-        break;
+    if (current === "<") {
+      const closingIndex = decodedInput.indexOf(">", i + 1);
+      if (closingIndex !== -1) {
+        const token = decodedInput.slice(i + 1, closingIndex);
+        const normalizedToken = normalizeSpecialToken(token);
+        const mappedKey = SPECIAL_KEYS[normalizedToken];
+
+        if (mappedKey) {
+          keys.push(mappedKey);
+          i = closingIndex + 1;
+          continue;
+        }
       }
     }
 
-    if (!matched) {
-      keys.push(input[i]);
-      i++;
-    }
+    keys.push(current);
+    i++;
   }
 
   return keys;
 }
 
 export interface InteractResult {
-  success: boolean;
   output: string;
+  success: boolean;
 }
 
 export const shellInteractTool = tool({

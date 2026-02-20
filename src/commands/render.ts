@@ -9,13 +9,13 @@ import { buildMiddlewares } from "../middleware";
 import type { Command, CommandResult } from "./types";
 
 interface RenderData {
+  instructions: string;
+  messages: ModelMessage[];
   model: string;
   modelType: ModelType;
-  instructions: string;
-  tools: ToolSet;
-  messages: ModelMessage[];
   thinkingEnabled: boolean;
   toolFallbackEnabled: boolean;
+  tools: ToolSet;
 }
 
 /**

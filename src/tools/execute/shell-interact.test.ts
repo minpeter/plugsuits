@@ -165,6 +165,18 @@ describe("shellInteractTool", () => {
 
       expect(result.success).toBe(true);
     });
+
+    it("handles ctrl key tokens with dash syntax", async () => {
+      const result = await interact("<C-c>");
+
+      expect(result.success).toBe(true);
+    });
+
+    it("handles html-escaped special key token", async () => {
+      const result = await interact("&lt;Ctrl+C&gt;");
+
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("Ctrl key combinations", () => {

@@ -54,8 +54,8 @@ function trimTrailingNewlines(message: ModelMessage): ModelMessage {
 }
 
 export interface Message {
-  id: string;
   createdAt: Date;
+  id: string;
   modelMessage: ModelMessage;
 }
 

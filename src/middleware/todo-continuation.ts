@@ -4,11 +4,11 @@ import { TODO_DIR } from "../context/paths";
 import { getSessionId, hasActiveSession } from "../context/session";
 
 export interface TodoItem {
-  id: string;
   content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-  priority: "high" | "medium" | "low";
   description?: string;
+  id: string;
+  priority: "high" | "medium" | "low";
+  status: "pending" | "in_progress" | "completed" | "cancelled";
 }
 
 interface TodoData {

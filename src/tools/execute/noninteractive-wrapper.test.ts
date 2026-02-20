@@ -243,6 +243,17 @@ describe("wrapCommandNonInteractive", () => {
       expect(result.command).toBe("ls -la");
       expect(result.env.CI).toBe("true");
     });
+
+    it("does not inherit arbitrary process environment variables", () => {
+      process.env.CEA_TEST_RANDOM_ENV = "should-not-propagate";
+
+      try {
+        const result = wrapCommandNonInteractive("echo hello");
+        expect(result.env.CEA_TEST_RANDOM_ENV).toBeUndefined();
+      } finally {
+        process.env.CEA_TEST_RANDOM_ENV = undefined;
+      }
+    });
   });
 });
 
@@ -285,5 +296,11 @@ describe("getFullWrappedCommand", () => {
 
     expect(result).toContain("CI='true'");
     expect(result).toContain("echo hello");
+  });
+
+  it("keeps wrapped command length compact", () => {
+    const result = getFullWrappedCommand("echo hello");
+
+    expect(result.length).toBeLessThan(1000);
   });
 });

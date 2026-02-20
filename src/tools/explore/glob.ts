@@ -7,8 +7,8 @@ import { formatBlock, getIgnoreFilter } from "./safety-utils";
 const MAX_RESULTS = 500;
 
 interface FileWithMtime {
-  path: string;
   mtime: Date;
+  path: string;
 }
 
 const inputSchema = z.object({

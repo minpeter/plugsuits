@@ -137,15 +137,15 @@ export async function checkFileReadable(
 }
 
 export interface ReadFileOptions {
-  offset?: number;
   limit?: number;
+  offset?: number;
 }
 
 export interface ReadFileResult {
   content: string;
-  totalLines: number;
-  startLine: number;
   endLine: number;
+  startLine: number;
+  totalLines: number;
   truncated: boolean;
 }
 
@@ -207,8 +207,8 @@ export function formatBlock(title: string, body: string): string {
 }
 
 export interface LineWindow {
-  startLine1: number;
   endLine1: number;
+  startLine1: number;
 }
 
 export function computeLineWindow(params: {
@@ -224,13 +224,13 @@ export function computeLineWindow(params: {
 }
 
 export interface ReadFileResultEnhanced {
-  content: string;
-  numberedContent: string;
-  totalLines: number;
-  startLine1: number;
-  endLine1: number;
-  truncated: boolean;
   bytes: number;
+  content: string;
+  endLine1: number;
+  numberedContent: string;
+  startLine1: number;
+  totalLines: number;
+  truncated: boolean;
 }
 
 export async function safeReadFileEnhanced(

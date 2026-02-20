@@ -4,8 +4,8 @@ import type { Command, CommandContext, CommandResult } from "./types";
 
 export interface SkillCommandResult extends CommandResult {
   isSkill: true;
-  skillId: string;
   skillContent: string;
+  skillId: string;
 }
 
 const commands = new Map<string, Command>();

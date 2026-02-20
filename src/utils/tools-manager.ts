@@ -18,16 +18,16 @@ const VERSION_PREFIX_REGEX = /^v/;
 const ARCHIVE_EXTENSION_REGEX = /\.(tar\.gz|zip)$/;
 
 interface ToolConfig {
-  name: string;
-  repo: string; // GitHub repo (e.g., "BurntSushi/ripgrep")
   binaryName: string; // Name of the binary inside the archive
-  tagPrefix: string; // Prefix for tags (e.g., "v" for v1.0.0, "" for 1.0.0)
-  installable: boolean; // Can this tool be auto-installed?
   getAssetName: (
     version: string,
     plat: string,
     architecture: string
   ) => string | null;
+  installable: boolean; // Can this tool be auto-installed?
+  name: string;
+  repo: string; // GitHub repo (e.g., "BurntSushi/ripgrep")
+  tagPrefix: string; // Prefix for tags (e.g., "v" for v1.0.0, "" for 1.0.0)
 }
 
 const TOOLS: Record<string, ToolConfig> = {

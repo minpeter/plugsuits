@@ -216,20 +216,20 @@ const graphemeSegmenter =
     : null;
 
 interface Suggestion {
-  value: string;
   description: string;
+  value: string;
 }
 
 interface InputState {
   buffer: string;
   cursor: number;
-  suggestions: Suggestion[];
-  suggestionIndex: number;
-  lastSuggestionRows: number;
-  lastInputRows: number;
-  lastCursorRow: number;
   historyIndex: number;
+  lastCursorRow: number;
+  lastInputRows: number;
+  lastSuggestionRows: number;
   originalBuffer: string;
+  suggestionIndex: number;
+  suggestions: Suggestion[];
 }
 
 type InputAction = "submit" | "cancel" | "continue";

@@ -8,16 +8,16 @@ import type { Command, CommandResult } from "./types";
 interface ModelInfo {
   id: string;
   name?: string;
-  type?: "serverless" | "dedicated";
-  status?: string;
   provider: ProviderType;
+  status?: string;
+  type?: "serverless" | "dedicated";
 }
 
 interface DedicatedEndpointData {
-  status: string;
   createdAt: string;
-  updatedAt: string;
   phase?: string;
+  status: string;
+  updatedAt: string;
 }
 
 let cachedModels: ModelInfo[] | null = null;

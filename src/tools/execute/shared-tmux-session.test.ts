@@ -91,6 +91,19 @@ describe("SharedTmuxSession", () => {
       expect(result.output).toBe("line1\nline2\nline3");
     });
 
+    it("handles heredoc commands without hanging", async () => {
+      const session = getSharedSession();
+      const result = await session.executeCommand(
+        "cat <<'EOF'\nalpha\nbeta\nEOF",
+        {
+          timeoutMs: 5000,
+        }
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toBe("alpha\nbeta");
+    });
+
     it("handles empty output", async () => {
       const session = getSharedSession();
       const result = await session.executeCommand("true");

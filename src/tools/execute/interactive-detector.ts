@@ -16,8 +16,8 @@ const KNOWN_SHELLS = [
 const SESSION_ID_PATTERN = /^[\w.-]+$/;
 
 export interface InteractiveStateResult {
-  isInteractive: boolean;
   currentProcess: string | null;
+  isInteractive: boolean;
   reason?: string;
 }
 
