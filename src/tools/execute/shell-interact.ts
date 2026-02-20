@@ -33,8 +33,8 @@ const SPECIAL_KEYS: Record<string, string> = {
   "ctrl+r": "C-r",
 };
 
-const HTML_LT_PATTERN = /&lt;/gi;
-const HTML_GT_PATTERN = /&gt;/gi;
+const HTML_TOKEN_START = "&lt;";
+const HTML_TOKEN_END = "&gt;";
 const HTML_AMP_PATTERN = /&amp;/gi;
 const CTRL_DASH_SHORTCUT_PATTERN = /^c-[a-z]$/;
 const CTRL_DASH_PATTERN = /^ctrl-[a-z]$/;
@@ -53,31 +53,43 @@ function normalizeSpecialToken(token: string): string {
   return compact;
 }
 
-function decodeHtmlEntities(input: string): string {
-  return input
-    .replace(HTML_LT_PATTERN, "<")
-    .replace(HTML_GT_PATTERN, ">")
-    .replace(HTML_AMP_PATTERN, "&");
+function mapSpecialToken(token: string): string | undefined {
+  const normalizedToken = normalizeSpecialToken(token);
+  return SPECIAL_KEYS[normalizedToken];
 }
 
-function parseKeys(input: string): string[] {
-  const decodedInput = decodeHtmlEntities(input);
+export function parseKeys(input: string): string[] {
   const keys: string[] = [];
   let i = 0;
 
-  while (i < decodedInput.length) {
-    const current = decodedInput[i];
+  while (i < input.length) {
+    const current = input[i];
 
     if (current === "<") {
-      const closingIndex = decodedInput.indexOf(">", i + 1);
+      const closingIndex = input.indexOf(">", i + 1);
       if (closingIndex !== -1) {
-        const token = decodedInput.slice(i + 1, closingIndex);
-        const normalizedToken = normalizeSpecialToken(token);
-        const mappedKey = SPECIAL_KEYS[normalizedToken];
+        const token = input.slice(i + 1, closingIndex);
+        const mappedKey = mapSpecialToken(token);
 
         if (mappedKey) {
           keys.push(mappedKey);
           i = closingIndex + 1;
+          continue;
+        }
+      }
+    }
+
+    if (input.startsWith(HTML_TOKEN_START, i)) {
+      const tokenStart = i + HTML_TOKEN_START.length;
+      const encodedClosingIndex = input.indexOf(HTML_TOKEN_END, tokenStart);
+      if (encodedClosingIndex !== -1) {
+        const encodedToken = input.slice(tokenStart, encodedClosingIndex);
+        const token = encodedToken.replace(HTML_AMP_PATTERN, "&");
+        const mappedKey = mapSpecialToken(token);
+
+        if (mappedKey) {
+          keys.push(mappedKey);
+          i = encodedClosingIndex + HTML_TOKEN_END.length;
           continue;
         }
       }

@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { cleanupSession, getSharedSession } from "./shared-tmux-session";
-import { type InteractResult, shellInteractTool } from "./shell-interact";
+import {
+  type InteractResult,
+  parseKeys,
+  shellInteractTool,
+} from "./shell-interact";
 
 async function interact(
   keystrokes: string,
@@ -176,6 +180,16 @@ describe("shellInteractTool", () => {
       const result = await interact("&lt;Ctrl+C&gt;");
 
       expect(result.success).toBe(true);
+    });
+
+    it("preserves HTML entities in plain text", () => {
+      const parsed = parseKeys(
+        "echo '&lt;entity-preserve-tag&gt; &amp; preserve-amp'"
+      );
+
+      expect(parsed.join("")).toBe(
+        "echo '&lt;entity-preserve-tag&gt; &amp; preserve-amp'"
+      );
     });
   });
 
