@@ -315,14 +315,6 @@ export function getFullWrappedCommand(command: string): string {
   return `${envPrefix}${result.command}`;
 }
 
-export function isLinux(): boolean {
-  return platform() === "linux";
-}
-
-export function isDarwin(): boolean {
-  return platform() === "darwin";
-}
-
 function isWindows(): boolean {
   return platform() === "win32";
 }
