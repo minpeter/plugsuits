@@ -9,8 +9,10 @@ export interface CommandResult {
 }
 
 export interface Command {
+  aliases?: string[];
   argumentSuggestions?: string[];
   description: string;
+  displayName?: string;
   execute: (context: CommandContext) => CommandResult | Promise<CommandResult>;
   name: string;
 }

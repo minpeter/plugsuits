@@ -7,6 +7,8 @@ const newSessionAction = (): CommandResult => ({
 
 export const createClearCommand = (): Command => ({
   name: "clear",
-  description: "Start a new session (Pi-compatible alias for /new)",
+  displayName: "clear (new)",
+  aliases: ["new"],
+  description: "Start a new session",
   execute: () => newSessionAction(),
 });

@@ -441,6 +441,7 @@ interface PiTuiStreamState {
   ensureAssistantView: () => AssistantStreamView;
   ensureToolView: (toolCallId: string, toolName: string) => ToolCallView;
   flags: PiTuiRenderFlags;
+  resetAssistantView: () => void;
   streamedToolCallIds: Set<string>;
 }
 
@@ -487,6 +488,7 @@ const handleToolInputStart: StreamPartHandler = (part, state) => {
     hasContent: false,
   });
   state.streamedToolCallIds.add(toolCallId);
+  state.resetAssistantView();
   state.ensureToolView(toolCallId, toolInputStartPart.toolName);
 };
 
@@ -509,6 +511,7 @@ const handleToolInputDelta: StreamPartHandler = (part, state) => {
 
   const toolState = state.activeToolInputs.get(toolCallId);
   const toolName = toolState?.toolName ?? "tool";
+  state.resetAssistantView();
   const toolView = state.ensureToolView(toolCallId, toolName);
   const chunk = getToolInputChunk(toolInputDeltaPart);
 
@@ -543,6 +546,7 @@ const handleToolCall: StreamPartHandler = (part, state) => {
   state.activeToolInputs.delete(toolCallPart.toolCallId);
   state.streamedToolCallIds.delete(toolCallPart.toolCallId);
 
+  state.resetAssistantView();
   const view = state.ensureToolView(
     toolCallPart.toolCallId,
     toolCallPart.toolName
@@ -560,6 +564,7 @@ const handleToolResult: StreamPartHandler = (part, state) => {
   }
 
   const toolResultPart = part as Extract<StreamPart, { type: "tool-result" }>;
+  state.resetAssistantView();
   const view = state.ensureToolView(
     toolResultPart.toolCallId,
     toolResultPart.toolName
@@ -569,6 +574,7 @@ const handleToolResult: StreamPartHandler = (part, state) => {
 
 const handleToolError: StreamPartHandler = (part, state) => {
   const toolErrorPart = part as Extract<StreamPart, { type: "tool-error" }>;
+  state.resetAssistantView();
   const view = state.ensureToolView(
     toolErrorPart.toolCallId,
     toolErrorPart.toolName
@@ -581,6 +587,7 @@ const handleToolOutputDenied: StreamPartHandler = (part, state) => {
     StreamPart,
     { type: "tool-output-denied" }
   >;
+  state.resetAssistantView();
   const view = state.ensureToolView(deniedPart.toolCallId, deniedPart.toolName);
   view.setOutputDenied();
 };
@@ -589,6 +596,7 @@ const handleStartStep: StreamPartHandler = (_part, state) => {
   if (!state.flags.showSteps) {
     return;
   }
+  state.resetAssistantView();
   addChatComponent(state.chatContainer, createInfoMessage("[step start]", ""));
 };
 
@@ -597,6 +605,7 @@ const handleFinishStep: StreamPartHandler = (part, state) => {
     return;
   }
   const finishStepPart = part as Extract<StreamPart, { type: "finish-step" }>;
+  state.resetAssistantView();
   addChatComponent(
     state.chatContainer,
     createInfoMessage("[step finish]", finishStepPart.finishReason)
@@ -607,6 +616,7 @@ const handleSource: StreamPartHandler = (part, state) => {
   if (!state.flags.showSources) {
     return;
   }
+  state.resetAssistantView();
   addChatComponent(state.chatContainer, createInfoMessage("[source]", part));
 };
 
@@ -615,6 +625,7 @@ const handleFile: StreamPartHandler = (part, state) => {
     return;
   }
   const filePart = part as Extract<StreamPart, { type: "file" }>;
+  state.resetAssistantView();
   addChatComponent(
     state.chatContainer,
     createInfoMessage("[file]", filePart.file)
@@ -627,6 +638,7 @@ const handleFinish: StreamPartHandler = (part, state) => {
   }
 
   const finishPart = part as Extract<StreamPart, { type: "finish" }>;
+  state.resetAssistantView();
   addChatComponent(
     state.chatContainer,
     createInfoMessage("[finish]", finishPart.finishReason ?? "unknown")
@@ -670,6 +682,7 @@ const handleStreamPart = (part: StreamPart, state: PiTuiStreamState): void => {
     return;
   }
 
+  state.resetAssistantView();
   addChatComponent(
     state.chatContainer,
     createInfoMessage("[unknown part]", part)
@@ -693,6 +706,10 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
   const streamedToolCallIds = new Set<string>();
   const toolViews = new Map<string, ToolCallView>();
   let assistantView: AssistantStreamView | null = null;
+
+  const resetAssistantView = (): void => {
+    assistantView = null;
+  };
 
   const ensureAssistantView = (): AssistantStreamView => {
     if (!assistantView) {
@@ -722,6 +739,7 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
     flags,
     activeToolInputs,
     streamedToolCallIds,
+    resetAssistantView,
     ensureAssistantView,
     ensureToolView,
     chatContainer: options.chatContainer,

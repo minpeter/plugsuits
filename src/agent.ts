@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
-import { ToolLoopAgent, wrapLanguageModel } from "ai";
+import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
@@ -11,11 +11,24 @@ import {
   buildTodoContinuationPrompt,
   getIncompleteTodos,
 } from "./middleware/todo-continuation";
+import {
+  DEFAULT_TOOL_FALLBACK_MODE,
+  LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+  type ToolFallbackMode,
+} from "./tool-fallback-mode";
 import { tools } from "./tools";
 
 export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.5";
 export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-5-20250929";
 const OUTPUT_TOKEN_MAX = 64_000;
+
+type CoreStreamResult = ReturnType<typeof streamText>;
+
+export interface AgentStreamResult {
+  finishReason: CoreStreamResult["finishReason"];
+  fullStream: CoreStreamResult["fullStream"];
+  response: CoreStreamResult["response"];
+}
 
 export type ProviderType = "friendli" | "anthropic";
 
@@ -39,9 +52,9 @@ const anthropic = env.ANTHROPIC_API_KEY
 
 interface CreateAgentOptions {
   enableThinking?: boolean;
-  enableToolFallback?: boolean;
   instructions?: string;
   provider?: ProviderType;
+  toolFallbackMode?: ToolFallbackMode;
 }
 
 const getModel = (modelId: string, provider: ProviderType) => {
@@ -114,18 +127,26 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
     ? ANTHROPIC_MAX_OUTPUT_TOKENS - ANTHROPIC_THINKING_BUDGET_TOKENS
     : OUTPUT_TOKEN_MAX;
 
-  return new ToolLoopAgent({
-    model: wrapLanguageModel({
-      model,
-      middleware: buildMiddlewares({
-        enableToolFallback: options.enableToolFallback ?? false,
-      }),
+  const wrappedModel = wrapLanguageModel({
+    model,
+    middleware: buildMiddlewares({
+      toolFallbackMode: options.toolFallbackMode ?? DEFAULT_TOOL_FALLBACK_MODE,
     }),
-    instructions: options.instructions || SYSTEM_PROMPT,
-    tools,
-    maxOutputTokens,
-    providerOptions,
   });
+
+  return {
+    stream: ({ messages }: { messages: ModelMessage[] }) => {
+      return streamText({
+        model: wrappedModel,
+        system: options.instructions || SYSTEM_PROMPT,
+        tools,
+        messages,
+        maxOutputTokens,
+        providerOptions,
+        stopWhen: stepCountIs(1),
+      });
+    },
+  };
 };
 
 export type ModelType = "serverless" | "dedicated";
@@ -136,7 +157,7 @@ class AgentManager {
   private provider: ProviderType = "friendli";
   private headlessMode = false;
   private thinkingEnabled = false;
-  private toolFallbackEnabled = false;
+  private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
 
   getModelId(): string {
     return this.modelId;
@@ -183,12 +204,22 @@ class AgentManager {
     return this.thinkingEnabled;
   }
 
+  getToolFallbackMode(): ToolFallbackMode {
+    return this.toolFallbackMode;
+  }
+
+  setToolFallbackMode(mode: ToolFallbackMode): void {
+    this.toolFallbackMode = mode;
+  }
+
   setToolFallbackEnabled(enabled: boolean): void {
-    this.toolFallbackEnabled = enabled;
+    this.toolFallbackMode = enabled
+      ? LEGACY_ENABLED_TOOL_FALLBACK_MODE
+      : DEFAULT_TOOL_FALLBACK_MODE;
   }
 
   isToolFallbackEnabled(): boolean {
-    return this.toolFallbackEnabled;
+    return this.toolFallbackMode !== DEFAULT_TOOL_FALLBACK_MODE;
   }
 
   async getInstructions(): Promise<string> {
@@ -211,11 +242,11 @@ class AgentManager {
     return tools;
   }
 
-  async stream(messages: ModelMessage[]) {
+  async stream(messages: ModelMessage[]): Promise<AgentStreamResult> {
     const agent = createAgent(this.modelId, {
       instructions: await this.getInstructions(),
       enableThinking: this.thinkingEnabled,
-      enableToolFallback: this.toolFallbackEnabled,
+      toolFallbackMode: this.toolFallbackMode,
       provider: this.provider,
     });
     return agent.stream({ messages });

@@ -5,9 +5,19 @@ import { MessageHistory } from "../context/message-history";
 import { setSessionId } from "../context/session";
 import { env } from "../env";
 import {
+  MANUAL_TOOL_LOOP_MAX_STEPS,
+  shouldContinueManualToolLoop,
+} from "../interaction/tool-loop-control";
+import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
+import {
+  DEFAULT_TOOL_FALLBACK_MODE,
+  LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+  parseToolFallbackMode,
+  type ToolFallbackMode,
+} from "../tool-fallback-mode";
 import { cleanupSession } from "../tools/execute/shared-tmux-session";
 import { initializeTools } from "../utils/tools-manager";
 
@@ -64,46 +74,84 @@ process.on("SIGINT", () => {
 });
 
 const startTime = Date.now();
-const TODO_CONTINUATION_MAX_LOOPS = 5;
 
 const emitEvent = (event: TrajectoryEvent): void => {
   console.log(JSON.stringify(event));
+};
+
+const parseToolFallbackCliOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; mode: ToolFallbackMode } | null => {
+  const arg = args[index];
+
+  if (arg === "--tool-fallback-mode") {
+    const parsedMode = parseToolFallbackMode(args[index + 1] ?? "");
+    return {
+      consumedArgs: 1,
+      mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
+    };
+  }
+
+  if (arg !== "--tool-fallback") {
+    return null;
+  }
+
+  const candidate = args[index + 1];
+  if (candidate && !candidate.startsWith("--")) {
+    const parsedMode = parseToolFallbackMode(candidate);
+    return {
+      consumedArgs: 1,
+      mode: parsedMode ?? LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+    };
+  }
+
+  return {
+    consumedArgs: 0,
+    mode: LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+  };
 };
 
 const parseArgs = (): {
   prompt: string;
   model?: string;
   thinking: boolean;
-  toolFallback: boolean;
+  toolFallbackMode: ToolFallbackMode;
 } => {
   const args = process.argv.slice(2);
   let prompt = "";
   let model: string | undefined;
   let thinking = false;
-  let toolFallback = false;
+  let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-p" || args[i] === "--prompt") {
+    const arg = args[i];
+
+    if (arg === "-p" || arg === "--prompt") {
       prompt = args[i + 1] || "";
       i++;
-    } else if (args[i] === "-m" || args[i] === "--model") {
+    } else if (arg === "-m" || arg === "--model") {
       model = args[i + 1] || undefined;
       i++;
-    } else if (args[i] === "--think") {
+    } else if (arg === "--think") {
       thinking = true;
-    } else if (args[i] === "--tool-fallback") {
-      toolFallback = true;
+    } else {
+      const toolFallbackOption = parseToolFallbackCliOption(args, i);
+      if (toolFallbackOption) {
+        toolFallbackMode = toolFallbackOption.mode;
+        i += toolFallbackOption.consumedArgs;
+      }
     }
   }
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--tool-fallback]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
     );
     process.exit(1);
   }
 
-  return { prompt, model, thinking, toolFallback };
+  return { prompt, model, thinking, toolFallbackMode };
 };
 
 const extractToolOutput = (
@@ -294,74 +342,96 @@ const emitMalformedToolCallsSummary = (
 const processAgentResponse = async (
   messageHistory: MessageHistory
 ): Promise<void> => {
-  const stream = await agentManager.stream(messageHistory.toModelMessages());
   const modelId = agentManager.getModelId();
+  let manualToolLoopCount = 0;
 
-  let currentText = "";
-  let currentReasoning = "";
-  const pendingToolCalls = new Map<string, PendingToolCall>();
-  const completedToolCallIds = new Set<string>();
-  let lastFinishReason: string | undefined;
+  while (true) {
+    const stream = await agentManager.stream(messageHistory.toModelMessages());
 
-  for await (const part of stream.fullStream) {
-    switch (part.type) {
-      case "text-delta":
-        currentText += part.text;
-        break;
-      case "reasoning-delta":
-        currentReasoning += part.text;
-        break;
-      case "tool-input-start":
-        handleToolInputStart(pendingToolCalls, part);
-        break;
-      case "tool-input-delta":
-        handleToolInputDelta(pendingToolCalls, part);
-        break;
-      case "tool-input-end":
-        break;
-      case "tool-call":
-        currentReasoning = emitToolCallEvent(
-          completedToolCallIds,
-          modelId,
-          currentReasoning,
-          part
-        );
-        break;
-      case "tool-result":
-        emitToolResultEvent(part);
-        break;
-      case "tool-error":
-        emitToolErrorEvent(part);
-        break;
-      case "finish-step": {
-        const finishPart = part as { finishReason: string };
-        lastFinishReason = finishPart.finishReason;
-        break;
+    let currentText = "";
+    let currentReasoning = "";
+    const pendingToolCalls = new Map<string, PendingToolCall>();
+    const completedToolCallIds = new Set<string>();
+    let lastFinishReason: string | undefined;
+
+    for await (const part of stream.fullStream) {
+      switch (part.type) {
+        case "text-delta":
+          currentText += part.text;
+          break;
+        case "reasoning-delta":
+          currentReasoning += part.text;
+          break;
+        case "tool-input-start":
+          handleToolInputStart(pendingToolCalls, part);
+          break;
+        case "tool-input-delta":
+          handleToolInputDelta(pendingToolCalls, part);
+          break;
+        case "tool-input-end":
+          break;
+        case "tool-call":
+          currentReasoning = emitToolCallEvent(
+            completedToolCallIds,
+            modelId,
+            currentReasoning,
+            part
+          );
+          break;
+        case "tool-result":
+          emitToolResultEvent(part);
+          break;
+        case "tool-error":
+          emitToolErrorEvent(part);
+          break;
+        case "finish-step": {
+          const finishPart = part as { finishReason: string };
+          lastFinishReason = finishPart.finishReason;
+          break;
+        }
+        default:
+          break;
       }
-      default:
-        break;
     }
-  }
 
-  emitMalformedToolCallErrors(completedToolCallIds, pendingToolCalls);
-  emitMalformedToolCallsSummary(
-    completedToolCallIds,
-    lastFinishReason,
-    pendingToolCalls
-  );
+    emitMalformedToolCallErrors(completedToolCallIds, pendingToolCalls);
+    emitMalformedToolCallsSummary(
+      completedToolCallIds,
+      lastFinishReason,
+      pendingToolCalls
+    );
 
-  const response = await stream.response;
-  messageHistory.addModelMessages(response.messages);
+    const [response, finishReason] = await Promise.all([
+      stream.response,
+      stream.finishReason,
+    ]);
+    messageHistory.addModelMessages(response.messages);
 
-  if (currentText.trim()) {
-    emitEvent({
-      timestamp: new Date().toISOString(),
-      type: "assistant",
-      sessionId,
-      content: currentText,
-      model: modelId,
-      reasoning_content: currentReasoning || undefined,
-    });
+    if (currentText.trim()) {
+      emitEvent({
+        timestamp: new Date().toISOString(),
+        type: "assistant",
+        sessionId,
+        content: currentText,
+        model: modelId,
+        reasoning_content: currentReasoning || undefined,
+      });
+    }
+
+    if (!shouldContinueManualToolLoop(finishReason)) {
+      return;
+    }
+
+    manualToolLoopCount += 1;
+    if (manualToolLoopCount >= MANUAL_TOOL_LOOP_MAX_STEPS) {
+      emitEvent({
+        timestamp: new Date().toISOString(),
+        type: "error",
+        sessionId,
+        error: `Manual tool loop safety cap reached (${MANUAL_TOOL_LOOP_MAX_STEPS}).`,
+      });
+      return;
+    }
   }
 };
 
@@ -369,14 +439,14 @@ const run = async (): Promise<void> => {
   // Initialize required tools (ripgrep, tmux)
   await initializeTools();
 
-  const { prompt, model, thinking, toolFallback } = parseArgs();
+  const { prompt, model, thinking, toolFallbackMode } = parseArgs();
 
   setSessionId(sessionId);
 
   agentManager.setHeadlessMode(true);
   agentManager.setModelId(model || DEFAULT_MODEL_ID);
   agentManager.setThinkingEnabled(thinking);
-  agentManager.setToolFallbackEnabled(toolFallback);
+  agentManager.setToolFallbackMode(toolFallbackMode);
 
   const messageHistory = new MessageHistory();
 
@@ -392,21 +462,9 @@ const run = async (): Promise<void> => {
   try {
     await processAgentResponse(messageHistory);
 
-    let continuationCount = 0;
-    while (continuationCount <= TODO_CONTINUATION_MAX_LOOPS) {
+    while (true) {
       const incompleteTodos = await getIncompleteTodos();
       if (incompleteTodos.length === 0) {
-        break;
-      }
-
-      if (continuationCount === TODO_CONTINUATION_MAX_LOOPS) {
-        emitEvent({
-          timestamp: new Date().toISOString(),
-          type: "error",
-          sessionId,
-          error:
-            "Auto-continue limit reached with incomplete todos. Awaiting new input.",
-        });
         break;
       }
 
@@ -418,7 +476,6 @@ const run = async (): Promise<void> => {
         content: reminder,
       });
       messageHistory.addUserMessage(reminder);
-      continuationCount += 1;
       await processAgentResponse(messageHistory);
     }
   } catch (error) {

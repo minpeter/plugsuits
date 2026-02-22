@@ -194,4 +194,133 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).toContain("call_3");
     expect(output).toContain("src/big.ts");
   });
+
+  it("keeps reasoning visible after tool blocks in stream order", async () => {
+    const { output } = await renderParts([
+      { type: "reasoning-start", id: "reason_before" } as never,
+      { type: "reasoning-delta", id: "reason_before", text: "Before tool" },
+      { type: "reasoning-end", id: "reason_before" } as never,
+      {
+        type: "tool-input-start",
+        id: "call_reason",
+        toolName: "bash",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_reason",
+        delta: '{"command":"ls"}',
+      },
+      { type: "tool-input-end", id: "call_reason" },
+      {
+        type: "tool-call",
+        toolCallId: "call_reason",
+        toolName: "bash",
+        input: {
+          command: "ls",
+        },
+      },
+      { type: "reasoning-start", id: "reason_after" } as never,
+      { type: "reasoning-delta", id: "reason_after", text: "After tool" },
+      { type: "reasoning-end", id: "reason_after" } as never,
+    ]);
+
+    const beforeIndex = output.indexOf("Before tool");
+    const toolIndex = output.indexOf("call_reason");
+    const afterIndex = output.indexOf("After tool");
+
+    expect(beforeIndex).toBeGreaterThan(-1);
+    expect(toolIndex).toBeGreaterThan(-1);
+    expect(afterIndex).toBeGreaterThan(-1);
+    expect(beforeIndex).toBeLessThan(toolIndex);
+    expect(toolIndex).toBeLessThan(afterIndex);
+  });
+
+  it("keeps reasoning visible between two tool calls", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_a",
+        toolName: "bash",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_a",
+        delta: '{"command":"pwd"}',
+      },
+      { type: "tool-input-end", id: "call_a" },
+      {
+        type: "tool-call",
+        toolCallId: "call_a",
+        toolName: "bash",
+        input: {
+          command: "pwd",
+        },
+      },
+      { type: "reasoning-start", id: "reason_mid" } as never,
+      { type: "reasoning-delta", id: "reason_mid", text: "Between tools" },
+      { type: "reasoning-end", id: "reason_mid" } as never,
+      {
+        type: "tool-input-start",
+        id: "call_b",
+        toolName: "bash",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_b",
+        delta: '{"command":"ls"}',
+      },
+      { type: "tool-input-end", id: "call_b" },
+      {
+        type: "tool-call",
+        toolCallId: "call_b",
+        toolName: "bash",
+        input: {
+          command: "ls",
+        },
+      },
+    ]);
+
+    const firstToolIndex = output.indexOf("call_a");
+    const reasoningIndex = output.indexOf("Between tools");
+    const secondToolIndex = output.indexOf("call_b");
+
+    expect(firstToolIndex).toBeGreaterThan(-1);
+    expect(reasoningIndex).toBeGreaterThan(-1);
+    expect(secondToolIndex).toBeGreaterThan(-1);
+    expect(firstToolIndex).toBeLessThan(reasoningIndex);
+    expect(reasoningIndex).toBeLessThan(secondToolIndex);
+  });
+
+  it("keeps reasoning visible across unknown stream parts", async () => {
+    const { output } = await renderParts([
+      { type: "reasoning-start", id: "reason_unknown_before" } as never,
+      {
+        type: "reasoning-delta",
+        id: "reason_unknown_before",
+        text: "Before unknown",
+      },
+      { type: "reasoning-end", id: "reason_unknown_before" } as never,
+      {
+        type: "unknown-x",
+        payload: "mystery",
+      } as never,
+      { type: "reasoning-start", id: "reason_unknown_after" } as never,
+      {
+        type: "reasoning-delta",
+        id: "reason_unknown_after",
+        text: "After unknown",
+      },
+      { type: "reasoning-end", id: "reason_unknown_after" } as never,
+    ]);
+
+    const beforeIndex = output.indexOf("Before unknown");
+    const unknownIndex = output.indexOf("[unknown part]");
+    const afterIndex = output.indexOf("After unknown");
+
+    expect(beforeIndex).toBeGreaterThan(-1);
+    expect(unknownIndex).toBeGreaterThan(-1);
+    expect(afterIndex).toBeGreaterThan(-1);
+    expect(beforeIndex).toBeLessThan(unknownIndex);
+    expect(unknownIndex).toBeLessThan(afterIndex);
+  });
 });

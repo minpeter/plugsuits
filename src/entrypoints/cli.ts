@@ -6,6 +6,7 @@ import {
   Container,
   Editor,
   type EditorTheme,
+  Input,
   Key,
   Loader,
   Markdown,
@@ -27,10 +28,16 @@ import {
   isSkillCommandResult,
   parseCommand,
   registerCommand,
+  resolveRegisteredCommandName,
 } from "../commands";
 import { createClearCommand } from "../commands/clear";
-import { createModelCommand } from "../commands/model";
-import { createNewCommand } from "../commands/new";
+import {
+  applyModelSelection,
+  createModelCommand,
+  findModelBySelection,
+  getAvailableModels,
+  type ModelInfo,
+} from "../commands/model";
 import { createRenderCommand } from "../commands/render";
 import { createThinkCommand } from "../commands/think";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
@@ -42,9 +49,20 @@ import { env } from "../env";
 import { renderFullStreamWithPiTui } from "../interaction/pi-tui-stream-renderer";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
 import {
+  MANUAL_TOOL_LOOP_MAX_STEPS,
+  shouldContinueManualToolLoop,
+} from "../interaction/tool-loop-control";
+import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
+import {
+  DEFAULT_TOOL_FALLBACK_MODE,
+  LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+  parseToolFallbackMode,
+  TOOL_FALLBACK_MODES,
+  type ToolFallbackMode,
+} from "../tool-fallback-mode";
 import { cleanupSession } from "../tools/execute/shared-tmux-session";
 import { initializeTools } from "../utils/tools-manager";
 
@@ -60,8 +78,6 @@ const ANSI_MAGENTA = "\x1b[95m";
 const ANSI_CYAN = "\x1b[96m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
-
-const TODO_CONTINUATION_MAX_LOOPS = 5;
 
 const messageHistory = new MessageHistory();
 let cachedSkills: SkillInfo[] = [];
@@ -174,33 +190,66 @@ const addNewSessionMessage = (chatContainer: Container): void => {
 };
 
 const createAutocompleteCommands = (skills: SkillInfo[]): SlashCommand[] => {
-  const commandSuggestions = Array.from(getCommands().values()).map(
-    (command) => {
-      const suggestions = command.argumentSuggestions;
+  const createCommandSuggestion = (
+    command: {
+      argumentSuggestions?: string[];
+      description: string;
+      name: string;
+    },
+    name: string,
+    description: string
+  ): SlashCommand => {
+    const suggestions = command.argumentSuggestions;
 
-      return {
-        name: command.name,
-        description: command.description,
-        getArgumentCompletions:
-          suggestions && suggestions.length > 0
-            ? (argumentPrefix: string) => {
-                const matches = suggestions.filter((suggestion) =>
-                  suggestion
-                    .toLowerCase()
-                    .startsWith(argumentPrefix.toLowerCase())
-                );
+    return {
+      name,
+      description,
+      getArgumentCompletions:
+        suggestions && suggestions.length > 0
+          ? (argumentPrefix: string) => {
+              const matches = suggestions.filter((suggestion) =>
+                suggestion
+                  .toLowerCase()
+                  .startsWith(argumentPrefix.toLowerCase())
+              );
 
-                if (matches.length === 0) {
-                  return null;
-                }
-
-                return matches.map((match) => ({
-                  value: match,
-                  label: match,
-                }));
+              if (matches.length === 0) {
+                return null;
               }
-            : undefined,
-      } satisfies SlashCommand;
+
+              return matches.map((match) => ({
+                value: match,
+                label: match,
+              }));
+            }
+          : undefined,
+    } satisfies SlashCommand;
+  };
+
+  const commandSuggestions = Array.from(getCommands().values()).flatMap(
+    (command) => {
+      const aliases =
+        "aliases" in command && Array.isArray(command.aliases)
+          ? command.aliases
+          : [];
+      const aliasSuffix =
+        aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
+
+      const primary = createCommandSuggestion(
+        command,
+        command.name,
+        `${command.description}${aliasSuffix}`
+      );
+
+      const aliasSuggestions = aliases.map((alias: string) =>
+        createCommandSuggestion(
+          command,
+          alias,
+          `Alias of /${command.name} - ${command.description}`
+        )
+      );
+
+      return [primary, ...aliasSuggestions];
     }
   );
 
@@ -220,7 +269,16 @@ interface CliUi {
   markdownTheme: MarkdownTheme;
   requestExit: () => void;
   showLoader: (message: string) => void;
+  showModelSelector: (
+    models: ModelInfo[],
+    currentModelId: string,
+    currentProvider: ProviderType,
+    initialFilter?: string
+  ) => Promise<ModelInfo | null>;
   showThinkSelector: (currentEnabled: boolean) => Promise<"on" | "off" | null>;
+  showToolFallbackSelector: (
+    currentMode: ToolFallbackMode
+  ) => Promise<ToolFallbackMode | null>;
   tui: TUI;
   updateHeader: () => void;
   waitForInput: () => Promise<string | null>;
@@ -376,6 +434,220 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
         }
 
         selectList.handleInput(data);
+        tui.requestRender();
+        return { consume: true };
+      });
+    });
+  };
+
+  const showToolFallbackSelector = async (
+    currentMode: ToolFallbackMode
+  ): Promise<ToolFallbackMode | null> => {
+    clearStatus();
+
+    const selectorContainer = new Container();
+    selectorContainer.addChild(
+      new Text(style(ANSI_DIM, "Select tool fallback mode"), 1, 0)
+    );
+    selectorContainer.addChild(new Spacer(1));
+
+    const selectList = new SelectList(
+      [
+        {
+          value: "disable",
+          label: "disable",
+          description: "Use native tool support only",
+        },
+        {
+          value: "morphxml",
+          label: "morphxml",
+          description: "XML tags per tool (MorphXML protocol)",
+        },
+        {
+          value: "hermes",
+          label: "hermes",
+          description: "Hermes JSON-in-XML tool_call format",
+        },
+        {
+          value: "qwen3coder",
+          label: "qwen3coder",
+          description: "Qwen3Coder function-tag tool_call format",
+        },
+      ],
+      4,
+      editorTheme.selectList
+    );
+    const currentModeIndex = TOOL_FALLBACK_MODES.indexOf(currentMode);
+    if (currentModeIndex >= 0) {
+      selectList.setSelectedIndex(currentModeIndex);
+    }
+
+    selectorContainer.addChild(selectList);
+    statusContainer.addChild(selectorContainer);
+    tui.requestRender();
+
+    return await new Promise((resolve) => {
+      let removeSelectorInputListener: () => void = () => undefined;
+      let done = false;
+
+      const cleanup = (): void => {
+        removeSelectorInputListener();
+        statusContainer.removeChild(selectorContainer);
+        tui.requestRender();
+      };
+
+      const finish = (value: ToolFallbackMode | null): void => {
+        if (done) {
+          return;
+        }
+        done = true;
+        cleanup();
+        resolve(value);
+      };
+
+      selectList.onSelect = (item) => {
+        const parsedMode = parseToolFallbackMode(item.value);
+        finish(parsedMode);
+      };
+      selectList.onCancel = () => {
+        finish(null);
+      };
+
+      removeSelectorInputListener = tui.addInputListener((data) => {
+        if (matchesKey(data, Key.ctrl("c"))) {
+          requestExit();
+          finish(null);
+          return { consume: true };
+        }
+
+        selectList.handleInput(data);
+        tui.requestRender();
+        return { consume: true };
+      });
+    });
+  };
+
+  const showModelSelector = async (
+    models: ModelInfo[],
+    currentModelId: string,
+    currentProvider: ProviderType,
+    initialFilter = ""
+  ): Promise<ModelInfo | null> => {
+    clearStatus();
+
+    const selectorContainer = new Container();
+    selectorContainer.addChild(new Text(style(ANSI_DIM, "Select model"), 1, 0));
+    selectorContainer.addChild(new Spacer(1));
+
+    const searchInput = new Input();
+    searchInput.focused = true;
+    searchInput.setValue(initialFilter);
+    selectorContainer.addChild(searchInput);
+    selectorContainer.addChild(new Spacer(1));
+
+    const modelMap = new Map<string, ModelInfo>();
+    const items = models.map((model) => {
+      const key = `${model.provider}:${model.id}`;
+      modelMap.set(key, model);
+      const providerLabel =
+        model.provider === "anthropic" ? "Anthropic" : "FriendliAI";
+      const modelName = model.name ? ` - ${model.name}` : "";
+      const isCurrent =
+        model.id === currentModelId && model.provider === currentProvider;
+      const currentLabel = isCurrent ? " (current)" : "";
+      return {
+        value: key,
+        label: `${model.id}${modelName}`,
+        description: `${providerLabel}${currentLabel}`,
+      };
+    });
+
+    const selectList = new SelectList(items, 10, editorTheme.selectList);
+    const currentIndex = items.findIndex(
+      (item) => item.value === `${currentProvider}:${currentModelId}`
+    );
+    if (currentIndex >= 0) {
+      selectList.setSelectedIndex(currentIndex);
+    }
+
+    if (initialFilter.length > 0) {
+      selectList.setFilter(initialFilter);
+    }
+
+    selectorContainer.addChild(selectList);
+    selectorContainer.addChild(new Spacer(1));
+    selectorContainer.addChild(
+      new Text(
+        style(ANSI_DIM, "Type to filter, Enter to select, Esc to cancel"),
+        1,
+        0
+      )
+    );
+    statusContainer.addChild(selectorContainer);
+    tui.requestRender();
+
+    return await new Promise((resolve) => {
+      let removeSelectorInputListener: () => void = () => undefined;
+      let done = false;
+
+      const cleanup = (): void => {
+        removeSelectorInputListener();
+        statusContainer.removeChild(selectorContainer);
+        searchInput.focused = false;
+        tui.requestRender();
+      };
+
+      const finish = (value: ModelInfo | null): void => {
+        if (done) {
+          return;
+        }
+        done = true;
+        cleanup();
+        resolve(value);
+      };
+
+      const selectCurrent = (): void => {
+        const selectedItem = selectList.getSelectedItem();
+        if (!selectedItem) {
+          return;
+        }
+        finish(modelMap.get(selectedItem.value) ?? null);
+      };
+
+      selectList.onSelect = (item) => {
+        finish(modelMap.get(item.value) ?? null);
+      };
+      selectList.onCancel = () => {
+        finish(null);
+      };
+      searchInput.onSubmit = () => {
+        selectCurrent();
+      };
+      searchInput.onEscape = () => {
+        finish(null);
+      };
+
+      removeSelectorInputListener = tui.addInputListener((data) => {
+        if (matchesKey(data, Key.ctrl("c"))) {
+          requestExit();
+          finish(null);
+          return { consume: true };
+        }
+
+        if (
+          matchesKey(data, Key.up) ||
+          matchesKey(data, Key.down) ||
+          matchesKey(data, Key.enter) ||
+          matchesKey(data, Key.escape)
+        ) {
+          selectList.handleInput(data);
+          tui.requestRender();
+          return { consume: true };
+        }
+
+        searchInput.handleInput(data);
+        selectList.setFilter(searchInput.getValue());
+        tui.requestRender();
         return { consume: true };
       });
     });
@@ -454,6 +726,8 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     waitForInput,
     requestExit,
     showLoader,
+    showModelSelector,
+    showToolFallbackSelector,
     showThinkSelector,
     clearStatus,
     dispose,
@@ -468,24 +742,66 @@ registerCommand(
     tools: agentManager.getTools(),
     messages: messageHistory.toModelMessages(),
     thinkingEnabled: agentManager.isThinkingEnabled(),
-    toolFallbackEnabled: agentManager.isToolFallbackEnabled(),
+    toolFallbackMode: agentManager.getToolFallbackMode(),
   }))
 );
 registerCommand(createModelCommand());
 registerCommand(createClearCommand());
-registerCommand(createNewCommand());
 registerCommand(createThinkCommand());
 registerCommand(createToolFallbackCommand());
 
+const parseProviderArg = (
+  providerArg: string | undefined
+): ProviderType | null => {
+  if (providerArg === "anthropic" || providerArg === "friendli") {
+    return providerArg;
+  }
+
+  return null;
+};
+
+const parseToolFallbackCliOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; mode: ToolFallbackMode } | null => {
+  const arg = args[index];
+
+  if (arg === "--tool-fallback-mode") {
+    const parsedMode = parseToolFallbackMode(args[index + 1] ?? "");
+    return {
+      consumedArgs: 1,
+      mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
+    };
+  }
+
+  if (arg !== "--tool-fallback") {
+    return null;
+  }
+
+  const candidate = args[index + 1];
+  if (candidate && !candidate.startsWith("--")) {
+    const parsedMode = parseToolFallbackMode(candidate);
+    return {
+      consumedArgs: 1,
+      mode: parsedMode ?? LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+    };
+  }
+
+  return {
+    consumedArgs: 0,
+    mode: LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+  };
+};
+
 const parseCliArgs = (): {
   thinking: boolean;
-  toolFallback: boolean;
+  toolFallbackMode: ToolFallbackMode;
   model: string | null;
   provider: ProviderType | null;
 } => {
   const args = process.argv.slice(2);
   let thinking = false;
-  let toolFallback = false;
+  let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   let model: string | null = null;
   let provider: ProviderType | null = null;
 
@@ -496,8 +812,10 @@ const parseCliArgs = (): {
       continue;
     }
 
-    if (arg === "--tool-fallback") {
-      toolFallback = true;
+    const toolFallbackOption = parseToolFallbackCliOption(args, i);
+    if (toolFallbackOption) {
+      toolFallbackMode = toolFallbackOption.mode;
+      i += toolFallbackOption.consumedArgs;
       continue;
     }
 
@@ -508,21 +826,18 @@ const parseCliArgs = (): {
     }
 
     if (arg === "--provider" && i + 1 < args.length) {
-      const providerArg = args[i + 1];
-      if (providerArg === "anthropic" || providerArg === "friendli") {
-        provider = providerArg;
-      }
+      provider = parseProviderArg(args[i + 1]) ?? provider;
       i += 1;
     }
   }
 
-  return { thinking, toolFallback, model, provider };
+  return { thinking, toolFallbackMode, model, provider };
 };
 
 const setupAgent = (): void => {
-  const { thinking, toolFallback, model, provider } = parseCliArgs();
+  const { thinking, toolFallbackMode, model, provider } = parseCliArgs();
   agentManager.setThinkingEnabled(thinking);
-  agentManager.setToolFallbackEnabled(toolFallback);
+  agentManager.setToolFallbackMode(toolFallbackMode);
   if (provider) {
     agentManager.setProvider(provider);
   }
@@ -533,29 +848,50 @@ const setupAgent = (): void => {
 
 const processAgentResponse = async (ui: CliUi): Promise<void> => {
   ui.showLoader("Thinking...");
-  const stream = await agentManager.stream(messageHistory.toModelMessages());
-  ui.clearStatus();
+  let manualToolLoopCount = 0;
 
-  await renderFullStreamWithPiTui(stream.fullStream, {
-    ui: ui.tui,
-    chatContainer: ui.chatContainer,
-    markdownTheme: ui.markdownTheme,
-    showReasoning: true,
-    showSteps: false,
-    showToolResults: true,
-    showFiles: false,
-    showSources: false,
-    showFinishReason: env.DEBUG_SHOW_FINISH_REASON,
-  });
+  while (true) {
+    const stream = await agentManager.stream(messageHistory.toModelMessages());
+    ui.clearStatus();
 
-  const response = await stream.response;
-  messageHistory.addModelMessages(response.messages);
+    await renderFullStreamWithPiTui(stream.fullStream, {
+      ui: ui.tui,
+      chatContainer: ui.chatContainer,
+      markdownTheme: ui.markdownTheme,
+      showReasoning: true,
+      showSteps: false,
+      showToolResults: true,
+      showFiles: false,
+      showSources: false,
+      showFinishReason: env.DEBUG_SHOW_FINISH_REASON,
+    });
+
+    const [response, finishReason] = await Promise.all([
+      stream.response,
+      stream.finishReason,
+    ]);
+    messageHistory.addModelMessages(response.messages);
+
+    if (!shouldContinueManualToolLoop(finishReason)) {
+      return;
+    }
+
+    manualToolLoopCount += 1;
+    if (manualToolLoopCount >= MANUAL_TOOL_LOOP_MAX_STEPS) {
+      addSystemMessage(
+        ui.chatContainer,
+        `[agent] Manual tool loop safety cap reached (${MANUAL_TOOL_LOOP_MAX_STEPS}); waiting for input.`
+      );
+      ui.tui.requestRender();
+      return;
+    }
+
+    ui.showLoader("Continuing...");
+  }
 };
 
 const handleAgentResponse = async (ui: CliUi): Promise<void> => {
-  let continuationCount = 0;
-
-  while (continuationCount <= TODO_CONTINUATION_MAX_LOOPS) {
+  while (true) {
     await processAgentResponse(ui);
 
     const incompleteTodos = await getIncompleteTodos();
@@ -563,40 +899,144 @@ const handleAgentResponse = async (ui: CliUi): Promise<void> => {
       return;
     }
 
-    if (continuationCount === TODO_CONTINUATION_MAX_LOOPS) {
-      addSystemMessage(
-        ui.chatContainer,
-        "[todo] Auto-continue limit reached; waiting for input."
-      );
-      ui.tui.requestRender();
-      return;
-    }
-
     const reminder = buildTodoContinuationUserMessage(incompleteTodos);
     messageHistory.addUserMessage(reminder);
-    continuationCount += 1;
   }
+};
+
+const renderCommandMessage = (ui: CliUi, message: string): void => {
+  addSystemMessage(ui.chatContainer, message);
+  ui.updateHeader();
+  ui.tui.requestRender();
+};
+
+const handleModelCommand = async (
+  ui: CliUi,
+  commandInput: string,
+  parsed: ReturnType<typeof parseCommand>
+): Promise<boolean | null> => {
+  if (parsed?.name !== "model") {
+    return null;
+  }
+
+  const models = getAvailableModels();
+  if (models.length === 0) {
+    const result = await executeCommand(commandInput);
+    if (result?.message) {
+      renderCommandMessage(ui, result.message);
+      return true;
+    }
+    return false;
+  }
+
+  const searchTerm = parsed.args[0]?.trim() ?? "";
+  const exactMatch =
+    searchTerm.length > 0
+      ? findModelBySelection(searchTerm, models)
+      : undefined;
+
+  if (parsed.args.length > 0 && exactMatch) {
+    return null;
+  }
+
+  const selectedModel = await ui.showModelSelector(
+    models,
+    agentManager.getModelId(),
+    agentManager.getProvider(),
+    searchTerm
+  );
+  if (!selectedModel) {
+    return true;
+  }
+
+  const selectionResult = applyModelSelection(selectedModel);
+  if (selectionResult.message) {
+    renderCommandMessage(ui, selectionResult.message);
+    return true;
+  }
+
+  ui.updateHeader();
+  ui.tui.requestRender();
+  return true;
+};
+
+const resolveToolFallbackCommandInput = async (
+  ui: CliUi,
+  commandInput: string,
+  parsed: ReturnType<typeof parseCommand>
+): Promise<string | null> => {
+  if (parsed?.name !== "tool-fallback" || parsed.args.length > 0) {
+    return commandInput;
+  }
+
+  const selected = await ui.showToolFallbackSelector(
+    agentManager.getToolFallbackMode()
+  );
+  if (!selected) {
+    return null;
+  }
+
+  return `/tool-fallback ${selected}`;
+};
+
+const resolveThinkCommandInput = async (
+  ui: CliUi,
+  commandInput: string,
+  parsed: ReturnType<typeof parseCommand>
+): Promise<string | null> => {
+  if (parsed?.name !== "think" || parsed.args.length > 0) {
+    return commandInput;
+  }
+
+  const selected = await ui.showThinkSelector(agentManager.isThinkingEnabled());
+  if (!selected) {
+    return null;
+  }
+
+  return `/think ${selected}`;
 };
 
 const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   let commandInput = input;
   const initialParsed = parseCommand(commandInput);
 
-  if (initialParsed?.name === "think" && initialParsed.args.length === 0) {
-    const selected = await ui.showThinkSelector(
-      agentManager.isThinkingEnabled()
-    );
-    if (!selected) {
-      return true;
-    }
-    commandInput = `/think ${selected}`;
+  const modelHandled = await handleModelCommand(
+    ui,
+    commandInput,
+    initialParsed
+  );
+  if (modelHandled !== null) {
+    return modelHandled;
   }
 
+  const toolFallbackCommandInput = await resolveToolFallbackCommandInput(
+    ui,
+    commandInput,
+    initialParsed
+  );
+  if (!toolFallbackCommandInput) {
+    return true;
+  }
+  commandInput = toolFallbackCommandInput;
+
+  const thinkCommandInput = await resolveThinkCommandInput(
+    ui,
+    commandInput,
+    initialParsed
+  );
+  if (!thinkCommandInput) {
+    return true;
+  }
+  commandInput = thinkCommandInput;
+
   const parsed = parseCommand(commandInput);
+  const resolvedCommandName = parsed
+    ? resolveRegisteredCommandName(parsed.name)
+    : null;
   const isNativeCommand =
-    parsed?.name === "clear" ||
-    parsed?.name === "new" ||
-    parsed?.name === "think";
+    resolvedCommandName === "clear" ||
+    resolvedCommandName === "think" ||
+    resolvedCommandName === "tool-fallback";
 
   if (!isNativeCommand) {
     ui.showLoader("Running command...");
@@ -627,9 +1067,7 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   }
 
   if (result?.message) {
-    addSystemMessage(ui.chatContainer, result.message);
-    ui.updateHeader();
-    ui.tui.requestRender();
+    renderCommandMessage(ui, result.message);
     return true;
   }
 

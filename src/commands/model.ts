@@ -3,7 +3,7 @@ import { ANTHROPIC_MODELS, agentManager } from "../agent";
 import { colorize } from "../interaction/colors";
 import type { Command, CommandResult } from "./types";
 
-interface ModelInfo {
+export interface ModelInfo {
   id: string;
   name?: string;
   provider: ProviderType;
@@ -45,11 +45,71 @@ function getAnthropicModels(): ModelInfo[] {
   }));
 }
 
-function getAvailableModels(): ModelInfo[] {
+export function getAvailableModels(): ModelInfo[] {
   const anthropicModels = getAnthropicModels();
 
   return [...anthropicModels, ...FRIENDLI_MODELS];
 }
+
+export function findModelBySelection(
+  selection: string,
+  models: ModelInfo[] = getAvailableModels()
+): ModelInfo | undefined {
+  const selectedIndex = Number.parseInt(selection, 10) - 1;
+
+  if (
+    !Number.isNaN(selectedIndex) &&
+    selectedIndex >= 0 &&
+    selectedIndex < models.length
+  ) {
+    return models[selectedIndex];
+  }
+
+  return models.find((m) => m.id === selection);
+}
+
+const getProviderLabel = (provider: ProviderType): string => {
+  const providerLabels: Record<ProviderType, string> = {
+    anthropic: "Anthropic",
+    friendli: "FriendliAI",
+  };
+  return providerLabels[provider];
+};
+
+export const applyModelSelection = (
+  selectedModel: ModelInfo
+): CommandResult => {
+  const currentModelId = agentManager.getModelId();
+  const currentProvider = agentManager.getProvider();
+
+  if (
+    selectedModel.id === currentModelId &&
+    selectedModel.provider === currentProvider
+  ) {
+    return {
+      success: true,
+      message: `Already using model: ${selectedModel.id}`,
+    };
+  }
+
+  if (selectedModel.provider !== currentProvider) {
+    agentManager.setProvider(selectedModel.provider);
+  }
+
+  agentManager.setModelId(selectedModel.id);
+  if (selectedModel.type) {
+    agentManager.setModelType(selectedModel.type);
+  }
+
+  const providerLabel = getProviderLabel(selectedModel.provider);
+  return {
+    success: true,
+    message: colorize(
+      "green",
+      `Model changed to: ${selectedModel.id} (${providerLabel})`
+    ),
+  };
+};
 
 function formatModelList(
   models: ModelInfo[],
@@ -96,19 +156,7 @@ export const createModelCommand = (): Command => ({
     }
 
     const selection = args[0];
-    const selectedIndex = Number.parseInt(selection, 10) - 1;
-
-    let selectedModel: ModelInfo | undefined;
-
-    if (
-      !Number.isNaN(selectedIndex) &&
-      selectedIndex >= 0 &&
-      selectedIndex < models.length
-    ) {
-      selectedModel = models[selectedIndex];
-    } else {
-      selectedModel = models.find((m) => m.id === selection);
-    }
+    const selectedModel = findModelBySelection(selection, models);
 
     if (!selectedModel) {
       return {
@@ -117,37 +165,6 @@ export const createModelCommand = (): Command => ({
       };
     }
 
-    if (
-      selectedModel.id === currentModelId &&
-      selectedModel.provider === currentProvider
-    ) {
-      return {
-        success: true,
-        message: `Already using model: ${selectedModel.id}`,
-      };
-    }
-
-    // Set provider first (this will also set a default model for the provider)
-    if (selectedModel.provider !== currentProvider) {
-      agentManager.setProvider(selectedModel.provider);
-    }
-    // Then set the specific model
-    agentManager.setModelId(selectedModel.id);
-    if (selectedModel.type) {
-      agentManager.setModelType(selectedModel.type);
-    }
-
-    const providerLabels: Record<ProviderType, string> = {
-      anthropic: "Anthropic",
-      friendli: "FriendliAI",
-    };
-    const providerLabel = providerLabels[selectedModel.provider];
-    return {
-      success: true,
-      message: colorize(
-        "green",
-        `Model changed to: ${selectedModel.id} (${providerLabel})`
-      ),
-    };
+    return applyModelSelection(selectedModel);
   },
 });
