@@ -40,9 +40,12 @@ interface ToolInputDeltaPart extends ToolInputPart {
 
 const addChatComponent = (
   chatContainer: Container,
-  component: Container | Text | Markdown
+  component: Container | Text | Markdown,
+  options: { addLeadingSpacer?: boolean } = {}
 ): void => {
-  chatContainer.addChild(new Spacer(1));
+  if (options.addLeadingSpacer ?? true) {
+    chatContainer.addChild(new Spacer(1));
+  }
   chatContainer.addChild(component);
 };
 
@@ -58,7 +61,7 @@ const safeStringify = (value: unknown): string => {
 };
 
 const renderCodeBlock = (language: string, value: unknown): string => {
-  const text = safeStringify(value);
+  const text = safeStringify(value).replace(TRAILING_NEWLINES, "");
   return `\`\`\`${language}\n${text}\n\`\`\``;
 };
 
@@ -66,10 +69,23 @@ const ANSI_RESET = "\x1b[0m";
 const ANSI_DIM = "\x1b[2m";
 const ANSI_ITALIC = "\x1b[3m";
 const ANSI_GRAY = "\x1b[90m";
+const LEADING_NEWLINES = /^\n+/;
+const TRAILING_NEWLINES = /\n+$/;
 
 const styleThinkingText = (text: string): string => {
   return `${ANSI_DIM}${ANSI_ITALIC}${ANSI_GRAY}${text}${ANSI_RESET}`;
 };
+
+class TrimmedMarkdown extends Markdown {
+  override render(width: number): string[] {
+    const lines = super.render(width);
+    let end = lines.length;
+    while (end > 0 && lines[end - 1].trim().length === 0) {
+      end -= 1;
+    }
+    return lines.slice(0, end);
+  }
+}
 
 interface DiffLine {
   text: string;
@@ -271,18 +287,27 @@ class AssistantStreamView extends Container {
   private refresh(): void {
     this.clear();
 
-    const visibleSegments = this.segments.filter(
-      (segment) => segment.content.trim().length > 0
-    );
+    const visibleSegments = this.segments
+      .map((segment) => {
+        const normalizedContent =
+          segment.type === "reasoning"
+            ? segment.content.replace(LEADING_NEWLINES, "").trimEnd()
+            : segment.content.trim();
+
+        return {
+          ...segment,
+          content: normalizedContent,
+        };
+      })
+      .filter((segment) => segment.content.trim().length > 0);
+
     if (visibleSegments.length === 0) {
       return;
     }
 
-    this.addChild(new Spacer(1));
-
     for (let index = 0; index < visibleSegments.length; index += 1) {
       const segment = visibleSegments[index];
-      const text = segment.content.trim();
+      const text = segment.content;
 
       if (segment.type === "text") {
         this.addChild(new Markdown(text, 1, 0, this.markdownTheme));
@@ -304,7 +329,7 @@ class AssistantStreamView extends Container {
 
 class ToolCallView extends Container {
   private readonly callId: string;
-  private readonly content: Markdown;
+  private readonly content: TrimmedMarkdown;
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
@@ -317,7 +342,7 @@ class ToolCallView extends Container {
     super();
     this.callId = callId;
     this.toolName = toolName;
-    this.content = new Markdown("", 1, 0, markdownTheme);
+    this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.addChild(this.content);
     this.refresh();
   }
@@ -441,7 +466,7 @@ interface PiTuiStreamState {
   ensureAssistantView: () => AssistantStreamView;
   ensureToolView: (toolCallId: string, toolName: string) => ToolCallView;
   flags: PiTuiRenderFlags;
-  resetAssistantView: () => void;
+  resetAssistantView: (suppressLeadingSpacer?: boolean) => void;
   streamedToolCallIds: Set<string>;
 }
 
@@ -488,7 +513,7 @@ const handleToolInputStart: StreamPartHandler = (part, state) => {
     hasContent: false,
   });
   state.streamedToolCallIds.add(toolCallId);
-  state.resetAssistantView();
+  state.resetAssistantView(true);
   state.ensureToolView(toolCallId, toolInputStartPart.toolName);
 };
 
@@ -511,7 +536,7 @@ const handleToolInputDelta: StreamPartHandler = (part, state) => {
 
   const toolState = state.activeToolInputs.get(toolCallId);
   const toolName = toolState?.toolName ?? "tool";
-  state.resetAssistantView();
+  state.resetAssistantView(true);
   const toolView = state.ensureToolView(toolCallId, toolName);
   const chunk = getToolInputChunk(toolInputDeltaPart);
 
@@ -546,7 +571,7 @@ const handleToolCall: StreamPartHandler = (part, state) => {
   state.activeToolInputs.delete(toolCallPart.toolCallId);
   state.streamedToolCallIds.delete(toolCallPart.toolCallId);
 
-  state.resetAssistantView();
+  state.resetAssistantView(true);
   const view = state.ensureToolView(
     toolCallPart.toolCallId,
     toolCallPart.toolName
@@ -564,7 +589,7 @@ const handleToolResult: StreamPartHandler = (part, state) => {
   }
 
   const toolResultPart = part as Extract<StreamPart, { type: "tool-result" }>;
-  state.resetAssistantView();
+  state.resetAssistantView(true);
   const view = state.ensureToolView(
     toolResultPart.toolCallId,
     toolResultPart.toolName
@@ -574,7 +599,7 @@ const handleToolResult: StreamPartHandler = (part, state) => {
 
 const handleToolError: StreamPartHandler = (part, state) => {
   const toolErrorPart = part as Extract<StreamPart, { type: "tool-error" }>;
-  state.resetAssistantView();
+  state.resetAssistantView(true);
   const view = state.ensureToolView(
     toolErrorPart.toolCallId,
     toolErrorPart.toolName
@@ -587,7 +612,7 @@ const handleToolOutputDenied: StreamPartHandler = (part, state) => {
     StreamPart,
     { type: "tool-output-denied" }
   >;
-  state.resetAssistantView();
+  state.resetAssistantView(true);
   const view = state.ensureToolView(deniedPart.toolCallId, deniedPart.toolName);
   view.setOutputDenied();
 };
@@ -706,15 +731,22 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
   const streamedToolCallIds = new Set<string>();
   const toolViews = new Map<string, ToolCallView>();
   let assistantView: AssistantStreamView | null = null;
+  let suppressAssistantLeadingSpacer = false;
 
-  const resetAssistantView = (): void => {
+  const resetAssistantView = (suppressLeadingSpacer = false): void => {
+    if (suppressLeadingSpacer) {
+      suppressAssistantLeadingSpacer = true;
+    }
     assistantView = null;
   };
 
   const ensureAssistantView = (): AssistantStreamView => {
     if (!assistantView) {
       assistantView = new AssistantStreamView(options.markdownTheme);
-      addChatComponent(options.chatContainer, assistantView);
+      addChatComponent(options.chatContainer, assistantView, {
+        addLeadingSpacer: !suppressAssistantLeadingSpacer,
+      });
+      suppressAssistantLeadingSpacer = false;
     }
     return assistantView;
   };

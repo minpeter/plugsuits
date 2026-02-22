@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { AssistantModelMessage, TextPart, ToolCallPart } from "ai";
+import { MessageHistory } from "./message-history";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -137,5 +138,24 @@ describe("trimTrailingNewlines", () => {
       const result = trimTrailingNewlines(input);
       expect(result).toBe(input);
     });
+  });
+});
+
+describe("MessageHistory", () => {
+  it("always trims trailing newlines when storing assistant messages", () => {
+    const history = new MessageHistory();
+    history.addModelMessages([
+      {
+        role: "assistant",
+        content: "Saved without trailing newlines\n\n",
+      },
+    ]);
+
+    expect(history.toModelMessages()).toEqual([
+      {
+        role: "assistant",
+        content: "Saved without trailing newlines",
+      },
+    ]);
   });
 });

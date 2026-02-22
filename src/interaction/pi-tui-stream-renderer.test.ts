@@ -8,6 +8,22 @@ import {
 
 type TestStreamPart = TextStreamPart<ToolSet>;
 
+const LARGE_BLANK_GAP_REGEX = /\n[ \t]*\n[ \t]*\n[ \t]*\n/;
+
+const findLastLineIndexContaining = (
+  lines: string[],
+  predicate: (line: string) => boolean,
+  beforeIndex: number
+): number => {
+  for (let i = beforeIndex - 1; i >= 0; i -= 1) {
+    if (predicate(lines[i])) {
+      return i;
+    }
+  }
+
+  return -1;
+};
+
 const markdownTheme: MarkdownTheme = {
   heading: (text) => text,
   link: (text) => text,
@@ -103,6 +119,73 @@ describe("renderFullStreamWithPiTui", () => {
 
     expect(output).toContain("styled reasoning");
     expect(output).toContain("\x1b[2m\x1b[3m\x1b[90m");
+  });
+
+  it("removes leading newlines from reasoning display", async () => {
+    const { output } = await renderParts([
+      { type: "reasoning-start", id: "reason_trim" } as never,
+      {
+        type: "reasoning-delta",
+        id: "reason_trim",
+        text: "\n\nreasoning without top blank lines",
+      },
+      { type: "reasoning-end", id: "reason_trim" } as never,
+    ]);
+
+    expect(output).toContain("reasoning without top blank lines");
+    expect(output).not.toContain("\x1b[2m\x1b[3m\x1b[90m\n");
+  });
+
+  it("avoids large gap between tool output and following reasoning", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_gap",
+        toolName: "bash",
+        input: {
+          command: "pwd",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_gap",
+        toolName: "bash",
+        input: {
+          command: "pwd",
+        },
+        output: "tool output line\n\n\n",
+      },
+      { type: "reasoning-start", id: "reason_gap" } as never,
+      {
+        type: "reasoning-delta",
+        id: "reason_gap",
+        text: "After tool output",
+      },
+      { type: "reasoning-end", id: "reason_gap" } as never,
+    ]);
+
+    const plain = output;
+    const start = plain.indexOf("tool output line");
+    const end = plain.indexOf("After tool output");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const between = plain.slice(start, end);
+    expect(between).not.toMatch(LARGE_BLANK_GAP_REGEX);
+
+    const lines = plain.split("\n");
+    const reasoningLineIndex = lines.findIndex((line) =>
+      line.includes("After tool output")
+    );
+    expect(reasoningLineIndex).toBeGreaterThan(-1);
+
+    const outputFenceIndex = findLastLineIndexContaining(
+      lines,
+      (line) => line.trim() === "```",
+      reasoningLineIndex
+    );
+    expect(outputFenceIndex).toBeGreaterThan(-1);
+    expect(reasoningLineIndex).toBe(outputFenceIndex + 1);
   });
 
   it("renders live diff preview for edit_file tool input", async () => {

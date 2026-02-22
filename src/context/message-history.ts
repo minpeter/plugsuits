@@ -1,5 +1,4 @@
 import type { ModelMessage, TextPart } from "ai";
-import { env } from "../env";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -94,9 +93,7 @@ export class MessageHistory {
   addModelMessages(messages: ModelMessage[]): Message[] {
     const created: Message[] = [];
     for (const modelMessage of messages) {
-      const processedMessage = env.EXPERIMENTAL_TRIM_TRAILING_NEWLINES
-        ? trimTrailingNewlines(modelMessage)
-        : modelMessage;
+      const processedMessage = trimTrailingNewlines(modelMessage);
 
       // Serialize Error objects in tool results to prevent schema validation errors
       const sanitizedMessage = this.sanitizeMessage(processedMessage);
