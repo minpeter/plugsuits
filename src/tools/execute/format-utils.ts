@@ -14,7 +14,6 @@ const CEA_WRAPPER_COMMAND_LINE_PATTERN =
 const TMUX_WAIT_INTERNAL_SUFFIX_PATTERN =
   /\s*;?\s*tmux\s+wait\s+(?:-S\s+)?cea-[0-9a-z-]+\s*$/i;
 
-const SYSTEM_REMINDER_PREFIX = "[SYSTEM REMINDER]";
 const TIMEOUT_PREFIX = "[TIMEOUT]";
 const BACKGROUND_PREFIX = "[Background process started]";
 
@@ -73,10 +72,6 @@ export function formatTerminalScreen(content: string): string {
     return "(no visible output)";
   }
   return `${TERMINAL_SCREEN_PREFIX}\n${cleaned}\n${TERMINAL_SCREEN_SUFFIX}`;
-}
-
-export function formatSystemReminder(message: string): string {
-  return `${SYSTEM_REMINDER_PREFIX} ${message}`;
 }
 
 export interface TimeoutMessageOptions {
