@@ -1,4 +1,4 @@
-import { loadAllSkills, loadSkillById } from "../context/skills";
+import { loadSkillById } from "../context/skills";
 import { createHelpCommand } from "./help";
 import type { Command, CommandContext, CommandResult } from "./types";
 
@@ -121,9 +121,4 @@ export const isSkillCommandResult = (
   result: CommandResult | SkillCommandResult | null
 ): result is SkillCommandResult => {
   return result !== null && "isSkill" in result && result.isSkill === true;
-};
-
-export const getAvailableSkillIds = async (): Promise<string[]> => {
-  const skills = await loadAllSkills();
-  return skills.map((s) => s.id);
 };
