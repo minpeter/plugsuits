@@ -141,55 +141,6 @@ export interface ReadFileOptions {
   offset?: number;
 }
 
-export interface ReadFileResult {
-  content: string;
-  endLine: number;
-  startLine: number;
-  totalLines: number;
-  truncated: boolean;
-}
-
-export async function safeReadFile(
-  path: string,
-  options?: ReadFileOptions
-): Promise<ReadFileResult> {
-  const check = await checkFileReadable(path);
-  if (!check.allowed) {
-    throw new Error(check.reason);
-  }
-
-  const content = await readFile(path, "utf-8");
-  const lines = content.split("\n");
-  const totalLines = lines.length;
-
-  const offset = options?.offset ?? 0;
-  const limit = options?.limit ?? MAX_LINES;
-
-  const startLine = Math.min(offset, totalLines);
-  const endLine = Math.min(startLine + limit, totalLines);
-  const selectedLines = lines.slice(startLine, endLine);
-  const truncated = endLine < totalLines;
-
-  return {
-    content: selectedLines.join("\n"),
-    totalLines,
-    startLine,
-    endLine,
-    truncated,
-  };
-}
-
-export async function shouldIgnorePath(path: string): Promise<boolean> {
-  const ig = await getIgnoreFilter();
-  return ig.ignores(path);
-}
-
-export function clearIgnoreCache(): void {
-  cachedIgnore = null;
-}
-
-const WHITESPACE_REGEX = /\s+/;
-
 export function formatNumberedLines(
   lines: string[],
   startLine1: number
@@ -284,37 +235,4 @@ export async function safeReadFileEnhanced(
     truncated,
     bytes,
   };
-}
-
-const ALLOWED_COMMANDS = new Set([
-  "node",
-  "npm",
-  "pnpm",
-  "yarn",
-  "git",
-  "ls",
-  "pwd",
-  "echo",
-  "cat",
-  "head",
-  "tail",
-  "wc",
-  "which",
-  "find",
-  "type",
-  "dir",
-  "ps",
-  "df",
-  "du",
-  "free",
-  "uname",
-  "uptime",
-  "date",
-  "cal",
-]);
-
-export function isSafeCommand(command: string): boolean {
-  const tokens = command.trim().split(WHITESPACE_REGEX);
-  const commandName = tokens[0];
-  return ALLOWED_COMMANDS.has(commandName.toLowerCase());
 }
