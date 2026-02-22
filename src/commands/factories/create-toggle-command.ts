@@ -1,7 +1,7 @@
 import { colorize } from "../../interaction/colors";
 import type { Command, CommandResult } from "../types";
 
-export interface ToggleCommandConfig {
+interface ToggleCommandConfig {
   description: string;
   disabledMessage?: string;
   enabledMessage?: string;
