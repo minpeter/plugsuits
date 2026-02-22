@@ -34,13 +34,13 @@ function generateCommandId(): string {
   return id;
 }
 
-export interface SendKeysOptions {
+interface SendKeysOptions {
   block?: boolean;
   maxTimeoutMs?: number;
   minTimeoutMs?: number;
 }
 
-export interface ExecuteResult {
+interface ExecuteResult {
   exitCode: number;
   output: string;
 }
