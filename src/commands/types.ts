@@ -3,6 +3,7 @@ export interface CommandContext {
 }
 
 export interface CommandResult {
+  action?: "new-session";
   message?: string;
   success: boolean;
 }

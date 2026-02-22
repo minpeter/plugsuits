@@ -2,7 +2,6 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
 import { ToolLoopAgent, wrapLanguageModel } from "ai";
-import { createGeminiProvider } from "ai-sdk-provider-gemini-cli";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
@@ -16,37 +15,13 @@ import { tools } from "./tools";
 
 export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.5";
 export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-5-20250929";
-export const DEFAULT_GEMINI_MODEL_ID = "gemini-2.5-pro";
 const OUTPUT_TOKEN_MAX = 64_000;
 
-export type ProviderType = "friendli" | "anthropic" | "gemini";
+export type ProviderType = "friendli" | "anthropic";
 
 export const ANTHROPIC_MODELS = [
   { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5 (Latest)" },
   { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5 (Latest)" },
-] as const;
-
-export const GEMINI_MODELS = [
-  {
-    id: "gemini-3-pro-preview",
-    name: "Gemini 3 Pro Preview",
-    thinkingType: "thinkingLevel",
-  },
-  {
-    id: "gemini-3-flash-preview",
-    name: "Gemini 3 Flash Preview",
-    thinkingType: "thinkingLevel",
-  },
-  {
-    id: "gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
-    thinkingType: "thinkingBudget",
-  },
-  {
-    id: "gemini-2.5-flash",
-    name: "Gemini 2.5 Flash",
-    thinkingType: "thinkingBudget",
-  },
 ] as const;
 
 const friendli = env.FRIENDLI_TOKEN
@@ -62,23 +37,6 @@ const anthropic = env.ANTHROPIC_API_KEY
     })
   : null;
 
-const gemini = createGeminiProvider({ authType: "oauth-personal" });
-
-type GeminiModel = (typeof GEMINI_MODELS)[number];
-
-function getGeminiThinkingConfig(
-  model: GeminiModel | undefined,
-  enabled: boolean
-) {
-  if (!enabled) {
-    return {};
-  }
-  if (model?.thinkingType === "thinkingLevel") {
-    return { thinkingConfig: { thinkingLevel: "medium" as const } };
-  }
-  return { thinkingConfig: { thinkingBudget: 10_000 } };
-}
-
 interface CreateAgentOptions {
   enableThinking?: boolean;
   enableToolFallback?: boolean;
@@ -86,11 +44,7 @@ interface CreateAgentOptions {
   provider?: ProviderType;
 }
 
-const getModel = (
-  modelId: string,
-  provider: ProviderType,
-  thinkingEnabled = false
-) => {
+const getModel = (modelId: string, provider: ProviderType) => {
   if (provider === "anthropic") {
     if (!anthropic) {
       throw new Error(
@@ -98,15 +52,6 @@ const getModel = (
       );
     }
     return anthropic(modelId);
-  }
-
-  if (provider === "gemini") {
-    const geminiModel = GEMINI_MODELS.find((m) => m.id === modelId);
-    const thinkingConfig = getGeminiThinkingConfig(
-      geminiModel,
-      thinkingEnabled
-    );
-    return gemini(modelId, thinkingConfig);
   }
 
   if (!friendli) {
@@ -123,7 +68,7 @@ const ANTHROPIC_MAX_OUTPUT_TOKENS = 64_000;
 const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   const provider = options.provider ?? "friendli";
   const thinkingEnabled = options.enableThinking ?? false;
-  const model = getModel(modelId, provider, thinkingEnabled);
+  const model = getModel(modelId, provider);
 
   const getAnthropicProviderOptions = () => {
     if (!thinkingEnabled) {
@@ -149,10 +94,6 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   const getProviderOptions = () => {
     if (provider === "anthropic") {
       return getAnthropicProviderOptions();
-    }
-    if (provider === "gemini") {
-      // Gemini thinking is configured in the model creation
-      return undefined;
     }
     return {
       friendli: {
@@ -221,8 +162,6 @@ class AgentManager {
     this.provider = provider;
     if (provider === "anthropic") {
       this.modelId = DEFAULT_ANTHROPIC_MODEL_ID;
-    } else if (provider === "gemini") {
-      this.modelId = DEFAULT_GEMINI_MODEL_ID;
     } else {
       this.modelId = DEFAULT_MODEL_ID;
     }

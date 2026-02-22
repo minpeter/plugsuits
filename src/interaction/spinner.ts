@@ -1,3 +1,9 @@
+let spinnerOutputEnabled = true;
+
+export const setSpinnerOutputEnabled = (enabled: boolean): void => {
+  spinnerOutputEnabled = enabled;
+};
+
 export class Spinner {
   private interval: Timer | null = null;
   private readonly frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -13,6 +19,10 @@ export class Spinner {
       return;
     }
 
+    if (!spinnerOutputEnabled) {
+      return;
+    }
+
     process.stdout.write("\x1B[?25l");
     this.interval = setInterval(() => {
       const frame = this.frames[this.currentFrame];
@@ -22,6 +32,10 @@ export class Spinner {
   }
 
   stop(): void {
+    if (!spinnerOutputEnabled) {
+      return;
+    }
+
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
