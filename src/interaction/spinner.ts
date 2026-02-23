@@ -32,14 +32,15 @@ export class Spinner {
   }
 
   stop(): void {
-    if (!spinnerOutputEnabled) {
-      return;
-    }
-
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
     }
+
+    if (!spinnerOutputEnabled) {
+      return;
+    }
+
     process.stdout.write("\r\x1B[K");
     process.stdout.write("\x1B[?25h");
   }

@@ -168,7 +168,11 @@ class SharedTmuxSession {
     try {
       process.kill(pid, 0);
       return true;
-    } catch {
+    } catch (error) {
+      // EPERM means the process exists but we lack permission to signal it
+      if ((error as NodeJS.ErrnoException).code === "EPERM") {
+        return true;
+      }
       return false;
     }
   }

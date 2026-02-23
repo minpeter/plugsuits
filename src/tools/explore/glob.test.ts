@@ -60,12 +60,14 @@ describe("executeGlob", () => {
     it("does not include mtime for each file", async () => {
       const result = await executeGlob({ pattern: "*.ts", path: tempDir });
 
+      expect(result).toContain(".ts");
       expect(result).not.toContain(" | mtime: ");
     });
 
     it("does not include numbered list", async () => {
       const result = await executeGlob({ pattern: "*.ts", path: tempDir });
 
+      expect(result).toContain(".ts");
       expect(result).not.toContain("   1 |");
       expect(result).not.toContain("   2 |");
     });

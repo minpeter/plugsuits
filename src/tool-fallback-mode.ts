@@ -26,8 +26,8 @@ export const parseToolFallbackMode = (
     return LEGACY_ENABLED_TOOL_FALLBACK_MODE;
   }
 
-  if (value === "off" || value === "disable" || value === "false") {
-    return "disable";
+  if (value === "off" || value === "false") {
+    return DEFAULT_TOOL_FALLBACK_MODE;
   }
 
   return null;

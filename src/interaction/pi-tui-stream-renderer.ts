@@ -78,11 +78,11 @@ const READ_FILE_BLOCK_PREFIX = "======== ";
 const READ_FILE_BLOCK_SUFFIX = " ========";
 const READ_FILE_BLOCK_END = "======== end ========";
 const BACKTICK_FENCE_PATTERN = /`{3,}/g;
-const PATH_SEPARATOR_PATTERN = /[\\/]/;
 const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+\s\|\s)(.*)$/;
 const READ_FILE_LINES_WITH_RETURNED_PATTERN = /^(\d+)\s+\(returned:\s*(\d+)\)$/;
 const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
 const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;
+const TAB_PATTERN = /\t/g;
 const MAX_READ_PREVIEW_LINES = 10;
 
 interface ReadFileParsedOutput {
@@ -91,32 +91,22 @@ interface ReadFileParsedOutput {
   metadata: Map<string, string>;
 }
 
-const extractReadFilePath = (input: unknown): string | null => {
+const extractStringField = (input: unknown, field: string): string | null => {
   if (typeof input !== "object" || input === null) {
     return null;
   }
-
   const record = input as Record<string, unknown>;
-  return typeof record.path === "string" ? record.path : null;
+  return typeof record[field] === "string" ? (record[field] as string) : null;
 };
 
-const extractGlobPattern = (input: unknown): string | null => {
-  if (typeof input !== "object" || input === null) {
-    return null;
-  }
+const extractReadFilePath = (input: unknown): string | null =>
+  extractStringField(input, "path");
 
-  const record = input as Record<string, unknown>;
-  return typeof record.pattern === "string" ? record.pattern : null;
-};
+const extractGlobPattern = (input: unknown): string | null =>
+  extractStringField(input, "pattern");
 
-const extractGrepPattern = (input: unknown): string | null => {
-  if (typeof input !== "object" || input === null) {
-    return null;
-  }
-
-  const record = input as Record<string, unknown>;
-  return typeof record.pattern === "string" ? record.pattern : null;
-};
+const extractGrepPattern = (input: unknown): string | null =>
+  extractStringField(input, "pattern");
 
 const shouldIncludeReadFilePreviewLine = (line: string): boolean => {
   const match = line.match(READ_FILE_LINE_SPLIT_PATTERN);
@@ -248,12 +238,7 @@ const parseGrepOutput = (output: string): ReadFileParsedOutput | null => {
 
 const resolveReadPath = (parsed: ReadFileParsedOutput): string => {
   const pathValue = parsed.metadata.get("path") ?? "";
-  return (
-    pathValue.trim() ||
-    parsed.blockTitle ||
-    pathValue.split(PATH_SEPARATOR_PATTERN).at(-1)?.trim() ||
-    "(unknown)"
-  );
+  return pathValue.trim() || parsed.blockTitle || "(unknown)";
 };
 
 const getToolOmittedLineCount = (metadata: Map<string, string>): number => {
@@ -611,7 +596,7 @@ class TruncatedReadBody {
       return [];
     }
 
-    const normalizedText = this.text.replace(/\t/g, "   ");
+    const normalizedText = this.text.replace(TAB_PATTERN, "   ");
     const contentWidth = Math.max(1, width - this.paddingX * 2);
     const leftMargin = " ".repeat(this.paddingX);
     const rightMargin = " ".repeat(this.paddingX);

@@ -130,7 +130,14 @@ const parseToolFallbackCliOption = (
   const arg = args[index];
 
   if (arg === "--tool-fallback-mode") {
-    const parsedMode = parseToolFallbackMode(args[index + 1] ?? "");
+    const candidate = args[index + 1];
+    if (!candidate || candidate.startsWith("--")) {
+      return {
+        consumedArgs: 0,
+        mode: DEFAULT_TOOL_FALLBACK_MODE,
+      };
+    }
+    const parsedMode = parseToolFallbackMode(candidate);
     return {
       consumedArgs: 1,
       mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
@@ -429,7 +436,10 @@ const processAgentResponse = async (
           emitToolErrorEvent(part);
           break;
         case "finish-step": {
-          const finishPart = part as { finishReason: string };
+          const finishPart = part as Extract<
+            typeof part,
+            { type: "finish-step" }
+          >;
           lastFinishReason = finishPart.finishReason;
           break;
         }
@@ -506,9 +516,23 @@ const run = async (): Promise<void> => {
   try {
     await processAgentResponse(messageHistory);
 
+    const MAX_TODO_REMINDER_ITERATIONS = 20;
+    let todoReminderCount = 0;
+
     while (true) {
       const incompleteTodos = await getIncompleteTodos();
       if (incompleteTodos.length === 0) {
+        break;
+      }
+
+      todoReminderCount += 1;
+      if (todoReminderCount > MAX_TODO_REMINDER_ITERATIONS) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          sessionId,
+          error: `Todo continuation safety cap reached (${MAX_TODO_REMINDER_ITERATIONS} reminders). Incomplete todos: ${incompleteTodos.map((t) => t.id).join(", ")}`,
+        });
         break;
       }
 

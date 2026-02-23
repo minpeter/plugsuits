@@ -17,8 +17,12 @@ function findUnusedPid(): number {
     const candidate = start + i;
     try {
       process.kill(candidate, 0);
-    } catch {
-      return candidate;
+    } catch (error) {
+      // Only treat ESRCH (no such process) as unused;
+      // EPERM means the process exists but we can't signal it
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+        return candidate;
+      }
     }
   }
 

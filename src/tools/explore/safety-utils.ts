@@ -85,7 +85,7 @@ function isBinaryFile(path: string): boolean {
   return BINARY_EXTENSIONS.has(ext);
 }
 
-export interface FileCheckResult {
+interface FileCheckResult {
   allowed: boolean;
   reason?: string;
 }

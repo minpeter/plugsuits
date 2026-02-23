@@ -24,7 +24,7 @@ const OUTPUT_TOKEN_MAX = 64_000;
 
 type CoreStreamResult = ReturnType<typeof streamText>;
 
-interface AgentStreamOptions {
+export interface AgentStreamOptions {
   abortSignal?: AbortSignal;
 }
 
@@ -143,7 +143,7 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
     }: { messages: ModelMessage[] } & AgentStreamOptions) => {
       return streamText({
         model: wrappedModel,
-        system: options.instructions || SYSTEM_PROMPT,
+        system: options.instructions ?? SYSTEM_PROMPT,
         tools,
         messages,
         maxOutputTokens,

@@ -80,7 +80,7 @@ const ANSI_BG_GRAY = "\x1b[100m";
 const ANSI_GREEN = "\x1b[92m";
 const ANSI_YELLOW = "\x1b[93m";
 const ANSI_MAGENTA = "\x1b[95m";
-const ANSI_CYAN = "\x1b[96m";
+const ANSI_CYAN = "\x1b[36m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
 const CTRL_C_ETX = "\u0003";
@@ -1164,7 +1164,14 @@ const parseToolFallbackCliOption = (
   const arg = args[index];
 
   if (arg === "--tool-fallback-mode") {
-    const parsedMode = parseToolFallbackMode(args[index + 1] ?? "");
+    const candidate = args[index + 1];
+    if (!candidate || candidate.startsWith("--")) {
+      return {
+        consumedArgs: 0,
+        mode: DEFAULT_TOOL_FALLBACK_MODE,
+      };
+    }
+    const parsedMode = parseToolFallbackMode(candidate);
     return {
       consumedArgs: 1,
       mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
@@ -1579,7 +1586,10 @@ const cleanupTmuxSession = (): void => {
     return;
   }
   tmuxCleanupExecuted = true;
-  cleanupSession();
+
+  if (env.TMUX_CLEANUP_SESSION) {
+    cleanupSession();
+  }
 };
 
 const exitWithCleanup = (code: number): never => {

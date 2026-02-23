@@ -41,13 +41,9 @@ function trimTrailingNewlines(message: ModelMessage): ModelMessage {
     return message;
   }
 
-  // Create a new array with proper type preservation
-  const newContent = content.map((part, idx) => {
-    if (idx === lastTextIndex) {
-      return { type: "text" as const, text: trimmedText };
-    }
-    return part;
-  });
+  // Create a new array preserving all fields (e.g. providerOptions)
+  const newContent = [...content];
+  newContent[lastTextIndex] = { ...textPart, text: trimmedText };
 
   return { ...message, content: newContent };
 }
