@@ -6,6 +6,7 @@ import { cwd } from "node:process";
 import { fileURLToPath } from "node:url";
 import { glob } from "glob";
 import { parse as parseYAML } from "yaml";
+import { parsePromptsCommandName } from "./skill-command-prefix";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_SKILLS_DIR = join(__dirname, "../skills");
@@ -455,7 +456,11 @@ export async function loadSkillById(
   skillId: string
 ): Promise<{ content: string; info: SkillInfo } | null> {
   const allSkills = await loadAllSkills();
-  const skill = allSkills.find((s) => s.id === skillId);
+
+  const promptsSkillId = parsePromptsCommandName(skillId);
+  const skill = promptsSkillId
+    ? allSkills.find((s) => s.id === promptsSkillId)
+    : allSkills.find((s) => s.id === skillId);
 
   if (!skill) {
     return null;

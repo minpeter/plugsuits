@@ -59,6 +59,32 @@ describe("Command aliases", () => {
   });
 });
 
+describe("Skill command prefixes", () => {
+  it("keeps non-command skills addressable without prompts prefix", async () => {
+    const result = await executeCommand("/example");
+
+    expect(result).not.toBeNull();
+    expect(result?.success).toBe(true);
+    expect(result && "isSkill" in result && result.isSkill).toBe(true);
+
+    if (result && "isSkill" in result && result.isSkill) {
+      expect(result.skillId).toBe("prompts:example");
+    }
+  });
+
+  it("resolves prompts prefix for non-command skills", async () => {
+    const result = await executeCommand("/prompts:example");
+
+    expect(result).not.toBeNull();
+    expect(result?.success).toBe(true);
+    expect(result && "isSkill" in result && result.isSkill).toBe(true);
+
+    if (result && "isSkill" in result && result.isSkill) {
+      expect(result.skillId).toBe("prompts:example");
+    }
+  });
+});
+
 describe("Tool fallback command", () => {
   let originalMode: ToolFallbackMode;
 

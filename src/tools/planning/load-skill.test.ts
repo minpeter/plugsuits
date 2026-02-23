@@ -25,6 +25,13 @@ describe("executeLoadSkill", () => {
     expect(result).toContain("triggers:");
   });
 
+  it("loads skill with prompts prefix", async () => {
+    const result = await executeLoadSkill({ skillName: "prompts:example" });
+
+    expect(result).toContain("# Skill Loaded: prompts:example");
+    expect(result).toContain("# Example Skill");
+  });
+
   it("rejects path traversal attempts with ..", async () => {
     const result = await executeLoadSkill({ skillName: "../../../etc/passwd" });
 

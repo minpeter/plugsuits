@@ -2,11 +2,15 @@
 
 import { stripVTControlCharacters } from "node:util";
 import {
+  type AutocompleteItem,
+  type AutocompleteProvider,
   CombinedAutocompleteProvider,
   Container,
   Editor,
   type EditorTheme,
   Input,
+  isKeyRelease,
+  isKeyRepeat,
   Key,
   Loader,
   Markdown,
@@ -43,6 +47,7 @@ import { createThinkCommand } from "../commands/think";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { MessageHistory } from "../context/message-history";
 import { getSessionId, initializeSession } from "../context/session";
+import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
 import { env } from "../env";
@@ -78,10 +83,31 @@ const ANSI_MAGENTA = "\x1b[95m";
 const ANSI_CYAN = "\x1b[96m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
+const CTRL_C_ETX = "\u0003";
 
 const messageHistory = new MessageHistory();
 let cachedSkills: SkillInfo[] = [];
 let shouldExit = false;
+let activeStreamController: AbortController | null = null;
+let streamInterruptRequested = false;
+
+const cancelActiveStream = (): boolean => {
+  if (!activeStreamController || activeStreamController.signal.aborted) {
+    return false;
+  }
+
+  streamInterruptRequested = true;
+  activeStreamController.abort("User requested stream interruption");
+  return true;
+};
+
+const clearActiveStreamController = (
+  streamController: AbortController
+): void => {
+  if (activeStreamController === streamController) {
+    activeStreamController = null;
+  }
+};
 
 const style = (prefix: string, text: string): string => {
   return `${prefix}${text}${ANSI_RESET}`;
@@ -189,7 +215,66 @@ const addNewSessionMessage = (chatContainer: Container): void => {
   );
 };
 
-const createAutocompleteCommands = (skills: SkillInfo[]): SlashCommand[] => {
+const SKILL_LABEL_MAX_WIDTH = 24;
+const MODEL_LABEL_MAX_WIDTH = 26;
+const MODEL_NAME_MAX_WIDTH = 28;
+
+type SlashAutocompleteEntry = SlashCommand | AutocompleteItem;
+
+const truncateAutocompleteLabel = (value: string, maxWidth: number): string => {
+  if (value.length <= maxWidth) {
+    return value;
+  }
+
+  if (maxWidth <= 1) {
+    return "…";
+  }
+
+  return `${value.slice(0, maxWidth - 1)}…`;
+};
+
+const toAutocompleteEntryValue = (entry: SlashAutocompleteEntry): string => {
+  return "name" in entry ? entry.name : entry.value;
+};
+
+const buildModelSelectorDescription = (
+  modelName: string | undefined,
+  providerLabel: string
+): string => {
+  if (!modelName) {
+    return providerLabel;
+  }
+
+  const truncatedName = truncateAutocompleteLabel(
+    modelName,
+    MODEL_NAME_MAX_WIDTH
+  );
+  return `${truncatedName} - ${providerLabel}`;
+};
+
+const buildModelSelectorLabel = (
+  modelId: string,
+  isCurrent: boolean
+): string => {
+  const currentMarker = isCurrent ? "* " : "  ";
+  const truncatedModelId = truncateAutocompleteLabel(
+    modelId,
+    MODEL_LABEL_MAX_WIDTH
+  );
+  return `${currentMarker}${truncatedModelId}`;
+};
+
+const buildCurrentIndicatorLabel = (
+  label: string,
+  isCurrent: boolean
+): string => {
+  const currentMarker = isCurrent ? "* " : "  ";
+  return `${currentMarker}${label}`;
+};
+
+const createAutocompleteCommands = (
+  skills: SkillInfo[]
+): SlashAutocompleteEntry[] => {
   const createCommandSuggestion = (
     command: {
       argumentSuggestions?: string[];
@@ -226,7 +311,7 @@ const createAutocompleteCommands = (skills: SkillInfo[]): SlashCommand[] => {
     } satisfies SlashCommand;
   };
 
-  const commandSuggestions = Array.from(getCommands().values()).flatMap(
+  const commandSuggestions = Array.from(getCommands().values()).map(
     (command) => {
       const aliases =
         "aliases" in command && Array.isArray(command.aliases)
@@ -235,30 +320,228 @@ const createAutocompleteCommands = (skills: SkillInfo[]): SlashCommand[] => {
       const aliasSuffix =
         aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
 
-      const primary = createCommandSuggestion(
+      return createCommandSuggestion(
         command,
         command.name,
         `${command.description}${aliasSuffix}`
       );
-
-      const aliasSuggestions = aliases.map((alias: string) =>
-        createCommandSuggestion(
-          command,
-          alias,
-          `Alias of /${command.name} - ${command.description}`
-        )
-      );
-
-      return [primary, ...aliasSuggestions];
     }
   );
 
-  const skillSuggestions: SlashCommand[] = skills.map((skill) => ({
-    name: skill.id,
-    description: skill.description,
-  }));
+  const skillSuggestions: AutocompleteItem[] = skills.map((skill) => {
+    const commandName = toPromptsCommandName(skill.id);
+    return {
+      value: commandName,
+      label: truncateAutocompleteLabel(commandName, SKILL_LABEL_MAX_WIDTH),
+      description: skill.description,
+    };
+  });
 
-  return [...commandSuggestions, ...skillSuggestions];
+  const suggestions: SlashAutocompleteEntry[] = [
+    ...commandSuggestions,
+    ...skillSuggestions,
+  ];
+  const seenNames = new Set<string>();
+  const uniqueSuggestions: SlashAutocompleteEntry[] = [];
+
+  for (const suggestion of suggestions) {
+    const normalizedName = toAutocompleteEntryValue(suggestion).toLowerCase();
+    if (seenNames.has(normalizedName)) {
+      continue;
+    }
+
+    seenNames.add(normalizedName);
+    uniqueSuggestions.push(suggestion);
+  }
+
+  return uniqueSuggestions;
+};
+
+const toAutocompleteItem = (suggestion: SlashCommand): AutocompleteItem => ({
+  value: suggestion.name,
+  label: suggestion.name,
+  ...(suggestion.description ? { description: suggestion.description } : {}),
+});
+
+const buildCommandSuggestionsByName = (
+  slashCommands: SlashAutocompleteEntry[]
+): Map<string, SlashCommand> => {
+  const commandSuggestionsByName = new Map<string, SlashCommand>();
+
+  for (const suggestion of slashCommands) {
+    if (!("name" in suggestion)) {
+      continue;
+    }
+
+    commandSuggestionsByName.set(suggestion.name.toLowerCase(), suggestion);
+  }
+
+  return commandSuggestionsByName;
+};
+
+const buildAliasToCanonicalNameMap = (): Map<string, string> => {
+  const aliasToCanonicalName = new Map<string, string>();
+
+  for (const command of getCommands().values()) {
+    const canonicalName = command.name.toLowerCase();
+
+    for (const alias of command.aliases ?? []) {
+      const normalizedAlias = alias.toLowerCase();
+      if (normalizedAlias === canonicalName) {
+        continue;
+      }
+
+      aliasToCanonicalName.set(normalizedAlias, canonicalName);
+    }
+  }
+
+  return aliasToCanonicalName;
+};
+
+const getAliasArgumentSuggestions = (
+  textBeforeCursor: string,
+  commandSuggestionsByName: Map<string, SlashCommand>
+): { items: AutocompleteItem[]; prefix: string } | null => {
+  const spaceIndex = textBeforeCursor.indexOf(" ");
+  if (spaceIndex < 0) {
+    return null;
+  }
+
+  const commandName = textBeforeCursor.slice(1, spaceIndex).toLowerCase();
+  const resolvedName = resolveRegisteredCommandName(commandName);
+  if (resolvedName === commandName) {
+    return null;
+  }
+
+  const command = commandSuggestionsByName.get(resolvedName);
+  if (!command?.getArgumentCompletions) {
+    return null;
+  }
+
+  const argumentPrefix = textBeforeCursor.slice(spaceIndex + 1);
+  const items = command.getArgumentCompletions(argumentPrefix);
+  if (!items || items.length === 0) {
+    return null;
+  }
+
+  return {
+    items,
+    prefix: argumentPrefix,
+  };
+};
+
+const getAliasMatches = (
+  query: string,
+  aliasToCanonicalName: Map<string, string>,
+  commandSuggestionsByName: Map<string, SlashCommand>
+): AutocompleteItem[] => {
+  const aliasMatches: AutocompleteItem[] = [];
+  const seenCanonicalNames = new Set<string>();
+
+  for (const [alias, canonicalName] of aliasToCanonicalName) {
+    if (!alias.startsWith(query) || seenCanonicalNames.has(canonicalName)) {
+      continue;
+    }
+
+    const suggestion = commandSuggestionsByName.get(canonicalName);
+    if (!suggestion) {
+      continue;
+    }
+
+    seenCanonicalNames.add(canonicalName);
+    aliasMatches.push(toAutocompleteItem(suggestion));
+  }
+
+  return aliasMatches;
+};
+
+const mergeAutocompleteItems = (
+  prioritizedItems: AutocompleteItem[],
+  fallbackItems: AutocompleteItem[] = []
+): AutocompleteItem[] => {
+  const mergedItems: AutocompleteItem[] = [];
+  const seenValues = new Set<string>();
+
+  for (const item of [...prioritizedItems, ...fallbackItems]) {
+    const normalizedValue = item.value.toLowerCase();
+    if (seenValues.has(normalizedValue)) {
+      continue;
+    }
+
+    seenValues.add(normalizedValue);
+    mergedItems.push(item);
+  }
+
+  return mergedItems;
+};
+
+const createAliasAwareAutocompleteProvider = (
+  skills: SkillInfo[]
+): AutocompleteProvider => {
+  const slashCommands = createAutocompleteCommands(skills);
+  const fallbackProvider = new CombinedAutocompleteProvider(
+    slashCommands,
+    process.cwd()
+  );
+  const commandSuggestionsByName = buildCommandSuggestionsByName(slashCommands);
+  const aliasToCanonicalName = buildAliasToCanonicalNameMap();
+
+  return {
+    getSuggestions: (lines, cursorLine, cursorCol) => {
+      const currentLine = lines[cursorLine] ?? "";
+      const textBeforeCursor = currentLine.slice(0, cursorCol);
+
+      if (!textBeforeCursor.startsWith("/")) {
+        return fallbackProvider.getSuggestions(lines, cursorLine, cursorCol);
+      }
+
+      const aliasArgumentSuggestions = getAliasArgumentSuggestions(
+        textBeforeCursor,
+        commandSuggestionsByName
+      );
+      if (aliasArgumentSuggestions) {
+        return aliasArgumentSuggestions;
+      }
+
+      const defaultSuggestions = fallbackProvider.getSuggestions(
+        lines,
+        cursorLine,
+        cursorCol
+      );
+
+      if (textBeforeCursor.includes(" ")) {
+        return defaultSuggestions;
+      }
+
+      const query = textBeforeCursor.slice(1).toLowerCase();
+      if (query.length === 0) {
+        return defaultSuggestions;
+      }
+
+      const aliasMatches = getAliasMatches(
+        query,
+        aliasToCanonicalName,
+        commandSuggestionsByName
+      );
+
+      if (aliasMatches.length === 0) {
+        return defaultSuggestions;
+      }
+
+      return {
+        items: mergeAutocompleteItems(aliasMatches, defaultSuggestions?.items),
+        prefix: textBeforeCursor,
+      };
+    },
+    applyCompletion: (lines, cursorLine, cursorCol, item, prefix) =>
+      fallbackProvider.applyCompletion(
+        lines,
+        cursorLine,
+        cursorCol,
+        item,
+        prefix
+      ),
+  };
 };
 
 interface CliUi {
@@ -297,7 +580,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   const help = new Text(
     style(
       ANSI_DIM,
-      "Enter to submit, Shift+Enter for newline, /help for commands, Ctrl+C to exit"
+      "Enter to submit, Shift+Enter for newline, /help for commands, Ctrl+C clears input, Ctrl+C again exits"
     ),
     1,
     0
@@ -326,12 +609,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     paddingX: 1,
     autocompleteMaxVisible: 8,
   });
-  editor.setAutocompleteProvider(
-    new CombinedAutocompleteProvider(
-      createAutocompleteCommands(skills),
-      process.cwd()
-    )
-  );
+  editor.setAutocompleteProvider(createAliasAwareAutocompleteProvider(skills));
 
   editorContainer.addChild(editor);
 
@@ -343,6 +621,8 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
 
   let loader: Loader | null = null;
   let inputResolver: ((value: string | null) => void) | null = null;
+  let pendingExitConfirmation = false;
+  let activeModalCancel: (() => void) | null = null;
 
   const clearStatus = (): void => {
     if (loader) {
@@ -365,6 +645,67 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     statusContainer.addChild(loader);
     loader.start();
     tui.requestRender();
+  };
+
+  const clearPromptInput = (): void => {
+    editor.setText("");
+    tui.setFocus(editor);
+    tui.requestRender();
+  };
+
+  const clearPendingExitConfirmation = (): void => {
+    pendingExitConfirmation = false;
+  };
+
+  const setActiveModalCancel = (cancel: (() => void) | null): void => {
+    activeModalCancel = cancel;
+  };
+
+  const dismissActiveModal = (): void => {
+    if (!activeModalCancel) {
+      return;
+    }
+
+    const cancel = activeModalCancel;
+    activeModalCancel = null;
+    cancel();
+  };
+
+  const shouldClearPendingExitConfirmation = (data: string): boolean => {
+    if (!pendingExitConfirmation) {
+      return false;
+    }
+
+    if (isCtrlCInput(data)) {
+      return false;
+    }
+
+    if (isKeyRelease(data) || isKeyRepeat(data)) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const isCtrlCInput = (data: string): boolean => {
+    return data === CTRL_C_ETX || matchesKey(data, Key.ctrl("c"));
+  };
+
+  const handleCtrlCPress = (): void => {
+    const canceled = cancelActiveStream();
+    if (canceled) {
+      clearPendingExitConfirmation();
+      clearStatus();
+      return;
+    }
+    if (pendingExitConfirmation) {
+      dismissActiveModal();
+      requestExit();
+      return;
+    }
+    pendingExitConfirmation = true;
+    dismissActiveModal();
+    clearPromptInput();
   };
 
   const showThinkSelector = async (
@@ -415,9 +756,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
           return;
         }
         done = true;
+        setActiveModalCancel(null);
         cleanup();
         resolve(value);
       };
+
+      setActiveModalCancel(() => {
+        finish(null);
+      });
 
       selectList.onSelect = (item) => {
         finish(item.value === "off" ? "off" : "on");
@@ -427,10 +773,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       };
 
       removeSelectorInputListener = tui.addInputListener((data) => {
-        if (matchesKey(data, Key.ctrl("c"))) {
-          requestExit();
+        if (isCtrlCInput(data)) {
+          handleCtrlCPress();
           finish(null);
           return { consume: true };
+        }
+
+        if (shouldClearPendingExitConfirmation(data)) {
+          clearPendingExitConfirmation();
         }
 
         selectList.handleInput(data);
@@ -455,22 +805,31 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       [
         {
           value: "disable",
-          label: "disable",
+          label: buildCurrentIndicatorLabel(
+            "disable",
+            currentMode === "disable"
+          ),
           description: "Use native tool support only",
         },
         {
           value: "morphxml",
-          label: "morphxml",
+          label: buildCurrentIndicatorLabel(
+            "morphxml",
+            currentMode === "morphxml"
+          ),
           description: "XML tags per tool (MorphXML protocol)",
         },
         {
           value: "hermes",
-          label: "hermes",
+          label: buildCurrentIndicatorLabel("hermes", currentMode === "hermes"),
           description: "Hermes JSON-in-XML tool_call format",
         },
         {
           value: "qwen3coder",
-          label: "qwen3coder",
+          label: buildCurrentIndicatorLabel(
+            "qwen3coder",
+            currentMode === "qwen3coder"
+          ),
           description: "Qwen3Coder function-tag tool_call format",
         },
       ],
@@ -501,9 +860,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
           return;
         }
         done = true;
+        setActiveModalCancel(null);
         cleanup();
         resolve(value);
       };
+
+      setActiveModalCancel(() => {
+        finish(null);
+      });
 
       selectList.onSelect = (item) => {
         const parsedMode = parseToolFallbackMode(item.value);
@@ -514,10 +878,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       };
 
       removeSelectorInputListener = tui.addInputListener((data) => {
-        if (matchesKey(data, Key.ctrl("c"))) {
-          requestExit();
+        if (isCtrlCInput(data)) {
+          handleCtrlCPress();
           finish(null);
           return { consume: true };
+        }
+
+        if (shouldClearPendingExitConfirmation(data)) {
+          clearPendingExitConfirmation();
         }
 
         selectList.handleInput(data);
@@ -536,8 +904,6 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     clearStatus();
 
     const selectorContainer = new Container();
-    selectorContainer.addChild(new Text(style(ANSI_DIM, "Select model"), 1, 0));
-    selectorContainer.addChild(new Spacer(1));
 
     const searchInput = new Input();
     searchInput.focused = true;
@@ -551,14 +917,13 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       modelMap.set(key, model);
       const providerLabel =
         model.provider === "anthropic" ? "Anthropic" : "FriendliAI";
-      const modelName = model.name ? ` - ${model.name}` : "";
       const isCurrent =
         model.id === currentModelId && model.provider === currentProvider;
-      const currentLabel = isCurrent ? " (current)" : "";
+
       return {
         value: key,
-        label: `${model.id}${modelName}`,
-        description: `${providerLabel}${currentLabel}`,
+        label: buildModelSelectorLabel(model.id, isCurrent),
+        description: buildModelSelectorDescription(model.name, providerLabel),
       };
     });
 
@@ -602,9 +967,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
           return;
         }
         done = true;
+        setActiveModalCancel(null);
         cleanup();
         resolve(value);
       };
+
+      setActiveModalCancel(() => {
+        finish(null);
+      });
 
       const selectCurrent = (): void => {
         const selectedItem = selectList.getSelectedItem();
@@ -628,10 +998,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       };
 
       removeSelectorInputListener = tui.addInputListener((data) => {
-        if (matchesKey(data, Key.ctrl("c"))) {
-          requestExit();
+        if (isCtrlCInput(data)) {
+          handleCtrlCPress();
           finish(null);
           return { consume: true };
+        }
+
+        if (shouldClearPendingExitConfirmation(data)) {
+          clearPendingExitConfirmation();
         }
 
         if (
@@ -654,7 +1028,9 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   };
 
   const requestExit = (): void => {
+    pendingExitConfirmation = false;
     shouldExit = true;
+    dismissActiveModal();
     if (inputResolver) {
       const resolve = inputResolver;
       inputResolver = null;
@@ -663,7 +1039,8 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   };
 
   const onSigInt = () => {
-    requestExit();
+    handleCtrlCPress();
+    dismissActiveModal();
   };
 
   const onTerminalResize = () => {
@@ -671,10 +1048,15 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   };
 
   const removeInputListener = tui.addInputListener((data) => {
-    if (matchesKey(data, Key.ctrl("c"))) {
-      requestExit();
+    if (isCtrlCInput(data)) {
+      handleCtrlCPress();
       return { consume: true };
     }
+
+    if (shouldClearPendingExitConfirmation(data)) {
+      clearPendingExitConfirmation();
+    }
+
     return undefined;
   });
 
@@ -686,6 +1068,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       return;
     }
 
+    pendingExitConfirmation = false;
     const resolve = inputResolver;
     inputResolver = null;
     resolve(text);
@@ -846,53 +1229,92 @@ const setupAgent = (): void => {
   }
 };
 
-const processAgentResponse = async (ui: CliUi): Promise<void> => {
-  ui.showLoader("Thinking...");
+type AgentResponseStatus = "completed" | "interrupted";
+
+const processAgentResponse = async (
+  ui: CliUi
+): Promise<AgentResponseStatus> => {
   let manualToolLoopCount = 0;
 
   while (true) {
-    const stream = await agentManager.stream(messageHistory.toModelMessages());
-    ui.clearStatus();
+    ui.showLoader(manualToolLoopCount === 0 ? "Thinking..." : "Continuing...");
+    const streamAbortController = new AbortController();
+    activeStreamController = streamAbortController;
+    streamInterruptRequested = false;
 
-    await renderFullStreamWithPiTui(stream.fullStream, {
-      ui: ui.tui,
-      chatContainer: ui.chatContainer,
-      markdownTheme: ui.markdownTheme,
-      showReasoning: true,
-      showSteps: false,
-      showToolResults: true,
-      showFiles: false,
-      showSources: false,
-      showFinishReason: env.DEBUG_SHOW_FINISH_REASON,
-    });
-
-    const [response, finishReason] = await Promise.all([
-      stream.response,
-      stream.finishReason,
-    ]);
-    messageHistory.addModelMessages(response.messages);
-
-    if (!shouldContinueManualToolLoop(finishReason)) {
-      return;
-    }
-
-    manualToolLoopCount += 1;
-    if (manualToolLoopCount >= MANUAL_TOOL_LOOP_MAX_STEPS) {
-      addSystemMessage(
-        ui.chatContainer,
-        `[agent] Manual tool loop safety cap reached (${MANUAL_TOOL_LOOP_MAX_STEPS}); waiting for input.`
+    try {
+      const stream = await agentManager.stream(
+        messageHistory.toModelMessages(),
+        { abortSignal: streamAbortController.signal }
       );
-      ui.tui.requestRender();
-      return;
-    }
+      ui.clearStatus();
 
-    ui.showLoader("Continuing...");
+      await renderFullStreamWithPiTui(stream.fullStream, {
+        ui: ui.tui,
+        chatContainer: ui.chatContainer,
+        markdownTheme: ui.markdownTheme,
+        showReasoning: true,
+        showSteps: false,
+        showToolResults: true,
+        showFiles: false,
+        showSources: false,
+        showFinishReason: env.DEBUG_SHOW_FINISH_REASON,
+      });
+
+      const [response, finishReason] = await Promise.all([
+        stream.response,
+        stream.finishReason,
+      ]);
+
+      if (streamInterruptRequested || streamAbortController.signal.aborted) {
+        addSystemMessage(
+          ui.chatContainer,
+          "[agent] Stream interrupted by user. Waiting for input."
+        );
+        ui.tui.requestRender();
+        return "interrupted";
+      }
+
+      messageHistory.addModelMessages(response.messages);
+
+      if (!shouldContinueManualToolLoop(finishReason)) {
+        return "completed";
+      }
+
+      manualToolLoopCount += 1;
+      if (manualToolLoopCount >= MANUAL_TOOL_LOOP_MAX_STEPS) {
+        addSystemMessage(
+          ui.chatContainer,
+          `[agent] Manual tool loop safety cap reached (${MANUAL_TOOL_LOOP_MAX_STEPS}); waiting for input.`
+        );
+        ui.tui.requestRender();
+        return "completed";
+      }
+    } catch (error) {
+      if (streamInterruptRequested || streamAbortController.signal.aborted) {
+        addSystemMessage(
+          ui.chatContainer,
+          "[agent] Stream interrupted by user. Waiting for input."
+        );
+        ui.tui.requestRender();
+        return "interrupted";
+      }
+
+      throw error;
+    } finally {
+      clearActiveStreamController(streamAbortController);
+      streamInterruptRequested = false;
+      ui.clearStatus();
+    }
   }
 };
 
 const handleAgentResponse = async (ui: CliUi): Promise<void> => {
   while (true) {
-    await processAgentResponse(ui);
+    const result = await processAgentResponse(ui);
+    if (result === "interrupted") {
+      return;
+    }
 
     const incompleteTodos = await getIncompleteTodos();
     if (incompleteTodos.length === 0) {

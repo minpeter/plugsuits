@@ -1,3 +1,4 @@
+import { toPromptsCommandName } from "../context/skill-command-prefix";
 import { loadSkillById } from "../context/skills";
 import { createHelpCommand } from "./help";
 import type { Command, CommandContext, CommandResult } from "./types";
@@ -101,7 +102,7 @@ export const executeCommand = async (
       return {
         success: true,
         isSkill: true,
-        skillId: skill.info.id,
+        skillId: toPromptsCommandName(skill.info.id),
         skillContent: skill.content,
       } as SkillCommandResult;
     }

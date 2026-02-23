@@ -24,6 +24,10 @@ const OUTPUT_TOKEN_MAX = 64_000;
 
 type CoreStreamResult = ReturnType<typeof streamText>;
 
+interface AgentStreamOptions {
+  abortSignal?: AbortSignal;
+}
+
 export interface AgentStreamResult {
   finishReason: CoreStreamResult["finishReason"];
   fullStream: CoreStreamResult["fullStream"];
@@ -135,7 +139,7 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   });
 
   return {
-    stream: ({ messages }: { messages: ModelMessage[] }) => {
+    stream: ({ messages, abortSignal }: { messages: ModelMessage[] } & AgentStreamOptions) => {
       return streamText({
         model: wrappedModel,
         system: options.instructions || SYSTEM_PROMPT,
@@ -144,6 +148,7 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
         maxOutputTokens,
         providerOptions,
         stopWhen: stepCountIs(1),
+        abortSignal,
       });
     },
   };
@@ -242,14 +247,14 @@ class AgentManager {
     return tools;
   }
 
-  async stream(messages: ModelMessage[]): Promise<AgentStreamResult> {
+  async stream(messages: ModelMessage[], options: AgentStreamOptions = {}): Promise<AgentStreamResult> {
     const agent = createAgent(this.modelId, {
       instructions: await this.getInstructions(),
       enableThinking: this.thinkingEnabled,
       toolFallbackMode: this.toolFallbackMode,
       provider: this.provider,
     });
-    return agent.stream({ messages });
+    return agent.stream({ messages, ...options });
   }
 }
 
