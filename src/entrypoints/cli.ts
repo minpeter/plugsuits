@@ -558,6 +558,7 @@ interface CliUi {
   editor: Editor;
   markdownTheme: MarkdownTheme;
   requestExit: () => void;
+  showCommandLoader: (message: string) => void;
   showLoader: (message: string) => void;
   showModelSelector: (
     models: ModelInfo[],
@@ -629,12 +630,29 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   tui.setFocus(editor);
 
   let loader: Loader | null = null;
+  let commandLoaderInterval: Timer | null = null;
+  let commandLoaderText: Text | null = null;
   let inputResolver: ((value: string | null) => void) | null = null;
   let pendingExitConfirmation = false;
   let lastCtrlCPressAt = 0;
   let activeModalCancel: (() => void) | null = null;
 
+  const COMMAND_LOADER_FRAMES = ["-", "\\", "|", "/"] as const;
+
+  const stopCommandLoader = (): void => {
+    if (commandLoaderInterval) {
+      clearInterval(commandLoaderInterval);
+      commandLoaderInterval = null;
+    }
+
+    if (commandLoaderText) {
+      statusContainer.removeChild(commandLoaderText);
+      commandLoaderText = null;
+    }
+  };
+
   const clearStatus = (): void => {
+    stopCommandLoader();
     if (loader) {
       loader.stop();
       statusContainer.removeChild(loader);
@@ -654,6 +672,27 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     );
     statusContainer.addChild(loader);
     loader.start();
+    tui.requestRender();
+  };
+
+  const showCommandLoader = (message: string): void => {
+    clearStatus();
+
+    commandLoaderText = new Text("", 1, 0);
+    statusContainer.addChild(commandLoaderText);
+
+    let frameIndex = 0;
+    const updateFrame = (): void => {
+      const frame = COMMAND_LOADER_FRAMES[frameIndex];
+      frameIndex = (frameIndex + 1) % COMMAND_LOADER_FRAMES.length;
+      commandLoaderText?.setText(
+        `${style(ANSI_CYAN, frame)} ${style(ANSI_DIM, message)}`
+      );
+      tui.requestRender();
+    };
+
+    updateFrame();
+    commandLoaderInterval = setInterval(updateFrame, 80);
     tui.requestRender();
   };
 
@@ -1134,6 +1173,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     updateHeader,
     waitForInput,
     requestExit,
+    showCommandLoader,
     showLoader,
     showModelSelector,
     showToolFallbackSelector,
@@ -1337,7 +1377,7 @@ const processAgentResponse = async (
   let manualToolLoopCount = 0;
 
   while (true) {
-    ui.showLoader(manualToolLoopCount === 0 ? "Thinking..." : "Continuing...");
+    ui.showLoader("Working...");
     const streamAbortController = new AbortController();
     activeStreamController = streamAbortController;
     streamInterruptRequested = false;
@@ -1347,12 +1387,21 @@ const processAgentResponse = async (
         messageHistory.toModelMessages(),
         { abortSignal: streamAbortController.signal }
       );
-      ui.clearStatus();
+
+      let hasClearedStreamingLoader = false;
+      const clearStreamingLoader = (): void => {
+        if (hasClearedStreamingLoader) {
+          return;
+        }
+        hasClearedStreamingLoader = true;
+        ui.clearStatus();
+      };
 
       await renderFullStreamWithPiTui(stream.fullStream, {
         ui: ui.tui,
         chatContainer: ui.chatContainer,
         markdownTheme: ui.markdownTheme,
+        onFirstVisiblePart: clearStreamingLoader,
         showReasoning: true,
         showSteps: false,
         showToolResults: true,
@@ -1360,6 +1409,8 @@ const processAgentResponse = async (
         showSources: false,
         showFinishReason: env.DEBUG_SHOW_FINISH_REASON,
       });
+
+      clearStreamingLoader();
 
       const [response, finishReason] = await Promise.all([
         stream.response,
@@ -1567,7 +1618,7 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
     resolvedCommandName === "tool-fallback";
 
   if (!isNativeCommand) {
-    ui.showLoader("Running command...");
+    ui.showCommandLoader("Running command...");
   }
 
   const result = await executeCommand(commandInput);

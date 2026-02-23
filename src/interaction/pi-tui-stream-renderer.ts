@@ -19,6 +19,7 @@ interface ToolInputRenderState {
 export interface PiTuiStreamRenderOptions {
   chatContainer: Container;
   markdownTheme: MarkdownTheme;
+  onFirstVisiblePart?: () => void;
   showFiles?: boolean;
   showFinishReason?: boolean;
   showReasoning?: boolean;
@@ -1370,6 +1371,38 @@ const IGNORE_PART_TYPES = new Set([
   "tool-approval-request",
 ]);
 
+const isVisibleStreamPart = (
+  part: StreamPart,
+  flags: PiTuiRenderFlags
+): boolean => {
+  switch (part.type) {
+    case "abort":
+    case "text-end":
+    case "reasoning-end":
+    case "start":
+    case "tool-approval-request":
+    case "text-start":
+    case "reasoning-start":
+    case "tool-input-end":
+      return false;
+    case "reasoning-delta":
+      return flags.showReasoning;
+    case "tool-result":
+      return flags.showToolResults;
+    case "start-step":
+    case "finish-step":
+      return flags.showSteps;
+    case "source":
+      return flags.showSources;
+    case "file":
+      return flags.showFiles;
+    case "finish":
+      return flags.showFinishReason;
+    default:
+      return true;
+  }
+};
+
 const handleStreamPart = (part: StreamPart, state: PiTuiStreamState): void => {
   const handler = STREAM_HANDLERS[part.type];
   if (handler) {
@@ -1406,6 +1439,7 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
   const toolViews = new Map<string, ToolCallView>();
   let assistantView: AssistantStreamView | null = null;
   let suppressAssistantLeadingSpacer = false;
+  let firstVisiblePartSeen = false;
 
   const resetAssistantView = (suppressLeadingSpacer = false): void => {
     if (suppressLeadingSpacer) {
@@ -1453,6 +1487,11 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
 
   for await (const rawPart of stream) {
     const part = rawPart as StreamPart;
+
+    if (!firstVisiblePartSeen && isVisibleStreamPart(part, flags)) {
+      firstVisiblePartSeen = true;
+      options.onFirstVisiblePart?.();
+    }
 
     handleStreamPart(part, state);
     options.ui.requestRender();

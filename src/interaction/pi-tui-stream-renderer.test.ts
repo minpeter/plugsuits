@@ -46,13 +46,21 @@ interface RenderResult {
   renderCalls: number;
 }
 
-const renderParts = async (parts: TestStreamPart[]): Promise<RenderResult> => {
+interface RenderPartsOptions {
+  onFirstVisiblePart?: () => void;
+}
+
+const renderParts = async (
+  parts: TestStreamPart[],
+  overrides: RenderPartsOptions = {}
+): Promise<RenderResult> => {
   const chatContainer = new Container();
   let renderCalls = 0;
 
   const options: PiTuiStreamRenderOptions = {
     chatContainer,
     markdownTheme,
+    onFirstVisiblePart: overrides.onFirstVisiblePart,
     ui: {
       requestRender: () => {
         renderCalls += 1;
@@ -80,6 +88,47 @@ const renderParts = async (parts: TestStreamPart[]): Promise<RenderResult> => {
 };
 
 describe("renderFullStreamWithPiTui", () => {
+  it("calls onFirstVisiblePart exactly once", async () => {
+    let calls = 0;
+
+    await renderParts(
+      [
+        { type: "start" } as never,
+        { type: "text-start", id: "text_1" },
+        { type: "text-delta", id: "text_1", text: "Hello" },
+        { type: "text-delta", id: "text_1", text: " world" },
+        { type: "text-end", id: "text_1" },
+      ],
+      {
+        onFirstVisiblePart: () => {
+          calls += 1;
+        },
+      }
+    );
+
+    expect(calls).toBe(1);
+  });
+
+  it("does not call onFirstVisiblePart for ignored-only stream", async () => {
+    let calls = 0;
+
+    await renderParts(
+      [
+        { type: "start" } as never,
+        { type: "text-end", id: "text_1" },
+        { type: "reasoning-end", id: "reason_1" } as never,
+        { type: "abort" } as never,
+      ],
+      {
+        onFirstVisiblePart: () => {
+          calls += 1;
+        },
+      }
+    );
+
+    expect(calls).toBe(0);
+  });
+
   it("streams markdown text into assistant view", async () => {
     const { output, renderCalls } = await renderParts([
       { type: "text-start", id: "text_1" },
