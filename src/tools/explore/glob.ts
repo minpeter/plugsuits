@@ -2,8 +2,8 @@ import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { formatBlock, getIgnoreFilter } from "../utils/safety-utils";
 import GLOB_FILES_DESCRIPTION from "./glob-files.txt";
-import { formatBlock, getIgnoreFilter } from "./safety-utils";
 
 const MAX_RESULTS = 500;
 const STAT_CONCURRENCY = 32;
@@ -38,7 +38,9 @@ const inputSchema = z.object({
     .boolean()
     .optional()
     .default(true)
-    .describe("Respect .gitignore (default: true)"),
+    .describe(
+      "Respect ignore rules from .gitignore/.ignore/.fdignore (default: true)"
+    ),
 });
 
 export type GlobInput = z.input<typeof inputSchema>;

@@ -33,11 +33,11 @@ describe("hashline", () => {
   });
 
   it("parses line tags embedded in grep-style paths", () => {
-    expect(parseLineTag("./file1.ts:7#MQ | const foo = 1;")).toEqual({
+    expect(parseLineTag("./file1.ts:7#MQ|const foo = 1;")).toEqual({
       line: 7,
       hash: "MQ",
     });
-    expect(parseLineTag("C:\\repo\\file.ts:9#vr | const bar = 2;")).toEqual({
+    expect(parseLineTag("C:\\repo\\file.ts:9#vr|const bar = 2;")).toEqual({
       line: 9,
       hash: "VR",
     });
@@ -162,7 +162,7 @@ describe("hashline", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(HashlineMismatchError);
       const message = (error as Error).message;
-      expect(message).toContain(`>>> 2#${computeLineHash(2, "two")} | two`);
+      expect(message).toContain(`>>> 2#${computeLineHash(2, "two")}|two`);
       expect(message).not.toContain(`>>> 2#${computeLineHash(2, "two")}:two`);
     }
   });
@@ -173,7 +173,7 @@ describe("hashline", () => {
   });
 
   it("strips copied hashline prefixes with pipe delimiter", () => {
-    const parsed = parseHashlineText("1#ZP | foo\n2#MQ | bar\n");
+    const parsed = parseHashlineText("1#ZP|foo\n2#MQ|bar\n");
     expect(parsed).toEqual(["foo", "bar"]);
   });
 });

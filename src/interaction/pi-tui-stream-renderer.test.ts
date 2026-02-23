@@ -10,23 +10,16 @@ import {
 type TestStreamPart = TextStreamPart<ToolSet>;
 
 const LARGE_BLANK_GAP_REGEX = /\n[ \t]*\n[ \t]*\n[ \t]*\n/;
-const tagGrepLine = (path: string, lineNumber: number, content: string): string => {
-  return `${path}:${lineNumber}#${computeLineHash(lineNumber, content)} | ${content}`;
+const tagGrepLine = (
+  path: string,
+  lineNumber: number,
+  content: string
+): string => {
+  return `${path}:${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
 };
-const findLastLineIndexContaining = (
-  lines: string[],
-  predicate: (line: string) => boolean,
-  beforeIndex: number
-): number => {
-  for (let i = beforeIndex - 1; i >= 0; i -= 1) {
-    if (predicate(lines[i])) {
-      return i;
-    }
-  }
-
-  return -1;
+const tagReadLine = (lineNumber: number, content: string): string => {
+  return `${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
 };
-
 const markdownTheme: MarkdownTheme = {
   heading: (text) => text,
   link: (text) => text,
@@ -233,13 +226,16 @@ describe("renderFullStreamWithPiTui", () => {
     );
     expect(reasoningLineIndex).toBeGreaterThan(-1);
 
-    const outputFenceIndex = findLastLineIndexContaining(
-      lines,
-      (line) => line.trim() === "```",
-      reasoningLineIndex
-    );
-    expect(outputFenceIndex).toBeGreaterThan(-1);
-    expect(reasoningLineIndex).toBe(outputFenceIndex + 1);
+    let previousNonEmptyLineIndex = -1;
+    for (let i = reasoningLineIndex - 1; i >= 0; i -= 1) {
+      if (lines[i].trim().length > 0) {
+        previousNonEmptyLineIndex = i;
+        break;
+      }
+    }
+
+    expect(previousNonEmptyLineIndex).toBeGreaterThan(-1);
+    expect(reasoningLineIndex).toBe(previousNonEmptyLineIndex + 1);
   });
 
   it("renders live diff preview for edit_file tool input", async () => {
@@ -321,6 +317,95 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).not.toContain("Tool read_file");
     expect(output).not.toContain("Output");
     expect(output).not.toContain("OK - read file");
+  });
+
+  it("normalizes split hashline read line fragments", async () => {
+    const lineContent = "const value = 2;";
+    const lineTag = tagReadLine(2, lineContent).split("|")[0];
+    const readOutput = [
+      "OK - read file",
+      "path: src/demo.ts",
+      "bytes: 48",
+      "last_modified: 2026-01-19T03:33:57.520Z",
+      "lines: 5 (returned: 1)",
+      "range: L2-L2",
+      "truncated: false",
+      "",
+      "======== demo.ts L2-L2 ========",
+      `   ${lineTag}`,
+      "|",
+      lineContent,
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_read_split",
+        toolName: "read_file",
+        input: {
+          path: "src/demo.ts",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_read_split",
+        toolName: "read_file",
+        input: {
+          path: "src/demo.ts",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain(tagReadLine(2, lineContent));
+    expect(output).not.toContain(`   ${lineTag}\n|\n${lineContent}`);
+  });
+
+  it("preserves intentionally empty hashline lines", async () => {
+    const headingLine = "# Code Editing Agent";
+    const paragraphLine = "A code-editing agent built with Vercel AI SDK.";
+    const readOutput = [
+      "OK - read file",
+      "path: README.md",
+      "bytes: 120",
+      "last_modified: 2026-02-23T01:00:00.000Z",
+      "lines: 3 (returned: 3)",
+      "range: L1-L3",
+      "truncated: false",
+      "",
+      "======== README.md L1-L3 ========",
+      tagReadLine(1, headingLine),
+      tagReadLine(2, ""),
+      tagReadLine(3, paragraphLine),
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_read_empty_line",
+        toolName: "read_file",
+        input: {
+          path: "README.md",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_read_empty_line",
+        toolName: "read_file",
+        input: {
+          path: "README.md",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain(tagReadLine(2, ""));
+    expect(output).toContain(tagReadLine(3, paragraphLine));
+    expect(output).not.toContain(
+      `${tagReadLine(2, "")}${tagReadLine(3, paragraphLine)}`
+    );
   });
 
   it("omits read_file content after 10 lines", async () => {
@@ -467,6 +552,91 @@ describe("renderFullStreamWithPiTui", () => {
 
     expect(output).toContain("call_3");
     expect(output).toContain("src/big.ts");
+  });
+
+  it("streams read_file pretty header from partial tool-input-delta", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_stream_read",
+        toolName: "read_file",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_stream_read",
+        delta: '{"path":"src/streamed.ts"',
+      },
+    ]);
+
+    expect(output).toContain("Read src/streamed.ts");
+    expect(output).toContain("Reading...");
+    expect(output).not.toContain("Tool read_file");
+  });
+
+  it("streams shell_execute pretty header from partial tool-input-delta", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_stream_shell",
+        toolName: "shell_execute",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_stream_shell",
+        delta: '{"command":"echo streamed"',
+      },
+    ]);
+
+    expect(output).toContain("Shell echo streamed (call_stream_shell)");
+    expect(output).toContain("Running...");
+    expect(output).not.toContain("Tool shell_execute");
+  });
+
+  it("waits to render non-raw tool input until tool name is known", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-delta",
+        id: "call_late_name",
+        delta: '{"path":"src/late-name.ts"}',
+      } as never,
+      {
+        type: "tool-input-start",
+        id: "call_late_name",
+        toolName: "read_file",
+      },
+    ]);
+
+    expect(output).toContain("Read src/late-name.ts");
+    expect(output).toContain("Reading...");
+    expect(output).not.toContain("Tool tool");
+  });
+
+  it("does not render tool block on input-start before deltas in non-raw mode", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_start_only",
+        toolName: "read_file",
+      },
+    ]);
+
+    expect(output).toBe("");
+  });
+
+  it("keeps unknown-name tool input visible in raw debug mode", async () => {
+    const { output } = await renderParts(
+      [
+        {
+          type: "tool-input-delta",
+          id: "call_unknown_raw",
+          delta: '{"path":"src/raw-mode.ts"}',
+        } as never,
+      ],
+      { showRawToolIo: true }
+    );
+
+    expect(output).toContain("Tool tool");
+    expect(output).toContain("src/raw-mode.ts");
   });
 
   it("keeps reasoning visible after tool blocks in stream order", async () => {
@@ -978,6 +1148,113 @@ describe("renderFullStreamWithPiTui", () => {
       expect(output).toContain("Output");
       expect(output).toContain(testCase.output.split("\n")[0]);
       expect(output).not.toContain(testCase.prettyHeading);
+    }
+  });
+
+  it("renders dedicated pretty wrappers for all other tools", async () => {
+    const cases = [
+      {
+        toolCallId: "call_shell_pretty",
+        toolName: "shell_execute",
+        input: {
+          command: "echo hello",
+          workdir: "/tmp",
+          timeout_ms: 1000,
+        },
+        output: {
+          exit_code: 0,
+          output: "hello",
+        },
+        expectedHeading: "Shell echo hello (call_shell_pretty)",
+      },
+      {
+        toolCallId: "call_interact_pretty",
+        toolName: "shell_interact",
+        input: {
+          keystrokes: "<Enter>",
+        },
+        output: {
+          success: true,
+          output: "sent",
+        },
+        expectedHeading: "Interact <Enter> (call_interact_pretty)",
+      },
+      {
+        toolCallId: "call_write_pretty",
+        toolName: "write_file",
+        input: {
+          path: "src/new.ts",
+          content: "const x = 1;",
+        },
+        output: "OK - created new.ts\nbytes: 12, lines: 1",
+        expectedHeading: "Write src/new.ts (call_write_pretty)",
+      },
+      {
+        toolCallId: "call_edit_pretty",
+        toolName: "edit_file",
+        input: {
+          path: "src/demo.ts",
+          edits: [{ op: "replace", pos: "2#AB", lines: ["const x = 2;"] }],
+        },
+        output: "Updated src/demo.ts",
+        expectedHeading: "Edit src/demo.ts (call_edit_pretty)",
+      },
+      {
+        toolCallId: "call_delete_pretty",
+        toolName: "delete_file",
+        input: {
+          path: "src/old.ts",
+        },
+        output: "OK - deleted file: old.ts\npath: src/old.ts",
+        expectedHeading: "Delete src/old.ts (call_delete_pretty)",
+      },
+      {
+        toolCallId: "call_skill_pretty",
+        toolName: "load_skill",
+        input: {
+          skillName: "git-workflow",
+        },
+        output: "# Skill Loaded: git-workflow [Project]",
+        expectedHeading: "Skill git-workflow (call_skill_pretty)",
+      },
+      {
+        toolCallId: "call_todo_pretty",
+        toolName: "todo_write",
+        input: {
+          todos: [
+            { id: "1", content: "A", status: "pending", priority: "high" },
+            {
+              id: "2",
+              content: "B",
+              status: "completed",
+              priority: "medium",
+            },
+          ],
+        },
+        output: "OK - updated todo list\ntotal: 2 tasks",
+        expectedHeading: "Todo 2 tasks (call_todo_pretty)",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { output } = await renderParts([
+        {
+          type: "tool-call",
+          toolCallId: testCase.toolCallId,
+          toolName: testCase.toolName,
+          input: testCase.input,
+        },
+        {
+          type: "tool-result",
+          toolCallId: testCase.toolCallId,
+          toolName: testCase.toolName,
+          input: testCase.input,
+          output: testCase.output,
+        },
+      ]);
+
+      expect(output).toContain(testCase.expectedHeading);
+      expect(output).not.toContain(`Tool ${testCase.toolName}`);
     }
   });
 });

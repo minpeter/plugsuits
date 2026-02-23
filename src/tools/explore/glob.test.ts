@@ -108,4 +108,110 @@ describe("executeGlob", () => {
       expect(result).toContain("truncated: false");
     });
   });
+
+  describe("ignore behavior", () => {
+    it("respects .ignore and .fdignore patterns", async () => {
+      const isolatedDir = mkdtempSync(join(tmpdir(), "glob-ignore-"));
+      try {
+        writeFileSync(join(isolatedDir, ".ignore"), "skip.ignore.txt\n");
+        writeFileSync(join(isolatedDir, ".fdignore"), "skip.fd.txt\n");
+        writeFileSync(join(isolatedDir, "keep.txt"), "keep");
+        writeFileSync(join(isolatedDir, "skip.ignore.txt"), "ignored");
+        writeFileSync(join(isolatedDir, "skip.fd.txt"), "ignored");
+
+        const result = await executeGlob({
+          pattern: "**/*.txt",
+          path: isolatedDir,
+        });
+
+        expect(result).toContain("file_count: 1");
+        expect(result).toContain("keep.txt");
+        expect(result).not.toContain("skip.ignore.txt");
+        expect(result).not.toContain("skip.fd.txt");
+      } finally {
+        if (existsSync(isolatedDir)) {
+          rmSync(isolatedDir, { recursive: true });
+        }
+      }
+    });
+
+    it("can bypass ignore rules when respect_git_ignore is false", async () => {
+      const isolatedDir = mkdtempSync(join(tmpdir(), "glob-ignore-off-"));
+      try {
+        writeFileSync(join(isolatedDir, ".ignore"), "skip.ignore.txt\n");
+        writeFileSync(join(isolatedDir, ".fdignore"), "skip.fd.txt\n");
+        writeFileSync(join(isolatedDir, "keep.txt"), "keep");
+        writeFileSync(join(isolatedDir, "skip.ignore.txt"), "ignored");
+        writeFileSync(join(isolatedDir, "skip.fd.txt"), "ignored");
+
+        const result = await executeGlob({
+          pattern: "**/*.txt",
+          path: isolatedDir,
+          respect_git_ignore: false,
+        });
+
+        expect(result).toContain("file_count: 3");
+        expect(result).toContain("keep.txt");
+        expect(result).toContain("skip.ignore.txt");
+        expect(result).toContain("skip.fd.txt");
+      } finally {
+        if (existsSync(isolatedDir)) {
+          rmSync(isolatedDir, { recursive: true });
+        }
+      }
+    });
+
+    it("applies parent .gitignore when searching from subdirectory", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "glob-parent-gitignore-"));
+      const srcDir = join(repoDir, "src");
+      try {
+        mkdirSync(join(repoDir, ".git"));
+        mkdirSync(srcDir);
+        writeFileSync(join(repoDir, ".gitignore"), "/src/ignored.ts\n");
+        writeFileSync(join(srcDir, "ignored.ts"), "ignored");
+        writeFileSync(join(srcDir, "kept.ts"), "kept");
+
+        const result = await executeGlob({
+          pattern: "**/*.ts",
+          path: srcDir,
+        });
+
+        expect(result).toContain("file_count: 1");
+        expect(result).toContain("kept.ts");
+        expect(result).not.toContain("ignored.ts");
+      } finally {
+        if (existsSync(repoDir)) {
+          rmSync(repoDir, { recursive: true });
+        }
+      }
+    });
+
+    it("applies slashless nested .gitignore patterns to descendants", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "glob-nested-gitignore-"));
+      const srcDir = join(repoDir, "src");
+      const nestedDir = join(srcDir, "nested");
+      try {
+        mkdirSync(join(repoDir, ".git"));
+        mkdirSync(srcDir);
+        mkdirSync(nestedDir);
+        writeFileSync(join(srcDir, ".gitignore"), "ignored.ts\n");
+        writeFileSync(join(srcDir, "ignored.ts"), "ignored");
+        writeFileSync(join(nestedDir, "ignored.ts"), "ignored");
+        writeFileSync(join(nestedDir, "kept.ts"), "kept");
+
+        const result = await executeGlob({
+          pattern: "**/*.ts",
+          path: repoDir,
+        });
+
+        expect(result).toContain("file_count: 1");
+        expect(result).toContain("kept.ts");
+        expect(result).not.toContain("ignored.ts");
+      } finally {
+        if (existsSync(repoDir)) {
+          rmSync(repoDir, { recursive: true });
+        }
+      }
+    });
+  });
 });

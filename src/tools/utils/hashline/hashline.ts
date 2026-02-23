@@ -202,7 +202,7 @@ function formatMismatchMessage(
     const text = fileLines[lineNumber - 1] ?? "";
     const prefix = `${lineNumber}#${computeLineHash(lineNumber, text)}`;
     const marker = mismatchByLine.has(lineNumber) ? ">>>" : "   ";
-    output.push(`${marker} ${prefix} | ${text}`);
+    output.push(`${marker} ${prefix}|${text}`);
   }
 
   return output.join("\n");
@@ -515,7 +515,7 @@ export function formatHashlineNumberedLines(
     .map((line, index) => {
       const lineNumber = startLine + index;
       const tag = formatLineTag(lineNumber, line);
-      return `  ${tag} | ${line}`;
+      return `${tag}|${line}`;
     })
     .join("\n");
 }

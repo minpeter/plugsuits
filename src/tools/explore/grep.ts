@@ -5,8 +5,8 @@ import { tool } from "ai";
 import { z } from "zod";
 import { ensureTool } from "../../utils/tools-manager";
 import { formatLineTag } from "../utils/hashline/hashline";
+import { formatBlock } from "../utils/safety-utils";
 import GREP_FILES_DESCRIPTION from "./grep-files.txt";
-import { formatBlock } from "./safety-utils";
 
 const MAX_MATCHES = 20_000;
 
@@ -42,7 +42,7 @@ function formatHashlineCompatibleMatches(rawMatches: string): string {
       }
 
       const tag = formatLineTag(lineNumber, content);
-      return `${filePath}:${tag} | ${content}`;
+      return `${filePath}:${tag}|${content}`;
     })
     .join("\n");
 }

@@ -3,7 +3,7 @@ import {
   formatBackgroundMessage,
   formatTerminalScreen,
   formatTimeoutMessage,
-} from "./format-utils";
+} from "../utils/execute/format-utils";
 
 describe("formatTerminalScreen", () => {
   it("wraps content with screen markers", () => {

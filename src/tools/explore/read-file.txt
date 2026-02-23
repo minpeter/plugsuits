@@ -12,6 +12,7 @@
 - `limit` (optional, min 1): max lines to return
 - `around_line` (optional, 1-based, min 1): center line for windowed read
 - `before` / `after` (optional, min 0): context window around `around_line`
+- `respect_git_ignore` (optional, default true): apply `.gitignore` / `.ignore` / `.fdignore`
 
 **Output fields**:
 - `file_hash`: stale-check token for `edit_file.expected_file_hash`

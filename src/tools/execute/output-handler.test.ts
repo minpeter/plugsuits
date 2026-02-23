@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, unlinkSync } from "node:fs";
-import { sanitizeOutput, stripAnsi, truncateOutput } from "./output-handler";
+import {
+  sanitizeOutput,
+  stripAnsi,
+  truncateOutput,
+} from "../utils/execute/output-handler";
 
 describe("stripAnsi", () => {
   test("removes ANSI color codes", () => {

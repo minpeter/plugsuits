@@ -23,7 +23,7 @@ import {
   parseToolFallbackMode,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
-import { cleanup } from "../tools/execute/process-manager";
+import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
 
 interface BaseEvent {

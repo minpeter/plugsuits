@@ -14,7 +14,7 @@ import { executeEditFile } from "./edit-file";
 
 const FILE_HASH_REGEX = /^file_hash:\s+([0-9a-f]{8})$/m;
 const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
-  new RegExp(`\\s${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\s\\|`);
+  new RegExp(`${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
 
 function extractFileHash(readOutput: string): string {
   const matched = readOutput.match(FILE_HASH_REGEX);
@@ -83,8 +83,7 @@ describe("edit_file (hashline-only)", () => {
       .split("\n")
       .find(
         (line) =>
-          line.includes("hashline-from-grep.txt:2#") &&
-          line.includes(" | bravo")
+          line.includes("hashline-from-grep.txt:2#") && line.includes("|bravo")
       );
 
     if (!grepLine) {

@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { formatBlock, safeReadFileEnhanced } from "../utils/safety-utils";
 import READ_FILE_DESCRIPTION from "./read-file.txt";
-import { formatBlock, safeReadFileEnhanced } from "./safety-utils";
 
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),
@@ -38,6 +38,11 @@ const inputSchema = z.object({
     .min(0)
     .optional()
     .describe("Lines after around_line (default: 10)"),
+  respect_git_ignore: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Respect ignore rules from .gitignore/.ignore/.fdignore"),
 });
 
 export type ReadFileInput = z.input<typeof inputSchema>;
@@ -49,6 +54,7 @@ export async function executeReadFile({
   around_line,
   before,
   after,
+  respect_git_ignore,
 }: ReadFileInput): Promise<string> {
   const parsedInput = inputSchema.parse({
     path,
@@ -57,6 +63,7 @@ export async function executeReadFile({
     around_line,
     before,
     after,
+    respect_git_ignore,
   });
 
   const result = await safeReadFileEnhanced(path, {
@@ -65,6 +72,7 @@ export async function executeReadFile({
     around_line: parsedInput.around_line,
     before: parsedInput.before,
     after: parsedInput.after,
+    respect_git_ignore: parsedInput.respect_git_ignore,
   });
 
   const fileName = basename(path);
@@ -79,6 +87,7 @@ export async function executeReadFile({
     `file_hash: ${result.fileHash}`,
     `range: ${rangeStr}`,
     `truncated: ${result.truncated}`,
+    `respect_git_ignore: ${parsedInput.respect_git_ignore}`,
     "",
     formatBlock(`${fileName} ${rangeStr}`, result.numberedContent),
   ];

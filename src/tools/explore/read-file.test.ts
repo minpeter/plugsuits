@@ -1,18 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeReadFile } from "./read-file";
 
 const ISO_DATE_PATTERN = /\d{4}-\d{2}-\d{2}T/;
 const FILE_HASH_PATTERN = /file_hash:\s+[0-9a-f]{8}/;
-const LINE_TAG_PATTERN = /\s\d+#(?:[ZPMQVRWSNKTXJBYH]{2})\s\|/;
+const LINE_TAG_PATTERN = /\d+#(?:[ZPMQVRWSNKTXJBYH]{2})\|/;
 const HASHLINE_ALPHABET = "[ZPMQVRWSNKTXJBYH]{2}";
 const REGEX_ESCAPE_PATTERN = /[.*+?^${}()|[\]\\]/g;
 
 function buildTaggedLinePattern(lineNumber: number, text: string): RegExp {
   const escaped = text.replaceAll(REGEX_ESCAPE_PATTERN, "\\$&");
-  return new RegExp(`\\s${lineNumber}#${HASHLINE_ALPHABET}\\s\\|\\s${escaped}`);
+  return new RegExp(`${lineNumber}#${HASHLINE_ALPHABET}\\|${escaped}`);
 }
 
 describe("executeReadFile", () => {
@@ -193,6 +199,113 @@ describe("executeReadFile", () => {
       await expect(
         executeReadFile({ path: join(tempDir, "nonexistent.txt") })
       ).rejects.toThrow();
+    });
+
+    it("respects .ignore and .fdignore by default", async () => {
+      const isolatedDir = mkdtempSync(join(tmpdir(), "read-ignore-"));
+      try {
+        const ignoredByDotIgnore = join(isolatedDir, "blocked-ignore.txt");
+        const ignoredByFdIgnore = join(isolatedDir, "blocked-fd.txt");
+        writeFileSync(join(isolatedDir, ".ignore"), "blocked-ignore.txt\n");
+        writeFileSync(join(isolatedDir, ".fdignore"), "blocked-fd.txt\n");
+        writeFileSync(ignoredByDotIgnore, "blocked");
+        writeFileSync(ignoredByFdIgnore, "blocked");
+
+        await expect(
+          executeReadFile({ path: ignoredByDotIgnore })
+        ).rejects.toThrow("excluded by ignore rules");
+        await expect(
+          executeReadFile({ path: ignoredByFdIgnore })
+        ).rejects.toThrow("excluded by ignore rules");
+      } finally {
+        if (existsSync(isolatedDir)) {
+          rmSync(isolatedDir, { recursive: true });
+        }
+      }
+    });
+
+    it("can bypass ignore rules when respect_git_ignore is false", async () => {
+      const isolatedDir = mkdtempSync(join(tmpdir(), "read-ignore-off-"));
+      try {
+        const ignoredFile = join(isolatedDir, "blocked.txt");
+        writeFileSync(join(isolatedDir, ".ignore"), "blocked.txt\n");
+        writeFileSync(ignoredFile, "allowed");
+
+        const result = await executeReadFile({
+          path: ignoredFile,
+          respect_git_ignore: false,
+        });
+
+        expect(result).toContain("OK - read file");
+        expect(result).toContain("respect_git_ignore: false");
+        expect(result).toMatch(buildTaggedLinePattern(1, "allowed"));
+      } finally {
+        if (existsSync(isolatedDir)) {
+          rmSync(isolatedDir, { recursive: true });
+        }
+      }
+    });
+
+    it("applies parent .gitignore when reading from subdirectory", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "read-parent-gitignore-"));
+      const srcDir = join(repoDir, "src");
+      try {
+        mkdirSync(join(repoDir, ".git"));
+        mkdirSync(srcDir);
+        writeFileSync(join(repoDir, ".gitignore"), "/src/blocked.txt\n");
+        writeFileSync(join(srcDir, "blocked.txt"), "blocked");
+
+        await expect(
+          executeReadFile({ path: join(srcDir, "blocked.txt") })
+        ).rejects.toThrow("excluded by ignore rules");
+      } finally {
+        if (existsSync(repoDir)) {
+          rmSync(repoDir, { recursive: true });
+        }
+      }
+    });
+
+    it("applies slashless nested .gitignore patterns to descendants", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "read-nested-gitignore-"));
+      const srcDir = join(repoDir, "src");
+      const nestedDir = join(srcDir, "nested");
+      try {
+        mkdirSync(join(repoDir, ".git"));
+        mkdirSync(srcDir);
+        mkdirSync(nestedDir);
+        writeFileSync(join(srcDir, ".gitignore"), "ignored.ts\n");
+        writeFileSync(join(nestedDir, "ignored.ts"), "blocked");
+
+        await expect(
+          executeReadFile({ path: join(nestedDir, "ignored.ts") })
+        ).rejects.toThrow("excluded by ignore rules");
+      } finally {
+        if (existsSync(repoDir)) {
+          rmSync(repoDir, { recursive: true });
+        }
+      }
+    });
+
+    it("does not bypass ignore rules with relative parent paths", async () => {
+      const originalCwd = process.cwd();
+      const repoDir = mkdtempSync(join(tmpdir(), "read-relative-parent-"));
+      const nestedDir = join(repoDir, "nested");
+      try {
+        mkdirSync(join(repoDir, ".git"));
+        mkdirSync(nestedDir);
+        writeFileSync(join(repoDir, ".gitignore"), "/blocked.txt\n");
+        writeFileSync(join(repoDir, "blocked.txt"), "blocked");
+
+        process.chdir(nestedDir);
+        await expect(
+          executeReadFile({ path: "../blocked.txt" })
+        ).rejects.toThrow("excluded by ignore rules");
+      } finally {
+        process.chdir(originalCwd);
+        if (existsSync(repoDir)) {
+          rmSync(repoDir, { recursive: true });
+        }
+      }
     });
 
     it("rejects negative offset", async () => {

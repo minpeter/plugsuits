@@ -47,7 +47,7 @@ describe("executeGrep", () => {
       expect(result).toContain("======== grep results ========");
       expect(result).toContain("foo");
       expect(result).toMatch(
-        new RegExp(`file1\\.ts[:\\-]1#${HASHLINE_ALPHABET} \\| const foo = 1;`)
+        new RegExp(`file1\\.ts[:\\-]1#${HASHLINE_ALPHABET}\\|const foo = 1;`)
       );
       expect(result).toContain("======== end ========");
     });
@@ -56,7 +56,7 @@ describe("executeGrep", () => {
       const result = await executeGrep({ pattern: "foo", path: tempDir });
       const lineHash = computeLineHash(1, "const foo = 1;");
 
-      expect(result).toContain(`:1#${lineHash} | const foo = 1;`);
+      expect(result).toContain(`:1#${lineHash}|const foo = 1;`);
       expect(result).toContain("file1.ts");
       expect(result).toContain(":1#");
       expect(result).not.toContain("file1.ts:1:const foo = 1;");
@@ -151,13 +151,13 @@ describe("executeGrep", () => {
       });
 
       expect(result).toContain(
-        `:1#${computeLineHash(1, "before line")} | before line`
+        `:1#${computeLineHash(1, "before line")}|before line`
       );
       expect(result).toContain(
-        `:2#${computeLineHash(2, "needle target")} | needle target`
+        `:2#${computeLineHash(2, "needle target")}|needle target`
       );
       expect(result).toContain(
-        `:3#${computeLineHash(3, "after line")} | after line`
+        `:3#${computeLineHash(3, "after line")}|after line`
       );
       expect(result).not.toContain("context.ts-1-before line");
       expect(result).not.toContain("context.ts:2:needle target");

@@ -3,8 +3,11 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executeCommand, killProcessTree } from "./process-manager";
-import { getShell, getShellArgs } from "./shell-detection";
+import {
+  executeCommand,
+  killProcessTree,
+} from "../utils/execute/process-manager";
+import { getShell, getShellArgs } from "../utils/execute/shell-detection";
 
 const FIVE_SECONDS_MS = 5000;
 const SIGKILL_GRACE_MS = 1000;
@@ -167,7 +170,7 @@ describe("process-manager", () => {
 
   it("does not use spawnSync", async () => {
     const source = await Bun.file(
-      new URL("./process-manager.ts", import.meta.url)
+      new URL("../utils/execute/process-manager.ts", import.meta.url)
     ).text();
 
     expect(source.includes("spawnSync")).toBe(false);

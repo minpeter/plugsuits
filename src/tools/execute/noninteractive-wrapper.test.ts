@@ -3,7 +3,7 @@ import {
   buildEnvPrefix,
   getFullWrappedCommand,
   wrapCommandNonInteractive,
-} from "./noninteractive-wrapper";
+} from "../utils/execute/noninteractive-wrapper";
 
 const DUPLICATE_Y_FLAG = /-y.*-y/;
 
