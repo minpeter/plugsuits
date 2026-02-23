@@ -1,8 +1,33 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { getToolPath } from "../../utils/tools-manager";
 import { cleanupSession, getSharedSession } from "./shared-tmux-session";
 
 const SESSION_ID_PATTERN = /^cea-\d+-[a-z0-9]+$/;
 const TERMINAL_OUTPUT_PATTERN = /Terminal (Screen|Output)/;
+const TMUX_OWNER_PID_KEY = "CEA_OWNER_PID";
+const TMUX_SESSION_PREFIX = "cea-";
+const tmuxPath = getToolPath("tmux") || "tmux";
+
+function findUnusedPid(): number {
+  const start = 1_000_000;
+  const attempts = 500;
+
+  for (let i = 0; i < attempts; i += 1) {
+    const candidate = start + i;
+    try {
+      process.kill(candidate, 0);
+    } catch (error) {
+      // Only treat ESRCH (no such process) as unused;
+      // EPERM means the process exists but we can't signal it
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+        return candidate;
+      }
+    }
+  }
+
+  throw new Error("Unable to find an unused PID for test setup");
+}
 
 describe("SharedTmuxSession", () => {
   beforeAll(() => {
@@ -49,6 +74,64 @@ describe("SharedTmuxSession", () => {
       await session.executeCommand("echo second");
 
       expect(session.isSessionAlive()).toBe(true);
+    });
+
+    it("marks created session with owner PID", async () => {
+      const session = getSharedSession();
+      await session.executeCommand("echo owner-tag");
+
+      const ownerResult = spawnSync(
+        tmuxPath,
+        ["show-environment", "-t", session.getSessionId(), TMUX_OWNER_PID_KEY],
+        { encoding: "utf-8" }
+      );
+
+      expect(ownerResult.status).toBe(0);
+      expect(ownerResult.stdout.trim()).toBe(
+        `${TMUX_OWNER_PID_KEY}=${process.pid}`
+      );
+    });
+
+    it("cleans stale owned sessions before creating a new session", async () => {
+      const staleSessionId = `${TMUX_SESSION_PREFIX}${Date.now()}-stale`;
+      const deadPid = findUnusedPid();
+
+      const createResult = spawnSync(
+        tmuxPath,
+        ["new-session", "-d", "-s", staleSessionId, "bash +H"],
+        { encoding: "utf-8" }
+      );
+      expect(createResult.status).toBe(0);
+
+      const ownerResult = spawnSync(
+        tmuxPath,
+        [
+          "set-environment",
+          "-t",
+          staleSessionId,
+          TMUX_OWNER_PID_KEY,
+          String(deadPid),
+        ],
+        { encoding: "utf-8" }
+      );
+      expect(ownerResult.status).toBe(0);
+
+      try {
+        cleanupSession();
+        const session = getSharedSession();
+        await session.executeCommand("echo scavenger");
+
+        const hasSessionResult = spawnSync(
+          tmuxPath,
+          ["has-session", "-t", staleSessionId],
+          { encoding: "utf-8" }
+        );
+        expect(hasSessionResult.status).not.toBe(0);
+      } finally {
+        spawnSync(tmuxPath, ["kill-session", "-t", staleSessionId], {
+          encoding: "utf-8",
+        });
+      }
     });
   });
 

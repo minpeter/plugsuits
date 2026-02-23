@@ -5,19 +5,9 @@ import { getSharedSession } from "./shared-tmux-session";
 const MAX_OUTPUT_LENGTH = 50_000;
 const DEFAULT_TIMEOUT_MS = 2000;
 
-export interface CommandResult {
+interface CommandResult {
   exitCode: number;
   output: string;
-}
-
-export class CommandError extends Error {
-  command: string;
-
-  constructor(message: string, command: string) {
-    super(message);
-    this.name = "CommandError";
-    this.command = command;
-  }
 }
 
 function truncateOutput(output: string, maxLength: number): string {

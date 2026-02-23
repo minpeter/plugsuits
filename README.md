@@ -80,6 +80,10 @@ Available commands:
 You: ^C
 ```
 
+## Architecture
+
+The agent uses the Vercel AI SDK's `streamText` API with `stopWhen: stepCountIs(n)` for step control. This replaces the older `maxSteps` / `continueUntil` pattern—`stepCountIs` provides a clearer, declarative way to limit tool-call round-trips (e.g., `stepCountIs(1)` allows one tool invocation cycle per stream call). The outer conversation loop in the CLI drives multi-turn interaction.
+
 ## Model
 
 Uses `LGAI-EXAONE/K-EXAONE-236B-A23B` via FriendliAI serverless endpoints by default. Use `/model` command to switch models.

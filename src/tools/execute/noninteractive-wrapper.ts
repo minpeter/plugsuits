@@ -1,6 +1,6 @@
 import { platform } from "node:os";
 
-export interface WrapperResult {
+interface WrapperResult {
   command: string;
   description: string | null;
   env: Record<string, string>;
@@ -197,9 +197,10 @@ const TOOL_PATTERNS: ToolPattern[] = [
   },
 ];
 
+const WHITESPACE_SPLIT_PATTERN = /\s+/;
+
 function hasFlag(command: string, flag: string): boolean {
-  const flagPattern = new RegExp(`(^|\\s)${flag}(\\s|$)`);
-  return flagPattern.test(command);
+  return command.split(WHITESPACE_SPLIT_PATTERN).includes(flag);
 }
 
 function insertArgsAfterCommand(
@@ -273,15 +274,12 @@ export function wrapCommandNonInteractive(command: string): WrapperResult {
         wrappedCommand = appendArgs(wrappedCommand, tool.suffixArgs);
       }
 
-      const wasModified =
-        wrappedCommand !== trimmedCommand || Object.keys(env).length > 0;
-
       return {
         command: wrappedCommand,
         env,
-        wrapped: wasModified,
+        wrapped: true,
         tool: tool.name,
-        description: wasModified ? tool.description : null,
+        description: tool.description,
       };
     }
   }
@@ -307,20 +305,8 @@ export function buildEnvPrefix(env: Record<string, string>): string {
 
 export function getFullWrappedCommand(command: string): string {
   const result = wrapCommandNonInteractive(command);
-  if (!result.wrapped) {
-    return command;
-  }
-
   const envPrefix = buildEnvPrefix(result.env);
   return `${envPrefix}${result.command}`;
-}
-
-export function isLinux(): boolean {
-  return platform() === "linux";
-}
-
-export function isDarwin(): boolean {
-  return platform() === "darwin";
 }
 
 function isWindows(): boolean {

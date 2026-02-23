@@ -6,6 +6,7 @@ import { env } from "../env";
 import { colors } from "../interaction/colors";
 import { Spinner } from "../interaction/spinner";
 import { buildMiddlewares } from "../middleware";
+import type { ToolFallbackMode } from "../tool-fallback-mode";
 import type { Command, CommandResult } from "./types";
 
 interface RenderData {
@@ -14,7 +15,7 @@ interface RenderData {
   model: string;
   modelType: ModelType;
   thinkingEnabled: boolean;
-  toolFallbackEnabled: boolean;
+  toolFallbackMode: ToolFallbackMode;
   tools: ToolSet;
 }
 
@@ -37,7 +38,7 @@ async function renderChatPrompt({
   tools,
   messages,
   thinkingEnabled,
-  toolFallbackEnabled,
+  toolFallbackMode,
 }: RenderData): Promise<string> {
   const isDedicated = modelType === "dedicated";
   const baseURL = isDedicated
@@ -121,7 +122,7 @@ async function renderChatPrompt({
     model: wrapLanguageModel({
       model: friendli(model),
       middleware: buildMiddlewares({
-        enableToolFallback: toolFallbackEnabled,
+        toolFallbackMode,
       }),
     }),
     system: instructions,

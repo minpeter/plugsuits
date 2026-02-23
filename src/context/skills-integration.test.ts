@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { executeLoadSkill } from "../tools/planning/load-skill";
+import {
+  parsePromptsCommandName,
+  toPromptsCommandName,
+} from "./skill-command-prefix";
 import { loadAllSkills, loadSkillById } from "./skills";
 
 describe("Skills Integration Tests", () => {
@@ -86,5 +90,24 @@ describe("Skills Integration Tests", () => {
       "Error: Skill 'git-workflow' is a legacy format skill"
     );
     expect(result).toContain("Only v2 skills support subdirectory files");
+  });
+
+  test("formats prompts-prefixed slash command names", () => {
+    expect(toPromptsCommandName("rams")).toBe("prompts:rams");
+    expect(toPromptsCommandName("prompts:rams")).toBe("prompts:rams");
+  });
+
+  test("parses prompts-prefixed slash command names", () => {
+    expect(parsePromptsCommandName("prompts:rams")).toBe("rams");
+    expect(parsePromptsCommandName("prompts:")).toBeNull();
+    expect(parsePromptsCommandName("rams")).toBeNull();
+  });
+
+  test("loads v2 skill by prompts-prefixed name", async () => {
+    const result = await loadSkillById("prompts:example");
+
+    expect(result).toBeTruthy();
+    expect(result?.info.id).toBe("example");
+    expect(result?.info.format).toBe("v2");
   });
 });

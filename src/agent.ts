@@ -1,8 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
-import { ToolLoopAgent, wrapLanguageModel } from "ai";
-import { createGeminiProvider } from "ai-sdk-provider-gemini-cli";
+import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
@@ -12,41 +11,34 @@ import {
   buildTodoContinuationPrompt,
   getIncompleteTodos,
 } from "./middleware/todo-continuation";
+import {
+  DEFAULT_TOOL_FALLBACK_MODE,
+  LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+  type ToolFallbackMode,
+} from "./tool-fallback-mode";
 import { tools } from "./tools";
 
 export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.5";
-export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-5-20250929";
-export const DEFAULT_GEMINI_MODEL_ID = "gemini-2.5-pro";
+export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_MAX = 64_000;
 
-export type ProviderType = "friendli" | "anthropic" | "gemini";
+type CoreStreamResult = ReturnType<typeof streamText>;
+
+export interface AgentStreamOptions {
+  abortSignal?: AbortSignal;
+}
+
+export interface AgentStreamResult {
+  finishReason: CoreStreamResult["finishReason"];
+  fullStream: CoreStreamResult["fullStream"];
+  response: CoreStreamResult["response"];
+}
+
+export type ProviderType = "friendli" | "anthropic";
 
 export const ANTHROPIC_MODELS = [
-  { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5 (Latest)" },
-  { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5 (Latest)" },
-] as const;
-
-export const GEMINI_MODELS = [
-  {
-    id: "gemini-3-pro-preview",
-    name: "Gemini 3 Pro Preview",
-    thinkingType: "thinkingLevel",
-  },
-  {
-    id: "gemini-3-flash-preview",
-    name: "Gemini 3 Flash Preview",
-    thinkingType: "thinkingLevel",
-  },
-  {
-    id: "gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
-    thinkingType: "thinkingBudget",
-  },
-  {
-    id: "gemini-2.5-flash",
-    name: "Gemini 2.5 Flash",
-    thinkingType: "thinkingBudget",
-  },
+  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Latest)" },
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6 (Latest)" },
 ] as const;
 
 const friendli = env.FRIENDLI_TOKEN
@@ -62,35 +54,14 @@ const anthropic = env.ANTHROPIC_API_KEY
     })
   : null;
 
-const gemini = createGeminiProvider({ authType: "oauth-personal" });
-
-type GeminiModel = (typeof GEMINI_MODELS)[number];
-
-function getGeminiThinkingConfig(
-  model: GeminiModel | undefined,
-  enabled: boolean
-) {
-  if (!enabled) {
-    return {};
-  }
-  if (model?.thinkingType === "thinkingLevel") {
-    return { thinkingConfig: { thinkingLevel: "medium" as const } };
-  }
-  return { thinkingConfig: { thinkingBudget: 10_000 } };
-}
-
 interface CreateAgentOptions {
   enableThinking?: boolean;
-  enableToolFallback?: boolean;
   instructions?: string;
   provider?: ProviderType;
+  toolFallbackMode?: ToolFallbackMode;
 }
 
-const getModel = (
-  modelId: string,
-  provider: ProviderType,
-  thinkingEnabled = false
-) => {
+const getModel = (modelId: string, provider: ProviderType) => {
   if (provider === "anthropic") {
     if (!anthropic) {
       throw new Error(
@@ -98,15 +69,6 @@ const getModel = (
       );
     }
     return anthropic(modelId);
-  }
-
-  if (provider === "gemini") {
-    const geminiModel = GEMINI_MODELS.find((m) => m.id === modelId);
-    const thinkingConfig = getGeminiThinkingConfig(
-      geminiModel,
-      thinkingEnabled
-    );
-    return gemini(modelId, thinkingConfig);
   }
 
   if (!friendli) {
@@ -123,15 +85,13 @@ const ANTHROPIC_MAX_OUTPUT_TOKENS = 64_000;
 const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   const provider = options.provider ?? "friendli";
   const thinkingEnabled = options.enableThinking ?? false;
-  const model = getModel(modelId, provider, thinkingEnabled);
+  const model = getModel(modelId, provider);
 
   const getAnthropicProviderOptions = () => {
     if (!thinkingEnabled) {
       return undefined;
     }
 
-    // Opus 4.5: use effort parameter
-    // Sonnet 4.5: use thinking with budgetTokens
     const isOpus = modelId.includes("opus");
     if (isOpus) {
       return { anthropic: { effort: "high" } };
@@ -149,10 +109,6 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   const getProviderOptions = () => {
     if (provider === "anthropic") {
       return getAnthropicProviderOptions();
-    }
-    if (provider === "gemini") {
-      // Gemini thinking is configured in the model creation
-      return undefined;
     }
     return {
       friendli: {
@@ -173,18 +129,33 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
     ? ANTHROPIC_MAX_OUTPUT_TOKENS - ANTHROPIC_THINKING_BUDGET_TOKENS
     : OUTPUT_TOKEN_MAX;
 
-  return new ToolLoopAgent({
-    model: wrapLanguageModel({
-      model,
-      middleware: buildMiddlewares({
-        enableToolFallback: options.enableToolFallback ?? false,
-      }),
+  const wrappedModel = wrapLanguageModel({
+    model,
+    middleware: buildMiddlewares({
+      toolFallbackMode: options.toolFallbackMode ?? DEFAULT_TOOL_FALLBACK_MODE,
     }),
-    instructions: options.instructions || SYSTEM_PROMPT,
-    tools,
-    maxOutputTokens,
-    providerOptions,
   });
+
+  return {
+    stream: ({
+      messages,
+      abortSignal,
+    }: { messages: ModelMessage[] } & AgentStreamOptions) => {
+      return streamText({
+        model: wrappedModel,
+        system: options.instructions ?? SYSTEM_PROMPT,
+        tools,
+        messages,
+        maxOutputTokens,
+        providerOptions,
+        // stepCountIs(n) replaces the deprecated maxSteps option.
+        // It configures the stream to stop after n tool-call round-trips,
+        // giving the model a single tool invocation cycle before returning.
+        stopWhen: stepCountIs(1),
+        abortSignal,
+      });
+    },
+  };
 };
 
 export type ModelType = "serverless" | "dedicated";
@@ -195,7 +166,7 @@ class AgentManager {
   private provider: ProviderType = "friendli";
   private headlessMode = false;
   private thinkingEnabled = false;
-  private toolFallbackEnabled = false;
+  private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
 
   getModelId(): string {
     return this.modelId;
@@ -221,8 +192,6 @@ class AgentManager {
     this.provider = provider;
     if (provider === "anthropic") {
       this.modelId = DEFAULT_ANTHROPIC_MODEL_ID;
-    } else if (provider === "gemini") {
-      this.modelId = DEFAULT_GEMINI_MODEL_ID;
     } else {
       this.modelId = DEFAULT_MODEL_ID;
     }
@@ -244,12 +213,22 @@ class AgentManager {
     return this.thinkingEnabled;
   }
 
+  getToolFallbackMode(): ToolFallbackMode {
+    return this.toolFallbackMode;
+  }
+
+  setToolFallbackMode(mode: ToolFallbackMode): void {
+    this.toolFallbackMode = mode;
+  }
+
   setToolFallbackEnabled(enabled: boolean): void {
-    this.toolFallbackEnabled = enabled;
+    this.toolFallbackMode = enabled
+      ? LEGACY_ENABLED_TOOL_FALLBACK_MODE
+      : DEFAULT_TOOL_FALLBACK_MODE;
   }
 
   isToolFallbackEnabled(): boolean {
-    return this.toolFallbackEnabled;
+    return this.toolFallbackMode !== DEFAULT_TOOL_FALLBACK_MODE;
   }
 
   async getInstructions(): Promise<string> {
@@ -272,14 +251,17 @@ class AgentManager {
     return tools;
   }
 
-  async stream(messages: ModelMessage[]) {
+  async stream(
+    messages: ModelMessage[],
+    options: AgentStreamOptions = {}
+  ): Promise<AgentStreamResult> {
     const agent = createAgent(this.modelId, {
       instructions: await this.getInstructions(),
       enableThinking: this.thinkingEnabled,
-      enableToolFallback: this.toolFallbackEnabled,
+      toolFallbackMode: this.toolFallbackMode,
       provider: this.provider,
     });
-    return agent.stream({ messages });
+    return agent.stream({ messages, ...options });
   }
 }
 

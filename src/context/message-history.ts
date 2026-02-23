@@ -1,5 +1,4 @@
 import type { ModelMessage, TextPart } from "ai";
-import { env } from "../env";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -42,13 +41,9 @@ function trimTrailingNewlines(message: ModelMessage): ModelMessage {
     return message;
   }
 
-  // Create a new array with proper type preservation
-  const newContent = content.map((part, idx) => {
-    if (idx === lastTextIndex) {
-      return { type: "text" as const, text: trimmedText };
-    }
-    return part;
-  });
+  // Create a new array preserving all fields (e.g. providerOptions)
+  const newContent = [...content];
+  newContent[lastTextIndex] = { ...textPart, text: trimmedText };
 
   return { ...message, content: newContent };
 }
@@ -94,9 +89,7 @@ export class MessageHistory {
   addModelMessages(messages: ModelMessage[]): Message[] {
     const created: Message[] = [];
     for (const modelMessage of messages) {
-      const processedMessage = env.EXPERIMENTAL_TRIM_TRAILING_NEWLINES
-        ? trimTrailingNewlines(modelMessage)
-        : modelMessage;
+      const processedMessage = trimTrailingNewlines(modelMessage);
 
       // Serialize Error objects in tool results to prevent schema validation errors
       const sanitizedMessage = this.sanitizeMessage(processedMessage);

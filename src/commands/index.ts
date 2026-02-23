@@ -1,4 +1,5 @@
-import { loadAllSkills, loadSkillById } from "../context/skills";
+import { toPromptsCommandName } from "../context/skill-command-prefix";
+import { loadSkillById } from "../context/skills";
 import { createHelpCommand } from "./help";
 import type { Command, CommandContext, CommandResult } from "./types";
 
@@ -9,13 +10,52 @@ export interface SkillCommandResult extends CommandResult {
 }
 
 const commands = new Map<string, Command>();
+const commandAliases = new Map<string, string>();
 
 const getCommands = (): Map<string, Command> => commands;
 
 export { getCommands };
 
 export const registerCommand = (command: Command): void => {
-  commands.set(command.name, command);
+  const normalizedName = command.name.toLowerCase();
+
+  if (commands.has(normalizedName)) {
+    throw new Error(`Duplicate command name: ${normalizedName}`);
+  }
+
+  const aliases = command.aliases?.map((alias) => alias.toLowerCase()) ?? [];
+  const normalizedCommand: Command = {
+    ...command,
+    name: normalizedName,
+    aliases,
+  };
+  commands.set(normalizedName, normalizedCommand);
+
+  for (const alias of aliases) {
+    if (alias === normalizedName) {
+      continue;
+    }
+
+    if (commands.has(alias)) {
+      throw new Error(
+        `Alias '${alias}' for /${normalizedName} conflicts with command /${alias}`
+      );
+    }
+
+    const existingTarget = commandAliases.get(alias);
+    if (existingTarget && existingTarget !== normalizedName) {
+      throw new Error(
+        `Alias '${alias}' for /${normalizedName} already maps to /${existingTarget}`
+      );
+    }
+
+    commandAliases.set(alias, normalizedName);
+  }
+};
+
+export const resolveRegisteredCommandName = (name: string): string => {
+  const normalizedName = name.toLowerCase();
+  return commandAliases.get(normalizedName) ?? normalizedName;
 };
 
 registerCommand(createHelpCommand(getCommands));
@@ -52,7 +92,8 @@ export const executeCommand = async (
     return null;
   }
 
-  const command = commands.get(parsed.name);
+  const resolvedName = resolveRegisteredCommandName(parsed.name);
+  const command = commands.get(resolvedName);
 
   if (!command) {
     // Check if it's a skill
@@ -61,7 +102,7 @@ export const executeCommand = async (
       return {
         success: true,
         isSkill: true,
-        skillId: skill.info.id,
+        skillId: toPromptsCommandName(skill.info.id),
         skillContent: skill.content,
       } as SkillCommandResult;
     }
@@ -81,9 +122,4 @@ export const isSkillCommandResult = (
   result: CommandResult | SkillCommandResult | null
 ): result is SkillCommandResult => {
   return result !== null && "isSkill" in result && result.isSkill === true;
-};
-
-export const getAvailableSkillIds = async (): Promise<string[]> => {
-  const skills = await loadAllSkills();
-  return skills.map((s) => s.id);
 };
