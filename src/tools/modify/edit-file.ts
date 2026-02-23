@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import {
@@ -10,12 +10,6 @@ import {
   parseLineTag,
 } from "../utils/hashline/hashline";
 import EDIT_FILE_DESCRIPTION from "./edit-file.txt";
-
-interface EditResult {
-  context: string;
-  endLine: number;
-  startLine: number;
-}
 
 type HashlineToolOp = "append" | "prepend" | "replace";
 type LineEnding = "\n" | "\r\n";
@@ -139,83 +133,18 @@ function assertExpectedFileHash(
   }
 }
 
-function createContextByLineRange(
-  lines: string[],
-  startLine: number,
-  endLine: number,
-  contextLines = 2
-): EditResult {
-  const contextStart = Math.max(1, startLine - contextLines);
-  const contextEnd = Math.min(lines.length, endLine + contextLines);
-
-  const context = lines
-    .slice(contextStart - 1, contextEnd)
-    .map((line, index) => {
-      const lineNum = contextStart + index;
-      const isEdited = lineNum >= startLine && lineNum <= endLine;
-      const prefix = isEdited ? ">" : " ";
-      return `${prefix} ${String(lineNum).padStart(4)} | ${line}`;
-    })
-    .join("\n");
-
-  return {
-    startLine,
-    endLine,
-    context,
-  };
-}
-
-function formatEditResult(filePath: string, results: EditResult[]): string {
-  const fileName = basename(filePath);
-  const output: string[] = [];
-
-  for (const result of results) {
-    output.push(
-      `======== ${fileName} L${result.startLine}-L${result.endLine} ========`
-    );
-    output.push(result.context);
-    output.push("======== end ========");
-  }
-
-  return output.join("\n");
-}
-
-function collectHashlineEditResults(
-  content: string,
-  firstChangedLine: number | undefined
-): EditResult[] {
-  if (firstChangedLine === undefined) {
-    return [];
-  }
-
-  const lines = content.split("\n");
-  const safeStart = Math.max(1, Math.min(firstChangedLine, lines.length || 1));
-  return [createContextByLineRange(lines, safeStart, safeStart, 4)];
-}
-
 function formatHashlineModeResult(params: {
+  created: boolean;
   path: string;
-  newContent: string;
-  resultBlocks: EditResult[];
   warningLines?: string[];
 }): string {
-  const output: string[] = [];
-  output.push("OK - hashline edit");
-  output.push(`path: ${params.path}`);
-  output.push(`file_hash: ${computeFileHash(params.newContent)}`);
-  if (params.warningLines && params.warningLines.length > 0) {
-    output.push(`warnings: ${params.warningLines.length}`);
-  }
-
-  if (params.resultBlocks.length > 0) {
-    output.push("");
-    output.push(formatEditResult(params.path, params.resultBlocks));
-  }
+  const action = params.created ? "Created" : "Updated";
+  const output: string[] = [`${action} ${params.path}`];
 
   if (params.warningLines && params.warningLines.length > 0) {
     output.push("");
     output.push("Warnings:");
-    output.push(...params.warningLines.map((line) => `- ${line}`));
+    output.push(...params.warningLines);
   }
 
   return output.join("\n");
@@ -287,12 +216,8 @@ export async function executeEditFile(input: EditFileInput): Promise<string> {
   await writeFile(parsed.path, normalizedContent, "utf-8");
 
   return formatHashlineModeResult({
+    created: !exists,
     path: parsed.path,
-    newContent: normalizedContent,
-    resultBlocks: collectHashlineEditResults(
-      normalizedContent,
-      hashlineResult.firstChangedLine
-    ),
     warningLines: hashlineResult.warnings,
   });
 }

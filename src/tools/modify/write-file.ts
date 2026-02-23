@@ -4,34 +4,6 @@ import { tool } from "ai";
 import { z } from "zod";
 import WRITE_FILE_DESCRIPTION from "./write-file.txt";
 
-const PREVIEW_LINES = 3;
-
-function formatPreview(content: string): string {
-  const lines = content.split("\n");
-  const totalLines = lines.length;
-
-  if (totalLines <= PREVIEW_LINES * 2) {
-    return lines
-      .map((line, i) => `  ${String(i + 1).padStart(4)} | ${line}`)
-      .join("\n");
-  }
-
-  const head = lines
-    .slice(0, PREVIEW_LINES)
-    .map((line, i) => `  ${String(i + 1).padStart(4)} | ${line}`)
-    .join("\n");
-
-  const tail = lines
-    .slice(-PREVIEW_LINES)
-    .map((line, i) => {
-      const lineNum = totalLines - PREVIEW_LINES + i + 1;
-      return `  ${String(lineNum).padStart(4)} | ${line}`;
-    })
-    .join("\n");
-
-  return `${head}\n       ... (${totalLines - PREVIEW_LINES * 2} lines omitted) ...\n${tail}`;
-}
-
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),
   content: z.string().describe("Content to write"),
@@ -67,10 +39,6 @@ export async function executeWriteFile({
   const output = [
     `OK - ${action} ${fileName}`,
     `bytes: ${byteCount}, lines: ${lineCount}`,
-    "",
-    `======== ${fileName} (preview) ========`,
-    formatPreview(content),
-    "======== end ========",
   ];
 
   return output.join("\n");

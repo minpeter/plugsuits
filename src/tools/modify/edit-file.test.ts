@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { executeGrep } from "../explore/grep";
 import { executeReadFile } from "../explore/read-file";
 import { executeEditFile } from "./edit-file";
 
@@ -64,8 +65,43 @@ describe("edit_file (hashline-only)", () => {
       ],
     });
 
-    expect(result).toContain("OK - hashline edit");
-    expect(result).toContain("file_hash:");
+    expect(result).toBe(`Updated ${testFile}`);
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
+  });
+
+  it("accepts grep output line as direct hashline anchor", async () => {
+    const testFile = join(tempDir, "hashline-from-grep.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const grepOutput = await executeGrep({
+      pattern: "bravo",
+      path: tempDir,
+      include: "hashline-from-grep.txt",
+    });
+
+    const grepLine = grepOutput
+      .split("\n")
+      .find(
+        (line) =>
+          line.includes("hashline-from-grep.txt:2#") &&
+          line.includes(" | bravo")
+      );
+
+    if (!grepLine) {
+      throw new Error("Failed to extract hashline anchor from grep output");
+    }
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: grepLine,
+          lines: ["BRAVO"],
+        },
+      ],
+    });
+
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
   });
 
@@ -158,7 +194,7 @@ describe("edit_file (hashline-only)", () => {
       ],
     });
 
-    expect(result).toContain("OK - hashline edit");
+    expect(result).toBe(`Created ${testFile}`);
     expect(readFileSync(testFile, "utf-8")).toBe("created-via-hashline");
   });
 

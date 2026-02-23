@@ -32,6 +32,17 @@ describe("hashline", () => {
     });
   });
 
+  it("parses line tags embedded in grep-style paths", () => {
+    expect(parseLineTag("./file1.ts:7#MQ | const foo = 1;")).toEqual({
+      line: 7,
+      hash: "MQ",
+    });
+    expect(parseLineTag("C:\\repo\\file.ts:9#vr | const bar = 2;")).toEqual({
+      line: 9,
+      hash: "VR",
+    });
+  });
+
   it("replaces anchored line", () => {
     const content = "alpha\nbravo\ncharlie\n";
     const bravoHash = computeLineHash(2, "bravo");

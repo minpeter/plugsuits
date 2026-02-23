@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Container, type MarkdownTheme } from "@mariozechner/pi-tui";
 import type { TextStreamPart, ToolSet } from "ai";
+import { computeLineHash } from "../tools/utils/hashline/hashline";
 import {
   type PiTuiStreamRenderOptions,
   renderFullStreamWithPiTui,
@@ -9,7 +10,9 @@ import {
 type TestStreamPart = TextStreamPart<ToolSet>;
 
 const LARGE_BLANK_GAP_REGEX = /\n[ \t]*\n[ \t]*\n[ \t]*\n/;
-
+const tagGrepLine = (path: string, lineNumber: number, content: string): string => {
+  return `${path}:${lineNumber}#${computeLineHash(lineNumber, content)} | ${content}`;
+};
 const findLastLineIndexContaining = (
   lines: string[],
   predicate: (line: string) => boolean,
@@ -752,18 +755,18 @@ describe("renderFullStreamWithPiTui", () => {
       "truncated: false",
       "",
       "======== grep results ========",
-      "/project/a.ts:1:const foo = 1;",
-      "/project/b.ts:2:const foo = 2;",
-      "/project/c.ts:3:const foo = 3;",
-      "/project/d.ts:4:const foo = 4;",
-      "/project/e.ts:5:const foo = 5;",
-      "/project/f.ts:6:const foo = 6;",
-      "/project/g.ts:7:const foo = 7;",
-      "/project/h.ts:8:const foo = 8;",
-      "/project/i.ts:9:const foo = 9;",
-      "/project/j.ts:10:const foo = 10;",
-      "/project/k.ts:11:const foo = 11;",
-      "/project/l.ts:12:const foo = 12;",
+      tagGrepLine("/project/a.ts", 1, "const foo = 1;"),
+      tagGrepLine("/project/b.ts", 2, "const foo = 2;"),
+      tagGrepLine("/project/c.ts", 3, "const foo = 3;"),
+      tagGrepLine("/project/d.ts", 4, "const foo = 4;"),
+      tagGrepLine("/project/e.ts", 5, "const foo = 5;"),
+      tagGrepLine("/project/f.ts", 6, "const foo = 6;"),
+      tagGrepLine("/project/g.ts", 7, "const foo = 7;"),
+      tagGrepLine("/project/h.ts", 8, "const foo = 8;"),
+      tagGrepLine("/project/i.ts", 9, "const foo = 9;"),
+      tagGrepLine("/project/j.ts", 10, "const foo = 10;"),
+      tagGrepLine("/project/k.ts", 11, "const foo = 11;"),
+      tagGrepLine("/project/l.ts", 12, "const foo = 12;"),
       "======== end ========",
     ].join("\n");
 
@@ -788,7 +791,7 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     expect(output).toContain("Grep foo");
-    expect(output).toContain("/project/a.ts:1:const foo = 1;");
+    expect(output).toContain(tagGrepLine("/project/a.ts", 1, "const foo = 1;"));
     expect(output).toContain("... (2 more lines)");
     expect(output).not.toContain("Tool grep_files");
     expect(output).not.toContain("Output");
@@ -848,18 +851,18 @@ describe("renderFullStreamWithPiTui", () => {
       "truncated: true",
       "",
       "======== grep results ========",
-      "/project/a.ts:1:const foo = 1;",
-      "/project/b.ts:2:const foo = 2;",
-      "/project/c.ts:3:const foo = 3;",
-      "/project/d.ts:4:const foo = 4;",
-      "/project/e.ts:5:const foo = 5;",
-      "/project/f.ts:6:const foo = 6;",
-      "/project/g.ts:7:const foo = 7;",
-      "/project/h.ts:8:const foo = 8;",
-      "/project/i.ts:9:const foo = 9;",
-      "/project/j.ts:10:const foo = 10;",
-      "/project/k.ts:11:const foo = 11;",
-      "/project/l.ts:12:const foo = 12;",
+      tagGrepLine("/project/a.ts", 1, "const foo = 1;"),
+      tagGrepLine("/project/b.ts", 2, "const foo = 2;"),
+      tagGrepLine("/project/c.ts", 3, "const foo = 3;"),
+      tagGrepLine("/project/d.ts", 4, "const foo = 4;"),
+      tagGrepLine("/project/e.ts", 5, "const foo = 5;"),
+      tagGrepLine("/project/f.ts", 6, "const foo = 6;"),
+      tagGrepLine("/project/g.ts", 7, "const foo = 7;"),
+      tagGrepLine("/project/h.ts", 8, "const foo = 8;"),
+      tagGrepLine("/project/i.ts", 9, "const foo = 9;"),
+      tagGrepLine("/project/j.ts", 10, "const foo = 10;"),
+      tagGrepLine("/project/k.ts", 11, "const foo = 11;"),
+      tagGrepLine("/project/l.ts", 12, "const foo = 12;"),
       "======== end ========",
     ].join("\n");
 
@@ -943,7 +946,7 @@ describe("renderFullStreamWithPiTui", () => {
           "truncated: false",
           "",
           "======== grep results ========",
-          "/project/file1.ts:1:const foo = 1;",
+          tagGrepLine("/project/file1.ts", 1, "const foo = 1;"),
           "======== end ========",
         ].join("\n"),
         prettyHeading: "Grep foo",

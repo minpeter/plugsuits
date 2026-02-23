@@ -49,6 +49,8 @@ const HASH_DICT = Array.from({ length: 256 }, (_, i) => {
 
 const SIGNIFICANT_CHAR_REGEX = /[\p{L}\p{N}]/u;
 const TAG_REGEX = /^\s*[>+-]*\s*(\d+)\s*#\s*([ZPMQVRWSNKTXJBYH]{2})/i;
+const EMBEDDED_TAG_REGEX =
+  /[:-]\s*[>+-]*\s*(\d+)\s*#\s*([ZPMQVRWSNKTXJBYH]{2})/i;
 const HASHLINE_PREFIX_REGEX =
   /^\s*(?:>>>|>>)?\s*\d+\s*#\s*[ZPMQVRWSNKTXJBYH]{2}\s*(?:[:|])\s*/i;
 const DIFF_PLUS_REGEX = /^[+](?![+])/;
@@ -82,10 +84,10 @@ export function formatLineTag(lineNumber: number, lineText: string): string {
 }
 
 export function parseLineTag(tag: string): LineTag {
-  const matched = tag.match(TAG_REGEX);
+  const matched = tag.match(TAG_REGEX) ?? tag.match(EMBEDDED_TAG_REGEX);
   if (!matched) {
     throw new Error(
-      `Invalid line reference "${tag}". Expected format "LINE#ID" (example: "5#AB").`
+      `Invalid line reference "${tag}". Expected "LINE#ID" (example: "5#AB") or a grep line containing it.`
     );
   }
 

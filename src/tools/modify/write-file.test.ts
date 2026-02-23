@@ -24,7 +24,7 @@ describe("executeWriteFile", () => {
   });
 
   describe("basic write operations", () => {
-    it("creates new file and returns preview", async () => {
+    it("creates new file and returns metadata", async () => {
       const testFile = join(tempDir, "new.txt");
       const content = "line1\nline2\nline3";
 
@@ -33,11 +33,8 @@ describe("executeWriteFile", () => {
       expect(result).toContain("OK - created new.txt");
       expect(result).toContain("bytes:");
       expect(result).toContain("lines: 3");
-      expect(result).toContain("======== new.txt (preview) ========");
-      expect(result).toContain("line1");
-      expect(result).toContain("line2");
-      expect(result).toContain("line3");
-      expect(result).toContain("======== end ========");
+      expect(result).not.toContain("(preview)");
+      expect(result).not.toContain("========");
 
       const written = readFileSync(testFile, "utf-8");
       expect(written).toBe(content);
@@ -54,7 +51,7 @@ describe("executeWriteFile", () => {
       });
 
       expect(result).toContain("OK - overwrote existing.txt");
-      expect(result).toContain("new content");
+      expect(result).not.toContain("new content");
 
       const written = readFileSync(testFile, "utf-8");
       expect(written).toBe(newContent);
@@ -74,35 +71,30 @@ describe("executeWriteFile", () => {
     });
   });
 
-  describe("preview formatting", () => {
-    it("shows full content for small files", async () => {
+  describe("output formatting", () => {
+    it("does not include content for small files", async () => {
       const testFile = join(tempDir, "small.txt");
       const content = "a\nb\nc\nd\ne";
 
       const result = await executeWriteFile({ path: testFile, content });
 
-      expect(result).toContain("   1 | a");
-      expect(result).toContain("   2 | b");
-      expect(result).toContain("   3 | c");
-      expect(result).toContain("   4 | d");
-      expect(result).toContain("   5 | e");
-      expect(result).not.toContain("lines omitted");
+      expect(result).toContain("bytes:");
+      expect(result).toContain("lines: 5");
+      expect(result).not.toContain("a\nb\nc\nd\ne");
+      expect(result).not.toContain("(preview)");
     });
 
-    it("shows head/tail preview for large files", async () => {
+    it("does not include content for large files", async () => {
       const testFile = join(tempDir, "large.txt");
       const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`);
       const content = lines.join("\n");
 
       const result = await executeWriteFile({ path: testFile, content });
 
-      expect(result).toContain("line1");
-      expect(result).toContain("line2");
-      expect(result).toContain("line3");
-      expect(result).toContain("lines omitted");
-      expect(result).toContain("line18");
-      expect(result).toContain("line19");
-      expect(result).toContain("line20");
+      expect(result).toContain("bytes:");
+      expect(result).toContain("lines: 20");
+      expect(result).not.toContain("line1");
+      expect(result).not.toContain("(preview)");
     });
 
     it("includes correct byte count", async () => {
@@ -120,8 +112,8 @@ describe("executeWriteFile", () => {
 
       const result = await executeWriteFile({ path: testFile, content });
 
-      expect(result).toContain("한글 테스트");
-      expect(result).toContain("이모지 🎉");
+      expect(result).not.toContain("한글 테스트");
+      expect(result).not.toContain("이모지 🎉");
       expect(result).toContain("lines: 2");
 
       const written = readFileSync(testFile, "utf-8");
@@ -150,7 +142,7 @@ describe("executeWriteFile", () => {
       const result = await executeWriteFile({ path: testFile, content });
 
       expect(result).toContain("lines: 1");
-      expect(result).toContain("single line without newline");
+      expect(result).not.toContain("single line without newline");
     });
 
     it("handles content with special characters", async () => {
