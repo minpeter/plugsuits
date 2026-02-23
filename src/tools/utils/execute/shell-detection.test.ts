@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getShell, getShellArgs } from "../utils/execute/shell-detection";
+import { getShell, getShellArgs } from "./shell-detection";
 
 const SHELL_DETECTION_SCRIPT =
   "import { getShell } from './src/tools/utils/execute/shell-detection'; console.log(getShell());";

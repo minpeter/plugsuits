@@ -172,9 +172,14 @@ const buildTextPreviewLines = (
 const buildPrettyHeader = (
   title: string,
   target: string,
-  callId: string
+  callId: string,
+  options: { includeCallId?: boolean } = {}
 ): string => {
-  return `**${title}** \`${target}\` (\`${callId}\`)`;
+  if (options.includeCallId ?? true) {
+    return `**${title}** \`${target}\` (\`${callId}\`)`;
+  }
+
+  return `**${title}** \`${target}\``;
 };
 
 const normalizeHashlineBreakArtifacts = (lines: string[]): string[] => {
@@ -1381,7 +1386,9 @@ class ToolCallView extends Container {
     const skillName = this.resolveInputStringField("skillName") ?? "(unknown)";
     const relativePath = this.resolveInputStringField("relativePath");
     const target = relativePath ? `${skillName}/${relativePath}` : skillName;
-    const header = buildPrettyHeader("Skill", target, this.callId);
+    const header = buildPrettyHeader("Skill", target, this.callId, {
+      includeCallId: false,
+    });
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Loading skill...");

@@ -10,6 +10,17 @@ const actualAi = await import("ai");
 let shouldFailTranslation = false;
 let generateTextCallCount = 0;
 
+const extractUserTextFromPrompt = (prompt: string): string => {
+  const match = prompt.match(
+    /<user_text><!\[CDATA\[([\s\S]*)\]\]><\/user_text>/
+  );
+  if (!match) {
+    return prompt;
+  }
+
+  return match[1].replaceAll("]]]]><![CDATA[>", "]]>");
+};
+
 const mockedGenerateText = mock((options: Record<string, unknown>) => {
   generateTextCallCount += 1;
 
@@ -18,22 +29,23 @@ const mockedGenerateText = mock((options: Record<string, unknown>) => {
   }
 
   const prompt = typeof options.prompt === "string" ? options.prompt : "";
+  const userText = extractUserTextFromPrompt(prompt);
 
-  if (prompt === "이 프로젝트의 구조를 설명해줘") {
+  if (userText === "이 프로젝트의 구조를 설명해줘") {
     return { text: "Explain the structure of this project." };
   }
 
-  if (prompt === "src/foo.ts 파일을 수정해줘") {
+  if (userText === "src/foo.ts 파일을 수정해줘") {
     return { text: "Please update src/foo.ts." };
   }
 
-  if (prompt === "src/foo.ts 파일에서 `buildPath` 함수만 수정해줘") {
+  if (userText === "src/foo.ts 파일에서 `buildPath` 함수만 수정해줘") {
     return {
       text: "Please only update the `buildPath` function in src/foo.ts.",
     };
   }
 
-  return { text: prompt };
+  return { text: userText };
 });
 
 mock.module("ai", () => ({

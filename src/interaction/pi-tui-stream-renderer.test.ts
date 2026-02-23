@@ -1215,7 +1215,7 @@ describe("renderFullStreamWithPiTui", () => {
           skillName: "git-workflow",
         },
         output: "# Skill Loaded: git-workflow [Project]",
-        expectedHeading: "Skill git-workflow (call_skill_pretty)",
+        expectedHeading: "Skill git-workflow",
       },
       {
         toolCallId: "call_todo_pretty",
