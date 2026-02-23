@@ -2,10 +2,11 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
-import { generateText, stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
+import type { TranslationModelConfig } from "./context/translation";
 import { env } from "./env";
 import {
   applyFriendliInterleavedField,
@@ -25,15 +26,10 @@ import {
 } from "./tool-fallback-mode";
 import { createTools, type ToolRegistry } from "./tools";
 
-export const DEFAULT_MODEL_ID = "zai-org/GLM-5";
+export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.5";
 export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_MAX = 64_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
-
-const NON_ASCII_PATTERN = /[^\\x00-]/;
-
-const TRANSLATION_SYSTEM_PROMPT =
-  "Translate the user message to clear English so the original intent is preserved. Return only the translated text and nothing else.";
 
 type CoreStreamResult = ReturnType<typeof streamText>;
 type ProviderOptions = AiProviderOptions | undefined;
@@ -77,11 +73,6 @@ interface CreateAgentOptions {
   toolRegistry?: ToolRegistry;
 }
 
-interface TranslationInputResult {
-  text: string;
-  translated: boolean;
-}
-
 const getModel = (modelId: string, provider: ProviderType) => {
   if (provider === "anthropic") {
     if (!anthropic) {
@@ -120,10 +111,6 @@ const selectBestReasoningMode = (
   }
 
   return DEFAULT_REASONING_MODE;
-};
-
-const isNonEnglishText = (input: string): boolean => {
-  return NON_ASCII_PATTERN.test(input);
 };
 
 const isAnthropicWithReasoning = (
@@ -259,47 +246,11 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   };
 };
 
-const translateToEnglish = async (
-  text: string,
-  modelId: string,
-  provider: ProviderType,
-  toolFallbackMode: ToolFallbackMode
-): Promise<string> => {
-  const { wrappedModel, providerOptions } = createBaseModel(
-    modelId,
-    provider,
-    toolFallbackMode,
-    "off"
-  );
-
-  const result = await generateText({
-    model: wrappedModel,
-    system: TRANSLATION_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: text,
-      },
-    ],
-    maxOutputTokens: TRANSLATION_MAX_OUTPUT_TOKENS,
-    providerOptions,
-  });
-
-  return result.text.trim();
-};
-
 const defaultToolRegistry = createTools();
-
-const toErrorMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-};
 
 export type ModelType = "serverless" | "dedicated";
 
-class AgentManager {
+export class AgentManager {
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
   private provider: ProviderType = "friendli";
@@ -307,7 +258,7 @@ class AgentManager {
   private reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
   private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
-  private userInputTranslationEnabled = false;
+  private translationEnabled = true;
 
   constructor() {
     this.applyBestReasoningModeForCurrentModel();
@@ -400,38 +351,27 @@ class AgentManager {
     return this.toolFallbackMode !== DEFAULT_TOOL_FALLBACK_MODE;
   }
 
-  setUserInputTranslationEnabled(enabled: boolean): void {
-    this.userInputTranslationEnabled = enabled;
+  setTranslationEnabled(enabled: boolean): void {
+    this.translationEnabled = enabled;
   }
 
-  isUserInputTranslationEnabled(): boolean {
-    return this.userInputTranslationEnabled;
+  isTranslationEnabled(): boolean {
+    return this.translationEnabled;
   }
 
-  async preprocessUserInput(input: string): Promise<TranslationInputResult> {
-    if (!(this.userInputTranslationEnabled && isNonEnglishText(input))) {
-      return { text: input, translated: false };
-    }
+  getTranslationModelConfig(): TranslationModelConfig {
+    const { wrappedModel, providerOptions } = createBaseModel(
+      this.modelId,
+      this.provider,
+      this.toolFallbackMode,
+      "off"
+    );
 
-    try {
-      const translated = await translateToEnglish(
-        input,
-        this.modelId,
-        this.provider,
-        this.toolFallbackMode
-      );
-
-      if (!translated || translated === input.trim()) {
-        return { text: input, translated: false };
-      }
-
-      return { text: translated, translated: true };
-    } catch (error) {
-      console.warn(
-        `[agent] Failed to translate user input: ${toErrorMessage(error)}`
-      );
-      return { text: input, translated: false };
-    }
+    return {
+      model: wrappedModel,
+      providerOptions,
+      maxOutputTokens: TRANSLATION_MAX_OUTPUT_TOKENS,
+    };
   }
 
   async getInstructions(): Promise<string> {

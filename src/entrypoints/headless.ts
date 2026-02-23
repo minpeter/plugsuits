@@ -1,12 +1,9 @@
 #!/usr/bin/env bun
 
-import {
-  agentManager,
-  DEFAULT_MODEL_ID,
-  type ProviderType,
-} from "../agent";
+import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
 import { MessageHistory } from "../context/message-history";
 import { setSessionId } from "../context/session";
+import { translateToEnglish } from "../context/translation";
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
   shouldContinueManualToolLoop,
@@ -157,8 +154,6 @@ const parseToolFallbackCliOption = (
   return null;
 };
 
-
-
 const parseProviderArg = (
   providerArg: string | undefined
 ): ProviderType | null => {
@@ -240,7 +235,7 @@ const parseArgs = (): {
   let provider: ProviderType | null = null;
   let reasoningMode: ReasoningMode | null = null;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
-  let translateUserPrompts = false;
+  let translateUserPrompts = true;
 
   for (let i = 0; i < args.length; i++) {
     const promptOrModelOption = parsePromptOrModelOption(args, i);
@@ -605,10 +600,15 @@ const run = async (): Promise<void> => {
     agentManager.setReasoningMode(reasoningMode);
   }
   agentManager.setToolFallbackMode(toolFallbackMode);
-  agentManager.setUserInputTranslationEnabled(translateUserPrompts);
+  agentManager.setTranslationEnabled(translateUserPrompts);
 
   const messageHistory = new MessageHistory();
-  const preparedPrompt = await agentManager.preprocessUserInput(prompt);
+  const preparedPrompt = agentManager.isTranslationEnabled()
+    ? await translateToEnglish(prompt, agentManager)
+    : {
+        translated: false,
+        text: prompt,
+      };
 
   emitEvent({
     timestamp: new Date().toISOString(),
@@ -617,7 +617,19 @@ const run = async (): Promise<void> => {
     content: prompt,
   });
 
-  messageHistory.addUserMessage(preparedPrompt.text);
+  if (preparedPrompt.error) {
+    emitEvent({
+      timestamp: new Date().toISOString(),
+      type: "error",
+      sessionId,
+      error: `[translation] Failed to translate input: ${preparedPrompt.error}. Using original text.`,
+    });
+  }
+
+  messageHistory.addUserMessage(
+    preparedPrompt.text,
+    preparedPrompt.originalText
+  );
   try {
     await processAgentResponse(messageHistory);
 
@@ -648,7 +660,27 @@ const run = async (): Promise<void> => {
         sessionId,
         content: reminder,
       });
-      messageHistory.addUserMessage(reminder);
+
+      const preparedReminder = agentManager.isTranslationEnabled()
+        ? await translateToEnglish(reminder, agentManager)
+        : {
+            translated: false,
+            text: reminder,
+          };
+
+      if (preparedReminder.error) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          sessionId,
+          error: `[translation] Failed to translate todo reminder: ${preparedReminder.error}. Using original text.`,
+        });
+      }
+
+      messageHistory.addUserMessage(
+        preparedReminder.text,
+        preparedReminder.originalText
+      );
       await processAgentResponse(messageHistory);
     }
   } catch (error) {

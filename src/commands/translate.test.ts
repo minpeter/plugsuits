@@ -7,56 +7,56 @@ describe("translate command", () => {
   let originalState: boolean;
 
   beforeEach(() => {
-    originalState = agentManager.isUserInputTranslationEnabled();
-    agentManager.setUserInputTranslationEnabled(false);
+    originalState = agentManager.isTranslationEnabled();
+    agentManager.setTranslationEnabled(false);
   });
 
   afterEach(() => {
-    agentManager.setUserInputTranslationEnabled(originalState);
+    agentManager.setTranslationEnabled(originalState);
   });
 
   it("reports current translation state when called without args", async () => {
-    agentManager.setUserInputTranslationEnabled(true);
+    agentManager.setTranslationEnabled(true);
 
     const result = await command.execute({ args: [] });
 
     expect(result?.success).toBe(true);
-    expect(result?.message).toContain("Prompt translation is currently");
+    expect(result?.message).toContain("Translation is currently");
     expect(result?.message).toContain("enabled");
   });
 
   it("enables translation with on/enable/true", async () => {
     const onResult = await command.execute({ args: ["on"] });
     expect(onResult?.success).toBe(true);
-    expect(agentManager.isUserInputTranslationEnabled()).toBe(true);
-    expect(onResult?.message).toContain("Prompt translation enabled");
+    expect(agentManager.isTranslationEnabled()).toBe(true);
+    expect(onResult?.message).toContain("Translation enabled");
 
     const enableResult = await command.execute({ args: ["enable"] });
     expect(enableResult?.success).toBe(true);
-    expect(agentManager.isUserInputTranslationEnabled()).toBe(true);
+    expect(agentManager.isTranslationEnabled()).toBe(true);
 
     const trueResult = await command.execute({ args: ["true"] });
     expect(trueResult?.success).toBe(true);
-    expect(agentManager.isUserInputTranslationEnabled()).toBe(true);
+    expect(agentManager.isTranslationEnabled()).toBe(true);
   });
 
   it("disables translation with off/disable/false", async () => {
-    agentManager.setUserInputTranslationEnabled(true);
+    agentManager.setTranslationEnabled(true);
 
     const offResult = await command.execute({ args: ["off"] });
     expect(offResult?.success).toBe(true);
-    expect(agentManager.isUserInputTranslationEnabled()).toBe(false);
-    expect(offResult?.message).toContain("Prompt translation disabled");
+    expect(agentManager.isTranslationEnabled()).toBe(false);
+    expect(offResult?.message).toContain("Translation disabled");
 
-    agentManager.setUserInputTranslationEnabled(true);
+    agentManager.setTranslationEnabled(true);
     const disableResult = await command.execute({ args: ["disable"] });
     expect(disableResult?.success).toBe(true);
-    expect(agentManager.isUserInputTranslationEnabled()).toBe(false);
+    expect(agentManager.isTranslationEnabled()).toBe(false);
 
-    agentManager.setUserInputTranslationEnabled(true);
+    agentManager.setTranslationEnabled(true);
     const falseResult = await command.execute({ args: ["false"] });
     expect(falseResult?.success).toBe(true);
-    expect(agentManager.isUserInputTranslationEnabled()).toBe(false);
+    expect(agentManager.isTranslationEnabled()).toBe(false);
   });
 
   it("rejects invalid arguments", async () => {

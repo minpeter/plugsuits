@@ -6,9 +6,9 @@ export const createTranslateCommand = (): Command =>
   createToggleCommand({
     name: "translate",
     description: "Toggle auto-translation of non-English prompts",
-    getter: () => agentManager.isUserInputTranslationEnabled(),
-    setter: (value) => agentManager.setUserInputTranslationEnabled(value),
-    featureName: "Prompt translation",
-    enabledMessage: "Prompt translation enabled",
-    disabledMessage: "Prompt translation disabled",
+    getter: () => agentManager.isTranslationEnabled(),
+    setter: (value) => agentManager.setTranslationEnabled(value),
+    featureName: "Translation",
+    enabledMessage: "Translation enabled",
+    disabledMessage: "Translation disabled",
   });

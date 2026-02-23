@@ -51,6 +51,7 @@ import { getSessionId, initializeSession } from "../context/session";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
+import { isNonEnglish, translateToEnglish } from "../context/translation";
 import { env } from "../env";
 import { renderFullStreamWithPiTui } from "../interaction/pi-tui-stream-renderer";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
@@ -78,11 +79,13 @@ import { cleanup } from "../tools/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
 
 const ANSI_RESET = "\x1b[0m";
+const ANSI_BLACK = "\x1b[30m";
 const ANSI_BOLD = "\x1b[1m";
 const ANSI_DIM = "\x1b[2m";
 const ANSI_ITALIC = "\x1b[3m";
 const ANSI_UNDERLINE = "\x1b[4m";
 const ANSI_BG_GRAY = "\x1b[100m";
+const ANSI_BG_SOFT_LIGHT = "\x1b[48;5;249m";
 const ANSI_GREEN = "\x1b[92m";
 const ANSI_YELLOW = "\x1b[93m";
 const ANSI_MAGENTA = "\x1b[95m";
@@ -190,6 +193,21 @@ const createEditorTheme = (): EditorTheme => {
 };
 
 const addUserMessage = (
+  chatContainer: Container,
+  markdownTheme: MarkdownTheme,
+  message: string
+): void => {
+  chatContainer.addChild(new Spacer(1));
+
+  chatContainer.addChild(
+    new Markdown(message, 1, 1, markdownTheme, {
+      bgColor: (text: string) =>
+        style(`${ANSI_BG_SOFT_LIGHT}${ANSI_BLACK}`, text),
+    })
+  );
+};
+
+const addTranslatedMessage = (
   chatContainer: Container,
   markdownTheme: MarkdownTheme,
   message: string
@@ -1300,7 +1318,7 @@ const parseCliArgs = (): {
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   let model: string | null = null;
   let provider: ProviderType | null = null;
-  let translateUserPrompts = false;
+  let translateUserPrompts = true;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -1366,7 +1384,7 @@ const setupAgent = (): void => {
   }
 
   agentManager.setToolFallbackMode(toolFallbackMode);
-  agentManager.setUserInputTranslationEnabled(translateUserPrompts);
+  agentManager.setTranslationEnabled(translateUserPrompts);
 };
 
 type AgentResponseStatus = "completed" | "interrupted";
@@ -1668,10 +1686,49 @@ const processInput = async (ui: CliUi, input: string): Promise<boolean> => {
       return await handleCommand(ui, trimmed);
     }
 
-    const preparedUserInput = await agentManager.preprocessUserInput(trimmed);
+    let contentForModel = trimmed;
+    let originalContent: string | undefined;
+    let translationError: string | undefined;
 
-    addUserMessage(ui.chatContainer, ui.markdownTheme, trimmed);
-    messageHistory.addUserMessage(preparedUserInput.text);
+    if (agentManager.isTranslationEnabled()) {
+      const shouldShowTranslationLoader = isNonEnglish(trimmed);
+      if (shouldShowTranslationLoader) {
+        addUserMessage(ui.chatContainer, ui.markdownTheme, trimmed);
+        ui.tui.requestRender();
+      }
+
+      if (shouldShowTranslationLoader) {
+        ui.showLoader("Translating...");
+      }
+
+      try {
+        const translationResult = await translateToEnglish(
+          trimmed,
+          agentManager
+        );
+        contentForModel = translationResult.text;
+        originalContent = translationResult.originalText;
+        translationError = translationResult.error;
+      } finally {
+        if (shouldShowTranslationLoader) {
+          ui.clearStatus();
+        }
+      }
+    }
+
+    if (!(isNonEnglish(trimmed) && agentManager.isTranslationEnabled())) {
+      addUserMessage(ui.chatContainer, ui.markdownTheme, contentForModel);
+    } else if (originalContent) {
+      addTranslatedMessage(ui.chatContainer, ui.markdownTheme, contentForModel);
+    }
+
+    if (translationError) {
+      addSystemMessage(
+        ui.chatContainer,
+        `[translation] Failed to translate input: ${translationError}. Using original text.`
+      );
+    }
+    messageHistory.addUserMessage(contentForModel, originalContent);
     ui.tui.requestRender();
     await handleAgentResponse(ui);
     return true;

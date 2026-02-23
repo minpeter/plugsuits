@@ -52,6 +52,7 @@ export interface Message {
   createdAt: Date;
   id: string;
   modelMessage: ModelMessage;
+  originalContent?: string;
 }
 
 const createMessageId = (() => {
@@ -73,7 +74,7 @@ export class MessageHistory {
     this.messages = [];
   }
 
-  addUserMessage(content: string): Message {
+  addUserMessage(content: string, originalContent?: string): Message {
     const message: Message = {
       id: createMessageId(),
       createdAt: new Date(),
@@ -81,6 +82,7 @@ export class MessageHistory {
         role: "user",
         content,
       },
+      originalContent,
     };
     this.messages.push(message);
     return message;
