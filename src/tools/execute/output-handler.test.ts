@@ -17,10 +17,13 @@ describe("sanitizeOutput", () => {
 });
 
 describe("truncateOutput", () => {
-  test("returns original when within limits", () => {
+  test("returns original when within limits", async () => {
     const output = "line1\nline2\nline3";
 
-    const result = truncateOutput(output, { maxLines: 10, maxBytes: 100 });
+    const result = await truncateOutput(output, {
+      maxLines: 10,
+      maxBytes: 100,
+    });
 
     expect(result.truncated).toBe(false);
     expect(result.text).toBe(output);
@@ -29,12 +32,12 @@ describe("truncateOutput", () => {
     expect(result.fullOutputPath).toBeUndefined();
   });
 
-  test("truncates oversized line-based output and preserves tail", () => {
+  test("truncates oversized line-based output and preserves tail", async () => {
     const output = Array.from({ length: 3000 }, (_, i) => `line-${i + 1}`).join(
       "\n"
     );
 
-    const result = truncateOutput(output);
+    const result = await truncateOutput(output);
 
     expect(result.truncated).toBe(true);
     expect(result.text.split("\n").length).toBeLessThanOrEqual(2000);
@@ -42,14 +45,14 @@ describe("truncateOutput", () => {
     expect(result.fullOutputPath).toBeDefined();
   });
 
-  test("creates a temp file for truncated output", () => {
+  test("creates a temp file for truncated output", async () => {
     const output = Array.from({ length: 3000 }, (_, i) => `line-${i + 1}`).join(
       "\n"
     );
     const tempPaths: string[] = [];
 
     try {
-      const result = truncateOutput(output);
+      const result = await truncateOutput(output);
       const fullOutputPath = result.fullOutputPath;
 
       expect(fullOutputPath).toBeDefined();

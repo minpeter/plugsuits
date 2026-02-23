@@ -1,5 +1,5 @@
 import { open, readFile, stat } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import ignore, { type Ignore } from "ignore";
 import {
   computeFileHash,
@@ -110,12 +110,14 @@ async function isLikelyBinaryFile(
 
 interface FileCheckResult {
   allowed: boolean;
+  lastModified?: string;
   reason?: string;
 }
 
 interface FileReadGuardContext {
   filePath: string;
   ig: Ignore;
+  lastModified: string;
   pathForIgnoreCheck: string | null;
 }
 
@@ -149,9 +151,11 @@ const checkIgnoreGuard: FileReadGuard = ({
   };
 };
 
-const checkFileStatGuards: FileReadGuard = async ({ filePath }) => {
+const checkFileStatGuards: FileReadGuard = async (context) => {
+  const { filePath } = context;
   try {
     const stats = await stat(filePath);
+    context.lastModified = stats.mtime.toISOString();
 
     if (stats.size > FILE_READ_POLICY.maxFileSizeBytes) {
       return {
@@ -189,11 +193,18 @@ const FILE_READ_GUARDS: FileReadGuard[] = [
 ];
 
 async function checkFileReadable(filePath: string): Promise<FileCheckResult> {
-  const ig = await getIgnoreFilter();
+  const cwd = process.cwd();
+  let baseDir = cwd;
+  if (isAbsolute(filePath)) {
+    const insideCwd = getPathForIgnoreCheck(filePath, cwd) !== null;
+    baseDir = insideCwd ? cwd : dirname(filePath);
+  }
+  const ig = await getIgnoreFilter(baseDir);
   const context: FileReadGuardContext = {
     filePath,
     ig,
-    pathForIgnoreCheck: getPathForIgnoreCheck(filePath, process.cwd()),
+    lastModified: "unknown",
+    pathForIgnoreCheck: getPathForIgnoreCheck(filePath, baseDir),
   };
 
   for (const guard of FILE_READ_GUARDS) {
@@ -203,7 +214,7 @@ async function checkFileReadable(filePath: string): Promise<FileCheckResult> {
     }
   }
 
-  return { allowed: true };
+  return { allowed: true, lastModified: context.lastModified };
 }
 
 export interface ReadFileOptions {
@@ -244,6 +255,7 @@ export interface ReadFileResultEnhanced {
   content: string;
   endLine1: number;
   fileHash: string;
+  lastModified: string;
   numberedContent: string;
   startLine1: number;
   totalLines: number;
@@ -308,5 +320,6 @@ export async function safeReadFileEnhanced(
     truncated,
     bytes,
     fileHash: computeFileHash(rawContent),
+    lastModified: check.lastModified ?? "unknown",
   };
 }

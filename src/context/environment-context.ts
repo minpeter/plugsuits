@@ -6,6 +6,6 @@ export const getEnvironmentContext = (): string => {
 
 - **Working Directory**: ${cwd}
 - **Path Resolution**: All relative paths are resolved from the working directory
-- **Shell Session**: Each shell_execute runs independently (no shared session)
+- **Shell Execution Model**: Each shell_execute invocation is isolated (no retained terminal context)
 `;
 };

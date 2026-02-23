@@ -9,15 +9,21 @@ import { writeFileTool } from "./modify/write-file";
 import { loadSkillTool } from "./planning/load-skill";
 import { todoWriteTool } from "./planning/todo-write";
 
-export const tools = {
-  shell_execute: shellExecuteTool,
-  shell_interact: shellInteractTool,
-  write_file: writeFileTool,
-  edit_file: editFileTool,
-  read_file: readFileTool,
-  delete_file: deleteFileTool,
-  glob_files: globTool,
-  grep_files: grepTool,
-  load_skill: loadSkillTool,
-  todo_write: todoWriteTool,
-} as const;
+export const createTools = () => {
+  return {
+    shell_execute: shellExecuteTool,
+    shell_interact: shellInteractTool,
+    write_file: writeFileTool,
+    edit_file: editFileTool,
+    read_file: readFileTool,
+    delete_file: deleteFileTool,
+    glob_files: globTool,
+    grep_files: grepTool,
+    load_skill: loadSkillTool,
+    todo_write: todoWriteTool,
+  } as const;
+};
+
+export type ToolRegistry = ReturnType<typeof createTools>;
+
+export const tools: ToolRegistry = createTools();

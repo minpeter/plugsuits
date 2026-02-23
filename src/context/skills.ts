@@ -61,6 +61,41 @@ const VERSION_REGEX = /^version:\s*(.+)$/m;
 const TRIGGERS_REGEX = /^triggers:\s*\n((?:\s{2}- .+\n?)+)/m;
 const LIST_ITEM_REGEX = /^\s*-\s*/;
 const SKILL_NAME_REGEX = /^[a-z0-9-]+$/;
+const EXPECTED_SKILL_IO_ERROR_CODES = new Set([
+  "EACCES",
+  "EISDIR",
+  "ENOENT",
+  "ENOTDIR",
+  "EPERM",
+]);
+
+function getErrnoCode(error: unknown): string | null {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as NodeJS.ErrnoException).code === "string"
+  ) {
+    return (error as NodeJS.ErrnoException).code ?? null;
+  }
+  return null;
+}
+
+function isExpectedSkillIoError(error: unknown): boolean {
+  const code = getErrnoCode(error);
+  return code !== null && EXPECTED_SKILL_IO_ERROR_CODES.has(code);
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function warnUnexpectedSkillError(scope: string, error: unknown): void {
+  console.warn(`[skills] ${scope}: ${getErrorMessage(error)}`);
+}
 
 function parseFrontmatterRegex(content: string): SkillFrontmatter | null {
   const match = content.match(FRONTMATTER_REGEX);
@@ -130,14 +165,20 @@ async function loadLegacySkills(
             path: filePath,
             source,
           };
-        } catch {
+        } catch (error) {
+          if (!isExpectedSkillIoError(error)) {
+            warnUnexpectedSkillError("loadLegacySkills:file", error);
+          }
           return null;
         }
       })
     );
 
     return skills.filter((skill) => skill !== null) as SkillInfo[];
-  } catch {
+  } catch (error) {
+    if (!isExpectedSkillIoError(error)) {
+      warnUnexpectedSkillError("loadLegacySkills:glob", error);
+    }
     return [];
   }
 }
@@ -194,7 +235,10 @@ async function discoverSkillDirectories(searchPath: string): Promise<string[]> {
     }
 
     return skillDirs;
-  } catch {
+  } catch (error) {
+    if (!isExpectedSkillIoError(error)) {
+      warnUnexpectedSkillError("discoverSkillDirectories", error);
+    }
     return [];
   }
 }
@@ -233,7 +277,10 @@ async function loadSkillV2(
       dirPath,
       source,
     };
-  } catch {
+  } catch (error) {
+    if (!isExpectedSkillIoError(error)) {
+      warnUnexpectedSkillError("loadSkillV2", error);
+    }
     return null;
   }
 }
@@ -283,7 +330,10 @@ async function loadV2Skills(
         realPath = await realpath(skill.dirPath);
         realpathCache.set(skill.dirPath, realPath);
       }
-    } catch {
+    } catch (error) {
+      if (!isExpectedSkillIoError(error)) {
+        warnUnexpectedSkillError("loadV2Skills:realpath", error);
+      }
       realPath = skill.dirPath;
     }
 
@@ -368,14 +418,20 @@ async function loadSlashCommands(
             source,
             argumentHint: frontmatter?.["argument-hint"],
           } as SlashCommandInfo;
-        } catch {
+        } catch (error) {
+          if (!isExpectedSkillIoError(error)) {
+            warnUnexpectedSkillError("loadSlashCommands:file", error);
+          }
           return null;
         }
       })
     );
 
     return commands.filter((cmd): cmd is SlashCommandInfo => cmd !== null);
-  } catch {
+  } catch (error) {
+    if (!isExpectedSkillIoError(error)) {
+      warnUnexpectedSkillError("loadSlashCommands:glob", error);
+    }
     return [];
   }
 }
@@ -469,7 +525,10 @@ export async function loadSkillById(
   try {
     const content = await readFile(skill.path, "utf-8");
     return { content, info: skill };
-  } catch {
+  } catch (error) {
+    if (!isExpectedSkillIoError(error)) {
+      warnUnexpectedSkillError("loadSkillById", error);
+    }
     return null;
   }
 }
@@ -500,7 +559,8 @@ ${skillDescriptions}
 2. Use \`load_skill\` tool with the skill ID (e.g., \`load_skill("git-workflow")\`)
 3. Follow the detailed instructions provided by the skill
 `;
-  } catch {
+  } catch (error) {
+    warnUnexpectedSkillError("loadSkillsMetadata", error);
     return "";
   }
 }

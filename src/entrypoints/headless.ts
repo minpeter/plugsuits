@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 
-import { agentManager, DEFAULT_MODEL_ID } from "../agent";
+import {
+  agentManager,
+  DEFAULT_MODEL_ID,
+  type ProviderType,
+} from "../agent";
 import { MessageHistory } from "../context/message-history";
 import { setSessionId } from "../context/session";
 import {
@@ -124,87 +128,174 @@ const parseToolFallbackCliOption = (
 ): { consumedArgs: number; mode: ToolFallbackMode } | null => {
   const arg = args[index];
 
-  if (arg === "--tool-fallback-mode") {
+  const parseCandidate = (
+    fallbackMode: ToolFallbackMode
+  ): { consumedArgs: number; mode: ToolFallbackMode } => {
     const candidate = args[index + 1];
     if (!candidate || candidate.startsWith("--")) {
       return {
         consumedArgs: 0,
-        mode: DEFAULT_TOOL_FALLBACK_MODE,
+        mode: fallbackMode,
       };
     }
+
     const parsedMode = parseToolFallbackMode(candidate);
     return {
       consumedArgs: 1,
-      mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
+      mode: parsedMode ?? fallbackMode,
     };
+  };
+
+  if (arg === "--tool-fallback-mode") {
+    return parseCandidate(DEFAULT_TOOL_FALLBACK_MODE);
   }
 
-  if (arg !== "--tool-fallback") {
+  if (arg === "--tool-fallback") {
+    return parseCandidate(LEGACY_ENABLED_TOOL_FALLBACK_MODE);
+  }
+
+  return null;
+};
+
+
+
+const parseProviderArg = (
+  providerArg: string | undefined
+): ProviderType | null => {
+  if (providerArg === "anthropic" || providerArg === "friendli") {
+    return providerArg;
+  }
+
+  return null;
+};
+
+const parseTranslateCliOption = (arg: string): boolean | null => {
+  if (arg === "--translate") {
+    return true;
+  }
+  if (arg === "--no-translate") {
+    return false;
+  }
+
+  return null;
+};
+
+const parseReasoningCliOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; mode: ReasoningMode } | null => {
+  const arg = args[index];
+  if (arg === "--think") {
+    return { consumedArgs: 0, mode: "on" };
+  }
+
+  if (arg !== "--reasoning-mode") {
     return null;
   }
 
   const candidate = args[index + 1];
   if (candidate && !candidate.startsWith("--")) {
-    const parsedMode = parseToolFallbackMode(candidate);
+    const parsedMode = parseReasoningMode(candidate);
     return {
       consumedArgs: 1,
-      mode: parsedMode ?? LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+      mode: parsedMode ?? DEFAULT_REASONING_MODE,
     };
   }
 
   return {
     consumedArgs: 0,
-    mode: LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+    mode: DEFAULT_REASONING_MODE,
   };
+};
+
+const parsePromptOrModelOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; kind: "prompt" | "model"; value: string } | null => {
+  const arg = args[index];
+  const value = args[index + 1] || "";
+
+  if (arg === "-p" || arg === "--prompt") {
+    return { consumedArgs: 1, kind: "prompt", value };
+  }
+
+  if (arg === "-m" || arg === "--model") {
+    return { consumedArgs: 1, kind: "model", value };
+  }
+
+  return null;
 };
 
 const parseArgs = (): {
   prompt: string;
   model?: string;
-  reasoningMode: ReasoningMode;
+  provider: ProviderType | null;
+  reasoningMode: ReasoningMode | null;
   toolFallbackMode: ToolFallbackMode;
+  translateUserPrompts: boolean;
 } => {
   const args = process.argv.slice(2);
   let prompt = "";
   let model: string | undefined;
-  let reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
+  let provider: ProviderType | null = null;
+  let reasoningMode: ReasoningMode | null = null;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
+  let translateUserPrompts = false;
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+    const promptOrModelOption = parsePromptOrModelOption(args, i);
+    if (promptOrModelOption) {
+      if (promptOrModelOption.kind === "prompt") {
+        prompt = promptOrModelOption.value;
+      } else {
+        model = promptOrModelOption.value || undefined;
+      }
 
-    if (arg === "-p" || arg === "--prompt") {
-      prompt = args[i + 1] || "";
-      i++;
-    } else if (arg === "-m" || arg === "--model") {
-      model = args[i + 1] || undefined;
-      i++;
-    } else if (arg === "--think") {
-      reasoningMode = "on";
-    } else if (arg === "--reasoning-mode") {
-      const candidate = args[i + 1];
-      if (candidate && !candidate.startsWith("--")) {
-        const parsedMode = parseReasoningMode(candidate);
-        reasoningMode = parsedMode ?? DEFAULT_REASONING_MODE;
-        i++;
-      }
-    } else {
-      const toolFallbackOption = parseToolFallbackCliOption(args, i);
-      if (toolFallbackOption) {
-        toolFallbackMode = toolFallbackOption.mode;
-        i += toolFallbackOption.consumedArgs;
-      }
+      i += promptOrModelOption.consumedArgs;
+      continue;
+    }
+
+    const reasoningOption = parseReasoningCliOption(args, i);
+    if (reasoningOption) {
+      reasoningMode = reasoningOption.mode;
+      i += reasoningOption.consumedArgs;
+      continue;
+    }
+
+    if (args[i] === "--provider" && i + 1 < args.length) {
+      provider = parseProviderArg(args[i + 1]) ?? provider;
+      i += 1;
+      continue;
+    }
+
+    const translateOption = parseTranslateCliOption(args[i]);
+    if (translateOption !== null) {
+      translateUserPrompts = translateOption;
+      continue;
+    }
+
+    const toolFallbackOption = parseToolFallbackCliOption(args, i);
+    if (toolFallbackOption) {
+      toolFallbackMode = toolFallbackOption.mode;
+      i += toolFallbackOption.consumedArgs;
     }
   }
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
     );
     process.exit(1);
   }
 
-  return { prompt, model, reasoningMode, toolFallbackMode };
+  return {
+    prompt,
+    model,
+    provider,
+    reasoningMode,
+    toolFallbackMode,
+    translateUserPrompts,
+  };
 };
 
 const extractToolOutput = (
@@ -494,16 +585,30 @@ const processAgentResponse = async (
 const run = async (): Promise<void> => {
   await initializeTools();
 
-  const { prompt, model, reasoningMode, toolFallbackMode } = parseArgs();
+  const {
+    prompt,
+    model,
+    provider,
+    reasoningMode,
+    toolFallbackMode,
+    translateUserPrompts,
+  } = parseArgs();
 
   setSessionId(sessionId);
 
   agentManager.setHeadlessMode(true);
+  if (provider) {
+    agentManager.setProvider(provider);
+  }
   agentManager.setModelId(model || DEFAULT_MODEL_ID);
-  agentManager.setReasoningMode(reasoningMode);
+  if (reasoningMode !== null) {
+    agentManager.setReasoningMode(reasoningMode);
+  }
   agentManager.setToolFallbackMode(toolFallbackMode);
+  agentManager.setUserInputTranslationEnabled(translateUserPrompts);
 
   const messageHistory = new MessageHistory();
+  const preparedPrompt = await agentManager.preprocessUserInput(prompt);
 
   emitEvent({
     timestamp: new Date().toISOString(),
@@ -512,8 +617,7 @@ const run = async (): Promise<void> => {
     content: prompt,
   });
 
-  messageHistory.addUserMessage(prompt);
-
+  messageHistory.addUserMessage(preparedPrompt.text);
   try {
     await processAgentResponse(messageHistory);
 

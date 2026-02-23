@@ -55,7 +55,7 @@ const TOOLS: Record<string, ToolConfig> = {
       return null;
     },
   },
-  };
+};
 
 /**
  * Check if a command exists and is executable
@@ -312,7 +312,7 @@ export async function ensureTool(
  * Throws an error if any required tool is unavailable
  */
 export async function initializeTools(): Promise<void> {
-  const tools: Array<"rg"> = ["rg"];
+  const tools: "rg"[] = ["rg"];
   const results = await Promise.allSettled(
     tools.map((tool) => ensureTool(tool, false))
   );

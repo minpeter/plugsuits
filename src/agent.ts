@@ -23,7 +23,7 @@ import {
   LEGACY_ENABLED_TOOL_FALLBACK_MODE,
   type ToolFallbackMode,
 } from "./tool-fallback-mode";
-import { tools } from "./tools";
+import { createTools, type ToolRegistry } from "./tools";
 
 export const DEFAULT_MODEL_ID = "zai-org/GLM-5";
 export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
@@ -74,6 +74,7 @@ interface CreateAgentOptions {
   provider?: ProviderType;
   reasoningMode?: ReasoningMode;
   toolFallbackMode?: ToolFallbackMode;
+  toolRegistry?: ToolRegistry;
 }
 
 interface TranslationInputResult {
@@ -102,6 +103,24 @@ const getModel = (modelId: string, provider: ProviderType) => {
 const ANTHROPIC_THINKING_BUDGET_TOKENS = 10_000;
 const ANTHROPIC_MAX_OUTPUT_TOKENS = 64_000;
 const ANTHROPIC_SELECTABLE_REASONING_MODES: ReasoningMode[] = ["off", "on"];
+const REASONING_MODE_PRIORITY: readonly ReasoningMode[] = [
+  "preserved",
+  "interleaved",
+  "on",
+  "off",
+];
+
+const selectBestReasoningMode = (
+  modes: readonly ReasoningMode[]
+): ReasoningMode => {
+  for (const mode of REASONING_MODE_PRIORITY) {
+    if (modes.includes(mode)) {
+      return mode;
+    }
+  }
+
+  return DEFAULT_REASONING_MODE;
+};
 
 const isNonEnglishText = (input: string): boolean => {
   return NON_ASCII_PATTERN.test(input);
@@ -226,7 +245,7 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
       return streamText({
         model: wrappedModel,
         system: options.instructions ?? SYSTEM_PROMPT,
-        tools,
+        tools: options.toolRegistry ?? defaultToolRegistry,
         messages: preparedMessages,
         maxOutputTokens,
         providerOptions,
@@ -269,6 +288,15 @@ const translateToEnglish = async (
   return result.text.trim();
 };
 
+const defaultToolRegistry = createTools();
+
+const toErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+};
+
 export type ModelType = "serverless" | "dedicated";
 
 class AgentManager {
@@ -277,8 +305,19 @@ class AgentManager {
   private provider: ProviderType = "friendli";
   private headlessMode = false;
   private reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
+  private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private userInputTranslationEnabled = false;
+
+  constructor() {
+    this.applyBestReasoningModeForCurrentModel();
+  }
+
+  private applyBestReasoningModeForCurrentModel(): void {
+    this.reasoningMode = selectBestReasoningMode(
+      this.getSelectableReasoningModes()
+    );
+  }
 
   getModelId(): string {
     return this.modelId;
@@ -286,6 +325,7 @@ class AgentManager {
 
   setModelId(modelId: string): void {
     this.modelId = modelId;
+    this.applyBestReasoningModeForCurrentModel();
   }
 
   getModelType(): ModelType {
@@ -307,6 +347,8 @@ class AgentManager {
     } else {
       this.modelId = DEFAULT_MODEL_ID;
     }
+
+    this.applyBestReasoningModeForCurrentModel();
   }
 
   setHeadlessMode(enabled: boolean): void {
@@ -384,7 +426,10 @@ class AgentManager {
       }
 
       return { text: translated, translated: true };
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[agent] Failed to translate user input: ${toErrorMessage(error)}`
+      );
       return { text: input, translated: false };
     }
   }
@@ -407,8 +452,12 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     return instructions;
   }
 
-  getTools() {
-    return tools;
+  getTools(): ToolRegistry {
+    return this.toolRegistry;
+  }
+
+  setTools(toolRegistry: ToolRegistry): void {
+    this.toolRegistry = toolRegistry;
   }
 
   async stream(
@@ -418,6 +467,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     const agent = createAgent(this.modelId, {
       instructions: await this.getInstructions(),
       reasoningMode: this.reasoningMode,
+      toolRegistry: this.toolRegistry,
       toolFallbackMode: this.toolFallbackMode,
       provider: this.provider,
     });

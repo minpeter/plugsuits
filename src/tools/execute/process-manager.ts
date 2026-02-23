@@ -8,6 +8,8 @@ const SIGKILL_DELAY_MS = 200;
 const SPAWN_ERROR_EXIT_CODE = 1;
 const CANCELLED_EXIT_CODE = 130;
 const TIMEOUT_EXIT_CODE = 124;
+const MAX_IN_MEMORY_OUTPUT_BYTES = 2 * 1024 * 1024;
+const TRIMMED_BUFFER_TARGET_BYTES = 512 * 1024;
 
 export interface ExecuteOptions {
   onChunk?: (chunk: string) => void;
@@ -77,6 +79,23 @@ function resolveExitCode(
   return SPAWN_ERROR_EXIT_CODE;
 }
 
+function trimToLastBytes(
+  text: string,
+  maxBytes: number
+): { droppedBytes: number; text: string } {
+  const bytes = Buffer.from(text, "utf-8");
+  if (bytes.length <= maxBytes) {
+    return { text, droppedBytes: 0 };
+  }
+
+  const start = bytes.length - maxBytes;
+
+  return {
+    text: bytes.subarray(start).toString("utf-8"),
+    droppedBytes: start,
+  };
+}
+
 export function killProcessTree(pid: number): void {
   if (pid <= 0) {
     return;
@@ -130,7 +149,8 @@ export async function executeCommand(
 
     const stdoutDecoder = new TextDecoder();
     const stderrDecoder = new TextDecoder();
-    const chunks: string[] = [];
+    let bufferedOutput = "";
+    let droppedBytes = 0;
 
     let timedOut = false;
     let cancelled = false;
@@ -157,7 +177,17 @@ export async function executeCommand(
 
     const appendChunk = (chunk: Buffer, decoder: TextDecoder): void => {
       const decoded = decoder.decode(chunk, { stream: true });
-      chunks.push(decoded);
+      bufferedOutput += decoded;
+      if (
+        Buffer.byteLength(bufferedOutput, "utf-8") > MAX_IN_MEMORY_OUTPUT_BYTES
+      ) {
+        const trimmed = trimToLastBytes(
+          bufferedOutput,
+          TRIMMED_BUFFER_TARGET_BYTES
+        );
+        bufferedOutput = trimmed.text;
+        droppedBytes += trimmed.droppedBytes;
+      }
       onChunk?.(decoded);
     };
 
@@ -166,7 +196,17 @@ export async function executeCommand(
       if (!remaining) {
         return;
       }
-      chunks.push(remaining);
+      bufferedOutput += remaining;
+      if (
+        Buffer.byteLength(bufferedOutput, "utf-8") > MAX_IN_MEMORY_OUTPUT_BYTES
+      ) {
+        const trimmed = trimToLastBytes(
+          bufferedOutput,
+          TRIMMED_BUFFER_TARGET_BYTES
+        );
+        bufferedOutput = trimmed.text;
+        droppedBytes += trimmed.droppedBytes;
+      }
       onChunk?.(remaining);
     };
 
@@ -184,15 +224,32 @@ export async function executeCommand(
       flushDecoder(stdoutDecoder);
       flushDecoder(stderrDecoder);
 
-      const sanitizedOutput = sanitizeOutput(chunks.join(""));
-      const truncatedOutput = truncateOutput(sanitizedOutput);
-
-      resolve({
-        exitCode: resolveExitCode(code, timedOut, cancelled, spawnFailed),
-        output: truncatedOutput.text,
-        cancelled,
-        timedOut,
-      });
+      const sanitizedOutput = sanitizeOutput(bufferedOutput);
+      const withDroppedPrefix =
+        droppedBytes > 0
+          ? `[... ${droppedBytes} bytes omitted before completion due to output volume ...]\n${sanitizedOutput}`
+          : sanitizedOutput;
+      truncateOutput(withDroppedPrefix)
+        .then((truncatedOutput) => {
+          resolve({
+            exitCode: resolveExitCode(code, timedOut, cancelled, spawnFailed),
+            output: truncatedOutput.text,
+            cancelled,
+            timedOut,
+          });
+        })
+        .catch((error) => {
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to truncate output.";
+          resolve({
+            exitCode: resolveExitCode(code, timedOut, cancelled, spawnFailed),
+            output: `${withDroppedPrefix}\n${errorMessage}`,
+            cancelled,
+            timedOut,
+          });
+        });
     };
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -209,7 +266,7 @@ export async function executeCommand(
 
     child.on("error", (error) => {
       spawnFailed = true;
-      chunks.push(`${(error as Error).message}\n`);
+      bufferedOutput += `${(error as Error).message}\n`;
       finish(null);
     });
   });

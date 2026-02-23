@@ -1249,14 +1249,14 @@ const parseTranslateCliOption = (arg: string): boolean | null => {
 };
 
 const parseCliArgs = (): {
-  reasoningMode: ReasoningMode;
+  reasoningMode: ReasoningMode | null;
   toolFallbackMode: ToolFallbackMode;
   model: string | null;
   provider: ProviderType | null;
   translateUserPrompts: boolean;
 } => {
   const args = process.argv.slice(2);
-  let reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
+  let reasoningMode: ReasoningMode | null = null;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   let model: string | null = null;
   let provider: ProviderType | null = null;
@@ -1314,15 +1314,19 @@ const setupAgent = (): void => {
     provider,
     translateUserPrompts,
   } = parseCliArgs();
-  agentManager.setReasoningMode(reasoningMode);
-  agentManager.setToolFallbackMode(toolFallbackMode);
-  agentManager.setUserInputTranslationEnabled(translateUserPrompts);
   if (provider) {
     agentManager.setProvider(provider);
   }
   if (model) {
     agentManager.setModelId(model);
   }
+
+  if (reasoningMode !== null) {
+    agentManager.setReasoningMode(reasoningMode);
+  }
+
+  agentManager.setToolFallbackMode(toolFallbackMode);
+  agentManager.setUserInputTranslationEnabled(translateUserPrompts);
 };
 
 type AgentResponseStatus = "completed" | "interrupted";

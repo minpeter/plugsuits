@@ -78,7 +78,7 @@ const READ_FILE_BLOCK_PREFIX = "======== ";
 const READ_FILE_BLOCK_SUFFIX = " ========";
 const READ_FILE_BLOCK_END = "======== end ========";
 const BACKTICK_FENCE_PATTERN = /`{3,}/g;
-const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+\s\|\s)(.*)$/;
+const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+(?:#[^\s|]+)?\s*\|\s)(.*)$/;
 const READ_FILE_LINES_WITH_RETURNED_PATTERN = /^(\d+)\s+\(returned:\s*(\d+)\)$/;
 const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
 const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;

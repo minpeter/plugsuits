@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
@@ -68,23 +67,6 @@ export async function executeReadFile({
     after: parsedInput.after,
   });
 
-  let mtime = "";
-  try {
-    const stats = await stat(path);
-    mtime = stats.mtime.toISOString();
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof (error as NodeJS.ErrnoException).code === "string"
-    ) {
-      mtime = `unknown(${(error as NodeJS.ErrnoException).code})`;
-    } else {
-      mtime = "unknown(error)";
-    }
-  }
-
   const fileName = basename(path);
   const rangeStr = `L${result.startLine1}-L${result.endLine1}`;
 
@@ -92,7 +74,7 @@ export async function executeReadFile({
     "OK - read file",
     `path: ${path}`,
     `bytes: ${result.bytes}`,
-    `last_modified: ${mtime}`,
+    `last_modified: ${result.lastModified}`,
     `lines: ${result.totalLines} (returned: ${result.endLine1 - result.startLine1 + 1})`,
     `file_hash: ${result.fileHash}`,
     `range: ${rangeStr}`,
