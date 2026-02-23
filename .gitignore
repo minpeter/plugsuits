@@ -9,3 +9,4 @@ jobs
 __pycache__
 
 .cea
+.sisyphus/
