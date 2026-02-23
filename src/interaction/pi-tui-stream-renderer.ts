@@ -22,6 +22,7 @@ export interface PiTuiStreamRenderOptions {
   onFirstVisiblePart?: () => void;
   showFiles?: boolean;
   showFinishReason?: boolean;
+  showRawToolIo?: boolean;
   showReasoning?: boolean;
   showSources?: boolean;
   showSteps?: boolean;
@@ -85,6 +86,24 @@ const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
 const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;
 const TAB_PATTERN = /\t/g;
 const MAX_READ_PREVIEW_LINES = 10;
+
+const isTruthyEnvFlag = (value: string | undefined): boolean => {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+};
+
+const isRawToolIoEnabledByEnv = (): boolean => {
+  return isTruthyEnvFlag(process.env.DEBUG_SHOW_RAW_TOOL_IO);
+};
 
 interface ReadFileParsedOutput {
   blockBody: string;
@@ -864,6 +883,7 @@ class ToolCallView extends Container {
   private readonly readBlock: Container;
   private readonly readBody: TruncatedReadBody;
   private readonly readHeader: TrimmedMarkdown;
+  private readonly showRawToolIo: boolean;
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
@@ -873,10 +893,16 @@ class ToolCallView extends Container {
   private readMode = false;
   private toolName: string;
 
-  constructor(callId: string, toolName: string, markdownTheme: MarkdownTheme) {
+  constructor(
+    callId: string,
+    toolName: string,
+    markdownTheme: MarkdownTheme,
+    showRawToolIo: boolean
+  ) {
     super();
     this.callId = callId;
     this.toolName = toolName;
+    this.showRawToolIo = showRawToolIo;
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.readHeader = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.readBody = new TruncatedReadBody("", 1, applyReadPreviewBackground);
@@ -1059,9 +1085,10 @@ class ToolCallView extends Container {
 
   private refresh(): void {
     if (
-      this.tryRenderReadFileMode() ||
-      this.tryRenderGlobMode() ||
-      this.tryRenderGrepMode()
+      !this.showRawToolIo &&
+      (this.tryRenderReadFileMode() ||
+        this.tryRenderGlobMode() ||
+        this.tryRenderGrepMode())
     ) {
       return;
     }
@@ -1128,6 +1155,7 @@ const createInfoMessage = (title: string, value: unknown): Text => {
 interface PiTuiRenderFlags {
   showFiles: boolean;
   showFinishReason: boolean;
+  showRawToolIo: boolean;
   showReasoning: boolean;
   showSources: boolean;
   showSteps: boolean;
@@ -1429,6 +1457,7 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
     showReasoning: options.showReasoning ?? true,
     showSteps: options.showSteps ?? false,
     showFinishReason: options.showFinishReason ?? false,
+    showRawToolIo: options.showRawToolIo ?? isRawToolIoEnabledByEnv(),
     showToolResults: options.showToolResults ?? true,
     showSources: options.showSources ?? false,
     showFiles: options.showFiles ?? false,
@@ -1469,7 +1498,12 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
       return existing;
     }
 
-    const view = new ToolCallView(toolCallId, toolName, options.markdownTheme);
+    const view = new ToolCallView(
+      toolCallId,
+      toolName,
+      options.markdownTheme,
+      flags.showRawToolIo
+    );
     toolViews.set(toolCallId, view);
     addChatComponent(options.chatContainer, view);
     return view;

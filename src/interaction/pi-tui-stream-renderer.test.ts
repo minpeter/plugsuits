@@ -48,6 +48,7 @@ interface RenderResult {
 
 interface RenderPartsOptions {
   onFirstVisiblePart?: () => void;
+  showRawToolIo?: boolean;
 }
 
 const renderParts = async (
@@ -70,6 +71,7 @@ const renderParts = async (
     showSteps: false,
     showFinishReason: false,
     showToolResults: true,
+    showRawToolIo: overrides.showRawToolIo,
     showSources: false,
     showFiles: false,
   };
@@ -884,5 +886,95 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).toContain("... (30 more lines, truncated)");
     expect(output).toContain("match_count (40)");
     expect(output).toContain("truncated: true");
+  });
+
+  it("renders read/glob/grep tool IO in raw mode when enabled", async () => {
+    const cases = [
+      {
+        toolCallId: "call_read_raw",
+        toolName: "read_file",
+        input: { path: "src/demo.ts" },
+        output: [
+          "OK - read file",
+          "path: src/demo.ts",
+          "bytes: 12",
+          "last_modified: 2026-02-23T01:00:00.000Z",
+          "lines: 1 (returned: 1)",
+          "range: L1-L1",
+          "truncated: false",
+          "",
+          "======== demo.ts L1-L1 ========",
+          "   1 | const x = 1;",
+          "======== end ========",
+        ].join("\n"),
+        prettyHeading: "Read src/demo.ts",
+      },
+      {
+        toolCallId: "call_glob_raw",
+        toolName: "glob_files",
+        input: { pattern: "src/**/*.ts" },
+        output: [
+          "OK - glob",
+          'pattern: "src/**/*.ts"',
+          "path: /project",
+          "respect_git_ignore: true",
+          "file_count: 1",
+          "truncated: false",
+          "sorted_by: mtime desc",
+          "",
+          "======== glob results ========",
+          "/project/file1.ts",
+          "======== end ========",
+        ].join("\n"),
+        prettyHeading: "Glob src/**/*.ts",
+      },
+      {
+        toolCallId: "call_grep_raw",
+        toolName: "grep_files",
+        input: { pattern: "foo" },
+        output: [
+          "OK - grep",
+          'pattern: "foo"',
+          "path: /project",
+          "include: *.ts",
+          "case_sensitive: false",
+          "fixed_strings: false",
+          "match_count: 1",
+          "truncated: false",
+          "",
+          "======== grep results ========",
+          "/project/file1.ts:1:const foo = 1;",
+          "======== end ========",
+        ].join("\n"),
+        prettyHeading: "Grep foo",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { output } = await renderParts(
+        [
+          {
+            type: "tool-call",
+            toolCallId: testCase.toolCallId,
+            toolName: testCase.toolName,
+            input: testCase.input,
+          },
+          {
+            type: "tool-result",
+            toolCallId: testCase.toolCallId,
+            toolName: testCase.toolName,
+            input: testCase.input,
+            output: testCase.output,
+          },
+        ],
+        { showRawToolIo: true }
+      );
+
+      expect(output).toContain(`Tool ${testCase.toolName}`);
+      expect(output).toContain("Input");
+      expect(output).toContain("Output");
+      expect(output).toContain(testCase.output.split("\n")[0]);
+      expect(output).not.toContain(testCase.prettyHeading);
+    }
   });
 });
