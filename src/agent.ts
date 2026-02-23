@@ -19,7 +19,7 @@ import {
 import { tools } from "./tools";
 
 export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.5";
-export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-5-20250929";
+export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_MAX = 64_000;
 
 type CoreStreamResult = ReturnType<typeof streamText>;
@@ -37,8 +37,8 @@ export interface AgentStreamResult {
 export type ProviderType = "friendli" | "anthropic";
 
 export const ANTHROPIC_MODELS = [
-  { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5 (Latest)" },
-  { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5 (Latest)" },
+  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Latest)" },
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6 (Latest)" },
 ] as const;
 
 const friendli = env.FRIENDLI_TOKEN
@@ -92,8 +92,6 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
       return undefined;
     }
 
-    // Opus 4.5: use effort parameter
-    // Sonnet 4.5: use thinking with budgetTokens
     const isOpus = modelId.includes("opus");
     if (isOpus) {
       return { anthropic: { effort: "high" } };
@@ -139,7 +137,10 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   });
 
   return {
-    stream: ({ messages, abortSignal }: { messages: ModelMessage[] } & AgentStreamOptions) => {
+    stream: ({
+      messages,
+      abortSignal,
+    }: { messages: ModelMessage[] } & AgentStreamOptions) => {
       return streamText({
         model: wrappedModel,
         system: options.instructions || SYSTEM_PROMPT,
@@ -247,7 +248,10 @@ class AgentManager {
     return tools;
   }
 
-  async stream(messages: ModelMessage[], options: AgentStreamOptions = {}): Promise<AgentStreamResult> {
+  async stream(
+    messages: ModelMessage[],
+    options: AgentStreamOptions = {}
+  ): Promise<AgentStreamResult> {
     const agent = createAgent(this.modelId, {
       instructions: await this.getInstructions(),
       enableThinking: this.thinkingEnabled,

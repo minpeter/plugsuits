@@ -84,6 +84,7 @@ const ANSI_CYAN = "\x1b[96m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
 const CTRL_C_ETX = "\u0003";
+const CTRL_C_EXIT_WINDOW_MS = 500;
 
 const messageHistory = new MessageHistory();
 let cachedSkills: SkillInfo[] = [];
@@ -622,6 +623,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   let loader: Loader | null = null;
   let inputResolver: ((value: string | null) => void) | null = null;
   let pendingExitConfirmation = false;
+  let lastCtrlCPressAt = 0;
   let activeModalCancel: (() => void) | null = null;
 
   const clearStatus = (): void => {
@@ -692,17 +694,26 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   };
 
   const handleCtrlCPress = (): void => {
+    const now = Date.now();
+
+    // Double press within window: force exit immediately (upstream pattern)
+    if (now - lastCtrlCPressAt < CTRL_C_EXIT_WINDOW_MS) {
+      lastCtrlCPressAt = 0;
+      dismissActiveModal();
+      exitWithCleanup(0);
+      return;
+    }
+
+    lastCtrlCPressAt = now;
+    // First press: try to cancel active stream
     const canceled = cancelActiveStream();
     if (canceled) {
-      clearPendingExitConfirmation();
+      pendingExitConfirmation = true;
       clearStatus();
       return;
     }
-    if (pendingExitConfirmation) {
-      dismissActiveModal();
-      requestExit();
-      return;
-    }
+
+    // First press, no active stream: clear prompt
     pendingExitConfirmation = true;
     dismissActiveModal();
     clearPromptInput();
@@ -1030,17 +1041,19 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   const requestExit = (): void => {
     pendingExitConfirmation = false;
     shouldExit = true;
+    lastCtrlCPressAt = 0;
     dismissActiveModal();
     if (inputResolver) {
       const resolve = inputResolver;
       inputResolver = null;
       resolve(null);
+    } else {
+      exitWithCleanup(0);
     }
   };
 
   const onSigInt = () => {
     handleCtrlCPress();
-    dismissActiveModal();
   };
 
   const onTerminalResize = () => {
@@ -1069,6 +1082,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     }
 
     pendingExitConfirmation = false;
+    lastCtrlCPressAt = 0;
     const resolve = inputResolver;
     inputResolver = null;
     resolve(text);
@@ -1553,15 +1567,53 @@ const run = async (): Promise<void> => {
     }
   } finally {
     ui.dispose();
-    cleanupSession();
+    cleanupTmuxSession();
     setSpinnerOutputEnabled(true);
   }
 };
 
-process.on("exit", () => {
+let tmuxCleanupExecuted = false;
+
+const cleanupTmuxSession = (): void => {
+  if (tmuxCleanupExecuted) {
+    return;
+  }
+  tmuxCleanupExecuted = true;
   cleanupSession();
+};
+
+const exitWithCleanup = (code: number): never => {
+  cleanupTmuxSession();
+  process.exit(code);
+};
+
+process.once("exit", () => {
+  cleanupTmuxSession();
+});
+
+process.once("SIGTERM", () => {
+  exitWithCleanup(143);
+});
+
+process.once("SIGHUP", () => {
+  exitWithCleanup(129);
+});
+
+process.once("SIGQUIT", () => {
+  exitWithCleanup(131);
+});
+
+process.once("uncaughtException", (error: unknown) => {
+  console.error("Fatal error:", error);
+  exitWithCleanup(1);
+});
+
+process.once("unhandledRejection", (reason: unknown) => {
+  console.error("Unhandled rejection:", reason);
+  exitWithCleanup(1);
 });
 
 run().catch((error: unknown) => {
-  throw error instanceof Error ? error : new Error("Failed to run CLI.");
+  console.error("Fatal error:", error);
+  exitWithCleanup(1);
 });

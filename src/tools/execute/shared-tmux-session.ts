@@ -14,6 +14,7 @@ import {
 } from "./noninteractive-wrapper";
 
 const SESSION_PREFIX = "cea";
+const OWNER_PID_ENV_KEY = "CEA_OWNER_PID";
 const DEFAULT_TIMEOUT_MS = 180_000;
 const BACKGROUND_STARTUP_WAIT_MS = 3000;
 const SHELL_READY_POLL_MS = 100;
@@ -88,6 +89,7 @@ class SharedTmuxSession {
   private initialized = false;
   private destroyed = false;
   private commandQueue: Promise<void> = Promise.resolve();
+  private staleCleanupChecked = false;
 
   private constructor() {
     this.sessionId = process.env.CEA_SESSION_ID || generateSessionId();
@@ -158,6 +160,92 @@ class SharedTmuxSession {
     });
   }
 
+  private isProcessAlive(pid: number): boolean {
+    if (pid <= 0) {
+      return false;
+    }
+
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private parseOwnerPid(value: string): number | null {
+    const trimmed = value.trim();
+    const prefix = `${OWNER_PID_ENV_KEY}=`;
+
+    if (!trimmed.startsWith(prefix)) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(trimmed.slice(prefix.length), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  private getSessionOwnerPid(sessionName: string): number | null {
+    const result = this.execTmuxCommand([
+      "show-environment",
+      "-t",
+      sessionName,
+      OWNER_PID_ENV_KEY,
+    ]);
+
+    if (result.status !== 0) {
+      return null;
+    }
+
+    return this.parseOwnerPid(result.stdout || "");
+  }
+
+  private cleanupStaleOwnedSessions(): void {
+    if (this.staleCleanupChecked) {
+      return;
+    }
+    this.staleCleanupChecked = true;
+
+    const listResult = this.execTmuxCommand([
+      "list-sessions",
+      "-F",
+      "#{session_name}",
+    ]);
+    if (listResult.status !== 0) {
+      return;
+    }
+
+    const sessions = (listResult.stdout || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .filter((line) => line.startsWith(`${SESSION_PREFIX}-`))
+      .filter((line) => line !== this.sessionId);
+
+    for (const sessionName of sessions) {
+      const ownerPid = this.getSessionOwnerPid(sessionName);
+      if (!ownerPid || this.isProcessAlive(ownerPid)) {
+        continue;
+      }
+
+      this.execTmuxCommand(["kill-session", "-t", sessionName]);
+    }
+  }
+
+  private markSessionOwnership(): void {
+    this.execTmuxCommand([
+      "set-environment",
+      "-t",
+      this.sessionId,
+      OWNER_PID_ENV_KEY,
+      String(process.pid),
+    ]);
+  }
+
   private execAsync(
     command: string,
     timeoutMs: number
@@ -221,6 +309,8 @@ class SharedTmuxSession {
       return;
     }
 
+    this.cleanupStaleOwnedSessions();
+
     const startCommand = [
       "export TERM=xterm-256color",
       "export SHELL=/bin/bash",
@@ -234,6 +324,8 @@ class SharedTmuxSession {
     if (result.status !== 0 && !this.isSessionAlive()) {
       throw new Error(`Failed to create tmux session: ${result.stderr}`);
     }
+
+    this.markSessionOwnership();
 
     this.execSync(
       `${this.tmuxPath} send-keys -t ${this.sessionId} 'set +H' Enter`

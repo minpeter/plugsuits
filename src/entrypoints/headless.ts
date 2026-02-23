@@ -69,8 +69,52 @@ type TrajectoryEvent =
 
 const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-process.on("SIGINT", () => {
-  process.exit(0);
+let tmuxCleanupExecuted = false;
+
+const cleanupTmuxSession = (): void => {
+  if (tmuxCleanupExecuted) {
+    return;
+  }
+  tmuxCleanupExecuted = true;
+
+  if (env.TMUX_CLEANUP_SESSION) {
+    cleanupSession();
+  }
+};
+
+const exitWithCleanup = (code: number): never => {
+  cleanupTmuxSession();
+  process.exit(code);
+};
+
+process.once("exit", () => {
+  cleanupTmuxSession();
+});
+
+process.once("SIGINT", () => {
+  exitWithCleanup(0);
+});
+
+process.once("SIGTERM", () => {
+  exitWithCleanup(143);
+});
+
+process.once("SIGHUP", () => {
+  exitWithCleanup(129);
+});
+
+process.once("SIGQUIT", () => {
+  exitWithCleanup(131);
+});
+
+process.once("uncaughtException", (error: unknown) => {
+  console.error("Fatal error:", error);
+  exitWithCleanup(1);
+});
+
+process.once("unhandledRejection", (reason: unknown) => {
+  console.error("Unhandled rejection:", reason);
+  exitWithCleanup(1);
 });
 
 const startTime = Date.now();
@@ -485,20 +529,15 @@ const run = async (): Promise<void> => {
       sessionId,
       error: error instanceof Error ? error.message : String(error),
     });
-    if (env.TMUX_CLEANUP_SESSION) {
-      cleanupSession();
-    }
-    process.exit(1);
+    exitWithCleanup(1);
   }
 
-  if (env.TMUX_CLEANUP_SESSION) {
-    cleanupSession();
-  }
+  cleanupTmuxSession();
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   console.error(`[headless] Completed in ${elapsed}s`);
 };
 
 run().catch((error: unknown) => {
   console.error("Fatal error:", error);
-  process.exit(1);
+  exitWithCleanup(1);
 });
