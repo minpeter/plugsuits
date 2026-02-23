@@ -79,10 +79,8 @@ export async function executeGlob({
 
   if (displayFiles.length > 0) {
     const body = displayFiles
-      .map((f, i) => {
-        const num = String(i + 1).padStart(4);
-        const mtimeStr = f.mtime.toISOString();
-        return `${num} | ${f.path} | mtime: ${mtimeStr}`;
+      .map((f) => {
+        return f.path;
       })
       .join("\n");
     output.push(formatBlock("glob results", body));
@@ -96,7 +94,7 @@ export async function executeGlob({
 export const globTool = tool({
   description:
     "Find files by pattern (e.g., '**/*.ts', 'src/**/*.json'). " +
-    "Returns paths sorted by modification time (newest first) with mtime.",
+    "Returns paths sorted by modification time (newest first).",
   inputSchema,
   execute: executeGlob,
 });

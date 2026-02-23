@@ -73,6 +73,7 @@ const renderCodeBlock = (language: string, value: unknown): string => {
 
 const READ_FILE_SUCCESS_PREFIX = "OK - read file";
 const GLOB_SUCCESS_PREFIX = "OK - glob";
+const GREP_SUCCESS_PREFIX = "OK - grep";
 const READ_FILE_BLOCK_PREFIX = "======== ";
 const READ_FILE_BLOCK_SUFFIX = " ========";
 const READ_FILE_BLOCK_END = "======== end ========";
@@ -108,6 +109,15 @@ const extractGlobPattern = (input: unknown): string | null => {
   return typeof record.pattern === "string" ? record.pattern : null;
 };
 
+const extractGrepPattern = (input: unknown): string | null => {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+
+  const record = input as Record<string, unknown>;
+  return typeof record.pattern === "string" ? record.pattern : null;
+};
+
 const shouldIncludeReadFilePreviewLine = (line: string): boolean => {
   const match = line.match(READ_FILE_LINE_SPLIT_PATTERN);
   const content = (match?.[2] ?? line).trim();
@@ -125,8 +135,17 @@ interface GlobRenderPayload {
   pattern: string;
 }
 
+interface GrepRenderPayload {
+  body: string;
+  pattern: string;
+}
+
 interface GlobPreviewMetadata {
-  fileCount: string | null;
+  truncated: boolean;
+}
+
+interface GrepPreviewMetadata {
+  matchCount: string | null;
   path: string | null;
   truncated: boolean;
 }
@@ -223,6 +242,10 @@ const parseGlobOutput = (output: string): ReadFileParsedOutput | null => {
   return parseNumberedBlockToolOutput(output, GLOB_SUCCESS_PREFIX);
 };
 
+const parseGrepOutput = (output: string): ReadFileParsedOutput | null => {
+  return parseNumberedBlockToolOutput(output, GREP_SUCCESS_PREFIX);
+};
+
 const resolveReadPath = (parsed: ReadFileParsedOutput): string => {
   const pathValue = parsed.metadata.get("path") ?? "";
   return (
@@ -311,9 +334,35 @@ const buildGlobPreviewLines = (
   }
 
   const lineLabel = `line${totalOmitted === 1 ? "" : "s"}`;
+
+  previewLines.push("");
+  previewLines.push(
+    metadata.truncated
+      ? `... (${totalOmitted} more ${lineLabel}, truncated)`
+      : `... (${totalOmitted} more ${lineLabel})`
+  );
+
+  return previewLines;
+};
+
+const buildGrepPreviewLines = (
+  visibleLines: string[],
+  totalOmitted: number,
+  metadata: GrepPreviewMetadata
+): string[] => {
+  const previewLines =
+    visibleLines.length > 0 && visibleLines.some((line) => line.length > 0)
+      ? [...visibleLines]
+      : ["(no matches)"];
+
+  if (totalOmitted <= 0) {
+    return previewLines;
+  }
+
+  const lineLabel = `line${totalOmitted === 1 ? "" : "s"}`;
   const metadataParts = [`path: ${metadata.path ?? "."}`];
-  if (metadata.fileCount) {
-    metadataParts.push(`file_count (${metadata.fileCount})`);
+  if (metadata.matchCount) {
+    metadataParts.push(`match_count (${metadata.matchCount})`);
   }
   if (metadata.truncated) {
     metadataParts.push("truncated: true");
@@ -379,9 +428,7 @@ const renderGlobOutput = (output: string): GlobRenderPayload | null => {
   const contentBody = parsed.blockBody.trim();
   const allLines =
     contentBody.length > 0
-      ? contentBody
-          .split("\n")
-          .filter((line) => READ_FILE_LINE_SPLIT_PATTERN.test(line))
+      ? contentBody.split("\n").filter((line) => line.trim().length > 0)
       : [];
 
   const omittedFromPreview = Math.max(
@@ -404,8 +451,6 @@ const renderGlobOutput = (output: string): GlobRenderPayload | null => {
   const totalOmitted = omittedFromPreview + omittedFromTool;
 
   const metadata: GlobPreviewMetadata = {
-    path: parsed.metadata.get("path") ?? null,
-    fileCount: fileCountRaw ?? null,
     truncated: isToolTruncated,
   };
 
@@ -425,11 +470,66 @@ const renderGlobOutput = (output: string): GlobRenderPayload | null => {
   };
 };
 
+const renderGrepOutput = (output: string): GrepRenderPayload | null => {
+  const parsed = parseGrepOutput(output);
+  if (!parsed) {
+    return null;
+  }
+
+  const contentBody = parsed.blockBody.trim();
+  const allLines = contentBody.length > 0 ? contentBody.split("\n") : [];
+
+  const omittedFromPreview = Math.max(
+    0,
+    allLines.length - MAX_READ_PREVIEW_LINES
+  );
+  const visibleLines =
+    omittedFromPreview > 0
+      ? allLines.slice(0, MAX_READ_PREVIEW_LINES)
+      : allLines;
+
+  const matchCountRaw = parsed.metadata.get("match_count");
+  const matchCount = parseIntegerMetadataValue(matchCountRaw);
+  const isToolTruncated =
+    parsed.metadata.get("truncated")?.toLowerCase() === "true";
+  const omittedFromTool =
+    isToolTruncated && matchCount !== null
+      ? Math.max(0, matchCount - allLines.length)
+      : 0;
+  const totalOmitted = omittedFromPreview + omittedFromTool;
+
+  const metadata: GrepPreviewMetadata = {
+    path: parsed.metadata.get("path") ?? null,
+    matchCount: matchCountRaw ?? null,
+    truncated: isToolTruncated,
+  };
+
+  const previewLines = buildGrepPreviewLines(
+    visibleLines,
+    totalOmitted,
+    metadata
+  );
+
+  const patternValue =
+    stripSurroundedDoubleQuotes(parsed.metadata.get("pattern") ?? "") ||
+    parsed.blockTitle ||
+    "(unknown)";
+
+  return {
+    pattern: patternValue,
+    body: previewLines.join("\n"),
+  };
+};
+
 const renderReadFilePendingOutput = (_path: string): string => {
   return "Reading...";
 };
 
 const renderGlobPendingOutput = (_pattern: string): string => {
+  return "Searching...";
+};
+
+const renderGrepPendingOutput = (_pattern: string): string => {
   return "Searching...";
 };
 
@@ -935,8 +1035,48 @@ class ToolCallView extends Container {
     return true;
   }
 
+  private tryRenderGrepMode(): boolean {
+    if (
+      this.toolName !== "grep_files" ||
+      this.error !== undefined ||
+      this.outputDenied
+    ) {
+      return false;
+    }
+
+    const bestInput = this.resolveBestInput();
+    const grepPattern = extractGrepPattern(bestInput);
+
+    if (typeof this.output === "string") {
+      const renderedGrep = renderGrepOutput(this.output);
+      this.setReadMode(true);
+      if (renderedGrep) {
+        this.readHeader.setText(`**Grep** \`${renderedGrep.pattern}\``);
+        this.readBody.setText(renderedGrep.body);
+      } else {
+        const fallbackPattern = grepPattern ?? "(unknown)";
+        this.readHeader.setText(`**Grep** \`${fallbackPattern}\``);
+        this.readBody.setText(safeStringify(this.output));
+      }
+      return true;
+    }
+
+    if (!grepPattern) {
+      return false;
+    }
+
+    this.setReadMode(true);
+    this.readHeader.setText(`**Grep** \`${grepPattern}\``);
+    this.readBody.setText(renderGrepPendingOutput(grepPattern));
+    return true;
+  }
+
   private refresh(): void {
-    if (this.tryRenderReadFileMode() || this.tryRenderGlobMode()) {
+    if (
+      this.tryRenderReadFileMode() ||
+      this.tryRenderGlobMode() ||
+      this.tryRenderGrepMode()
+    ) {
       return;
     }
 

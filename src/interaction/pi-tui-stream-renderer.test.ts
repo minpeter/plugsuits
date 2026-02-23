@@ -555,18 +555,18 @@ describe("renderFullStreamWithPiTui", () => {
       "sorted_by: mtime desc",
       "",
       "======== glob results ========",
-      "   1 | /project/file1.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   2 | /project/file2.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   3 | /project/file3.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   4 | /project/file4.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   5 | /project/file5.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   6 | /project/file6.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   7 | /project/file7.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   8 | /project/file8.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   9 | /project/file9.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "  10 | /project/file10.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "  11 | /project/file11.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "  12 | /project/file12.ts | mtime: 2026-02-23T01:00:00.000Z",
+      "/project/file1.ts",
+      "/project/file2.ts",
+      "/project/file3.ts",
+      "/project/file4.ts",
+      "/project/file5.ts",
+      "/project/file6.ts",
+      "/project/file7.ts",
+      "/project/file8.ts",
+      "/project/file9.ts",
+      "/project/file10.ts",
+      "/project/file11.ts",
+      "/project/file12.ts",
       "======== end ========",
     ].join("\n");
 
@@ -591,7 +591,7 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     expect(output).toContain("Glob src/**/*.ts");
-    expect(output).toContain("1 | /project/file1.ts");
+    expect(output).toContain("/project/file1.ts");
     expect(output).toContain("... (2 more lines)");
     expect(output).not.toContain("Tool glob_files");
     expect(output).not.toContain("Output");
@@ -649,18 +649,18 @@ describe("renderFullStreamWithPiTui", () => {
       "sorted_by: mtime desc",
       "",
       "======== glob results ========",
-      "   1 | /project/file1.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   2 | /project/file2.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   3 | /project/file3.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   4 | /project/file4.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   5 | /project/file5.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   6 | /project/file6.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   7 | /project/file7.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   8 | /project/file8.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "   9 | /project/file9.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "  10 | /project/file10.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "  11 | /project/file11.ts | mtime: 2026-02-23T01:00:00.000Z",
-      "  12 | /project/file12.ts | mtime: 2026-02-23T01:00:00.000Z",
+      "/project/file1.ts",
+      "/project/file2.ts",
+      "/project/file3.ts",
+      "/project/file4.ts",
+      "/project/file5.ts",
+      "/project/file6.ts",
+      "/project/file7.ts",
+      "/project/file8.ts",
+      "/project/file9.ts",
+      "/project/file10.ts",
+      "/project/file11.ts",
+      "/project/file12.ts",
       "======== end ========",
     ].join("\n");
 
@@ -685,7 +685,155 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     expect(output).toContain("... (2 more lines, truncated)");
-    expect(output).toContain("file_count (12)");
+    expect(output).not.toContain("file_count (");
+    expect(output).not.toContain("path: ");
+  });
+
+  it("renders grep_files output as structured markdown", async () => {
+    const grepOutput = [
+      "OK - grep",
+      'pattern: "foo"',
+      "path: /project",
+      "include: *.ts",
+      "case_sensitive: false",
+      "fixed_strings: false",
+      "match_count: 12",
+      "truncated: false",
+      "",
+      "======== grep results ========",
+      "/project/a.ts:1:const foo = 1;",
+      "/project/b.ts:2:const foo = 2;",
+      "/project/c.ts:3:const foo = 3;",
+      "/project/d.ts:4:const foo = 4;",
+      "/project/e.ts:5:const foo = 5;",
+      "/project/f.ts:6:const foo = 6;",
+      "/project/g.ts:7:const foo = 7;",
+      "/project/h.ts:8:const foo = 8;",
+      "/project/i.ts:9:const foo = 9;",
+      "/project/j.ts:10:const foo = 10;",
+      "/project/k.ts:11:const foo = 11;",
+      "/project/l.ts:12:const foo = 12;",
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_grep",
+        toolName: "grep_files",
+        input: {
+          pattern: "foo",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_grep",
+        toolName: "grep_files",
+        input: {
+          pattern: "foo",
+        },
+        output: grepOutput,
+      },
+    ]);
+
+    expect(output).toContain("Grep foo");
+    expect(output).toContain("/project/a.ts:1:const foo = 1;");
+    expect(output).toContain("... (2 more lines)");
+    expect(output).not.toContain("Tool grep_files");
+    expect(output).not.toContain("Output");
+  });
+
+  it("renders grep_files no-match output in grep mode", async () => {
+    const grepOutput = [
+      "OK - grep (no matches)",
+      'pattern: "foo"',
+      "path: /project",
+      "include: *.ts",
+      "case_sensitive: false",
+      "fixed_strings: false",
+      "match_count: 0",
+      "truncated: false",
+      "",
+      "======== grep results ========",
+      "(no matches)",
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_grep_empty",
+        toolName: "grep_files",
+        input: {
+          pattern: "foo",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_grep_empty",
+        toolName: "grep_files",
+        input: {
+          pattern: "foo",
+        },
+        output: grepOutput,
+      },
+    ]);
+
+    expect(output).toContain("Grep foo");
+    expect(output).toContain("(no matches)");
+    expect(output).not.toContain("Tool grep_files");
+    expect(output).not.toContain("Output");
+  });
+
+  it("shows truncated marker for grep files when model truncates", async () => {
+    const grepOutput = [
+      "OK - grep",
+      'pattern: "foo"',
+      "path: /project",
+      "include: *.ts",
+      "case_sensitive: false",
+      "fixed_strings: false",
+      "match_count: 40",
+      "truncated: true",
+      "",
+      "======== grep results ========",
+      "/project/a.ts:1:const foo = 1;",
+      "/project/b.ts:2:const foo = 2;",
+      "/project/c.ts:3:const foo = 3;",
+      "/project/d.ts:4:const foo = 4;",
+      "/project/e.ts:5:const foo = 5;",
+      "/project/f.ts:6:const foo = 6;",
+      "/project/g.ts:7:const foo = 7;",
+      "/project/h.ts:8:const foo = 8;",
+      "/project/i.ts:9:const foo = 9;",
+      "/project/j.ts:10:const foo = 10;",
+      "/project/k.ts:11:const foo = 11;",
+      "/project/l.ts:12:const foo = 12;",
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_grep_truncated",
+        toolName: "grep_files",
+        input: {
+          pattern: "foo",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_grep_truncated",
+        toolName: "grep_files",
+        input: {
+          pattern: "foo",
+        },
+        output: grepOutput,
+      },
+    ]);
+
+    expect(output).toContain("... (30 more lines, truncated)");
+    expect(output).toContain("match_count (40)");
     expect(output).toContain("truncated: true");
   });
 });
