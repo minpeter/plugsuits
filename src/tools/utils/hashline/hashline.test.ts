@@ -146,8 +146,34 @@ describe("hashline", () => {
     ).toThrow(HashlineMismatchError);
   });
 
+  it("formats mismatch context lines with pipe delimiter", () => {
+    const content = "one\ntwo\nthree\n";
+    const staleHash = computeLineHash(2, "TWO");
+
+    try {
+      applyHashlineEdits(content, [
+        {
+          op: "replace",
+          pos: { line: 2, hash: staleHash },
+          lines: ["two-updated"],
+        },
+      ]);
+      throw new Error("Expected HashlineMismatchError to be thrown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(HashlineMismatchError);
+      const message = (error as Error).message;
+      expect(message).toContain(`>>> 2#${computeLineHash(2, "two")} | two`);
+      expect(message).not.toContain(`>>> 2#${computeLineHash(2, "two")}:two`);
+    }
+  });
+
   it("strips copied hashline prefixes from string inputs", () => {
     const parsed = parseHashlineText("1#ZP:foo\n2#MQ:bar\n");
+    expect(parsed).toEqual(["foo", "bar"]);
+  });
+
+  it("strips copied hashline prefixes with pipe delimiter", () => {
+    const parsed = parseHashlineText("1#ZP | foo\n2#MQ | bar\n");
     expect(parsed).toEqual(["foo", "bar"]);
   });
 });
