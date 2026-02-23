@@ -79,6 +79,7 @@ const READ_FILE_SUCCESS_PREFIX = "OK - read file";
 const GLOB_SUCCESS_PREFIX = "OK - glob";
 const GREP_SUCCESS_PREFIX = "OK - grep";
 const SHELL_EXECUTE_TOOL_NAMES = new Set(["shell_execute", "bash"]);
+const SHELL_TOOL_NAMES = new Set(["shell_execute", "bash", "shell_interact"]);
 const UNKNOWN_TOOL_NAME = "tool";
 const READ_FILE_BLOCK_PREFIX = "======== ";
 const READ_FILE_BLOCK_SUFFIX = " ========";
@@ -169,16 +170,7 @@ const buildTextPreviewLines = (
   return preview;
 };
 
-const buildPrettyHeader = (
-  title: string,
-  target: string,
-  callId: string,
-  options: { includeCallId?: boolean } = {}
-): string => {
-  if (options.includeCallId ?? true) {
-    return `**${title}** \`${target}\` (\`${callId}\`)`;
-  }
-
+const buildPrettyHeader = (title: string, target: string): string => {
   return `**${title}** \`${target}\``;
 };
 
@@ -1233,7 +1225,7 @@ class ToolCallView extends Container {
     }
 
     const command = this.resolveInputStringField("command") ?? "(command)";
-    const header = buildPrettyHeader("Shell", command, this.callId);
+    const header = buildPrettyHeader("Shell", command);
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Running...");
@@ -1277,7 +1269,7 @@ class ToolCallView extends Container {
 
     const keystrokes =
       this.resolveInputStringField("keystrokes") ?? "(keystrokes)";
-    const header = buildPrettyHeader("Interact", keystrokes, this.callId);
+    const header = buildPrettyHeader("Interact", keystrokes);
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Sending keys...");
@@ -1310,7 +1302,7 @@ class ToolCallView extends Container {
     }
 
     const path = this.resolveInputStringField("path") ?? "(unknown)";
-    const header = buildPrettyHeader("Write", path, this.callId);
+    const header = buildPrettyHeader("Write", path);
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Writing...");
@@ -1328,7 +1320,7 @@ class ToolCallView extends Container {
 
     const bestInput = this.resolveBestInput();
     const path = this.resolveInputStringField("path") ?? "(unknown)";
-    const header = buildPrettyHeader("Edit", path, this.callId);
+    const header = buildPrettyHeader("Edit", path);
     const bodyLines: string[] = [];
 
     if (typeof bestInput === "object" && bestInput !== null) {
@@ -1367,7 +1359,7 @@ class ToolCallView extends Container {
     }
 
     const path = this.resolveInputStringField("path") ?? "(unknown)";
-    const header = buildPrettyHeader("Delete", path, this.callId);
+    const header = buildPrettyHeader("Delete", path);
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Deleting...");
@@ -1386,9 +1378,7 @@ class ToolCallView extends Container {
     const skillName = this.resolveInputStringField("skillName") ?? "(unknown)";
     const relativePath = this.resolveInputStringField("relativePath");
     const target = relativePath ? `${skillName}/${relativePath}` : skillName;
-    const header = buildPrettyHeader("Skill", target, this.callId, {
-      includeCallId: false,
-    });
+    const header = buildPrettyHeader("Skill", target);
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Loading skill...");
@@ -1417,7 +1407,7 @@ class ToolCallView extends Container {
 
     const totalTodos = todos.length;
     const headerTarget = `${totalTodos} task${totalTodos === 1 ? "" : "s"}`;
-    const header = buildPrettyHeader("Todo", headerTarget, this.callId);
+    const header = buildPrettyHeader("Todo", headerTarget);
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, "Updating todo list...");
@@ -1481,9 +1471,12 @@ class ToolCallView extends Container {
 
     this.setReadMode(false);
 
-    const blocks: string[] = [
-      `**Tool** \`${this.toolName}\` (\`${this.callId}\`)`,
-    ];
+    const includeCallIdInRawHeader = !SHELL_TOOL_NAMES.has(this.toolName);
+    const rawHeader = includeCallIdInRawHeader
+      ? `**Tool** \`${this.toolName}\` (\`${this.callId}\`)`
+      : `**Tool** \`${this.toolName}\``;
+
+    const blocks: string[] = [rawHeader];
 
     const bestInput = this.resolveBestInput();
     if (bestInput !== undefined) {

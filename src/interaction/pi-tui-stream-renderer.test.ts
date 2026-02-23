@@ -519,8 +519,8 @@ describe("renderFullStreamWithPiTui", () => {
       },
     ]);
 
-    expect(output).toContain("call_1");
-    expect((output.match(/call_1/g) ?? []).length).toBe(1);
+    expect(output).toContain("Write src/file.ts");
+    expect((output.match(/Write src\/file\.ts/g) ?? []).length).toBe(1);
   });
 
   it("supports toolCallId and inputTextDelta aliases", async () => {
@@ -550,8 +550,7 @@ describe("renderFullStreamWithPiTui", () => {
       } as never,
     ]);
 
-    expect(output).toContain("call_3");
-    expect(output).toContain("src/big.ts");
+    expect(output).toContain("Write src/big.ts");
   });
 
   it("streams read_file pretty header from partial tool-input-delta", async () => {
@@ -587,7 +586,7 @@ describe("renderFullStreamWithPiTui", () => {
       },
     ]);
 
-    expect(output).toContain("Shell echo streamed (call_stream_shell)");
+    expect(output).toContain("Shell echo streamed");
     expect(output).toContain("Running...");
     expect(output).not.toContain("Tool shell_execute");
   });
@@ -669,7 +668,7 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     const beforeIndex = output.indexOf("Before tool");
-    const toolIndex = output.indexOf("call_reason");
+    const toolIndex = output.indexOf("Shell ls");
     const afterIndex = output.indexOf("After tool");
 
     expect(beforeIndex).toBeGreaterThan(-1);
@@ -724,9 +723,9 @@ describe("renderFullStreamWithPiTui", () => {
       },
     ]);
 
-    const firstToolIndex = output.indexOf("call_a");
+    const firstToolIndex = output.indexOf("Shell pwd");
     const reasoningIndex = output.indexOf("Between tools");
-    const secondToolIndex = output.indexOf("call_b");
+    const secondToolIndex = output.indexOf("Shell ls");
 
     expect(firstToolIndex).toBeGreaterThan(-1);
     expect(reasoningIndex).toBeGreaterThan(-1);
@@ -1151,6 +1150,25 @@ describe("renderFullStreamWithPiTui", () => {
     }
   });
 
+  it("hides call id in raw shell headers", async () => {
+    const { output } = await renderParts(
+      [
+        {
+          type: "tool-call",
+          toolCallId: "call_shell_raw",
+          toolName: "bash",
+          input: {
+            command: "pwd",
+          },
+        },
+      ],
+      { showRawToolIo: true }
+    );
+
+    expect(output).toContain("Tool bash");
+    expect(output).not.toContain("call_shell_raw");
+  });
+
   it("renders dedicated pretty wrappers for all other tools", async () => {
     const cases = [
       {
@@ -1165,7 +1183,7 @@ describe("renderFullStreamWithPiTui", () => {
           exit_code: 0,
           output: "hello",
         },
-        expectedHeading: "Shell echo hello (call_shell_pretty)",
+        expectedHeading: "Shell echo hello",
       },
       {
         toolCallId: "call_interact_pretty",
@@ -1177,7 +1195,7 @@ describe("renderFullStreamWithPiTui", () => {
           success: true,
           output: "sent",
         },
-        expectedHeading: "Interact <Enter> (call_interact_pretty)",
+        expectedHeading: "Interact <Enter>",
       },
       {
         toolCallId: "call_write_pretty",
@@ -1187,7 +1205,7 @@ describe("renderFullStreamWithPiTui", () => {
           content: "const x = 1;",
         },
         output: "OK - created new.ts\nbytes: 12, lines: 1",
-        expectedHeading: "Write src/new.ts (call_write_pretty)",
+        expectedHeading: "Write src/new.ts",
       },
       {
         toolCallId: "call_edit_pretty",
@@ -1197,7 +1215,7 @@ describe("renderFullStreamWithPiTui", () => {
           edits: [{ op: "replace", pos: "2#AB", lines: ["const x = 2;"] }],
         },
         output: "Updated src/demo.ts",
-        expectedHeading: "Edit src/demo.ts (call_edit_pretty)",
+        expectedHeading: "Edit src/demo.ts",
       },
       {
         toolCallId: "call_delete_pretty",
@@ -1206,7 +1224,7 @@ describe("renderFullStreamWithPiTui", () => {
           path: "src/old.ts",
         },
         output: "OK - deleted file: old.ts\npath: src/old.ts",
-        expectedHeading: "Delete src/old.ts (call_delete_pretty)",
+        expectedHeading: "Delete src/old.ts",
       },
       {
         toolCallId: "call_skill_pretty",
@@ -1232,7 +1250,7 @@ describe("renderFullStreamWithPiTui", () => {
           ],
         },
         output: "OK - updated todo list\ntotal: 2 tasks",
-        expectedHeading: "Todo 2 tasks (call_todo_pretty)",
+        expectedHeading: "Todo 2 tasks",
       },
     ] as const;
 
