@@ -219,6 +219,143 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).toContain("+const value = 2;");
   });
 
+  it("renders read_file output as structured markdown", async () => {
+    const readOutput = [
+      "OK - read file",
+      "path: src/demo.ts",
+      "bytes: 48",
+      "last_modified: 2026-01-19T03:33:57.520Z",
+      "lines: 5 (returned: 4)",
+      "range: L2-L5",
+      "truncated: true",
+      "",
+      "======== demo.ts L2-L5 ========",
+      "   2 | const value = 2;",
+      "   3 | export { value };",
+      "   4 | ```md",
+      "   5 | ![Image 1](./img.png)",
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_read",
+        toolName: "read_file",
+        input: {
+          path: "src/demo.ts",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_read",
+        toolName: "read_file",
+        input: {
+          path: "src/demo.ts",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain("Read src/demo.ts L2-L5");
+    expect(output).toContain("2 | ");
+    expect(output).toContain("const value = 2;");
+    expect(output).toContain("![Image 1](./img.png)");
+    expect(output).toContain("... (1 more line, truncated)");
+    expect(output).not.toContain("4 | ```md");
+    expect(output).not.toContain("```md");
+    expect(output).not.toContain("Tool read_file");
+    expect(output).not.toContain("Output");
+    expect(output).not.toContain("OK - read file");
+  });
+
+  it("omits read_file content after 10 lines", async () => {
+    const numberedLines = Array.from({ length: 12 }, (_, index) => {
+      const lineNumber = index + 1;
+      return `${lineNumber.toString().padStart(4, " ")} | line ${lineNumber}`;
+    });
+
+    const readOutput = [
+      "OK - read file",
+      "path: src/long.txt",
+      "bytes: 120",
+      "last_modified: 2026-02-23T01:00:00.000Z",
+      "lines: 12 (returned: 12)",
+      "range: L1-L12",
+      "truncated: false",
+      "",
+      "======== long.txt L1-L12 ========",
+      ...numberedLines,
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_long",
+        toolName: "read_file",
+        input: {
+          path: "src/long.txt",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_long",
+        toolName: "read_file",
+        input: {
+          path: "src/long.txt",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain("Read src/long.txt L1-L12");
+    expect(output).toContain("10 | line 10");
+    expect(output).not.toContain("11 | line 11");
+    expect(output).toContain("... (2 more lines)");
+  });
+
+  it("truncates long read_file lines instead of wrapping", async () => {
+    const longTail = "X".repeat(180);
+    const readOutput = [
+      "OK - read file",
+      "path: src/wrap.txt",
+      "bytes: 999",
+      "last_modified: 2026-02-23T01:00:00.000Z",
+      "lines: 1 (returned: 1)",
+      "range: L1-L1",
+      "truncated: false",
+      "",
+      "======== wrap.txt L1-L1 ========",
+      `   1 | prefix ${longTail}`,
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_wrap",
+        toolName: "read_file",
+        input: {
+          path: "src/wrap.txt",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_wrap",
+        toolName: "read_file",
+        input: {
+          path: "src/wrap.txt",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain("Read src/wrap.txt L1-L1");
+    expect(output).toContain("1 | prefix");
+    expect(output).not.toContain(longTail);
+  });
+
   it("does not duplicate tool call blocks when input was streamed", async () => {
     const { output } = await renderParts([
       {

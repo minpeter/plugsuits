@@ -4,6 +4,8 @@ import {
   type MarkdownTheme,
   Spacer,
   Text,
+  truncateToWidth,
+  visibleWidth,
 } from "@mariozechner/pi-tui";
 import type { TextStreamPart, ToolSet } from "ai";
 
@@ -62,15 +64,247 @@ const safeStringify = (value: unknown): string => {
 
 const renderCodeBlock = (language: string, value: unknown): string => {
   const text = safeStringify(value).replace(TRAILING_NEWLINES, "");
-  return `\`\`\`${language}\n${text}\n\`\`\``;
+  const longestFenceRun = Array.from(
+    text.matchAll(BACKTICK_FENCE_PATTERN)
+  ).reduce((max, match) => Math.max(max, match[0].length), 2);
+  const fence = "`".repeat(longestFenceRun + 1);
+  return `${fence}${language}\n${text}\n${fence}`;
+};
+
+const READ_FILE_SUCCESS_PREFIX = "OK - read file";
+const READ_FILE_BLOCK_PREFIX = "======== ";
+const READ_FILE_BLOCK_SUFFIX = " ========";
+const READ_FILE_BLOCK_END = "======== end ========";
+const BACKTICK_FENCE_PATTERN = /`{3,}/g;
+const PATH_SEPARATOR_PATTERN = /[\\/]/;
+const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+\s\|\s)(.*)$/;
+const READ_FILE_LINES_WITH_RETURNED_PATTERN = /^(\d+)\s+\(returned:\s*(\d+)\)$/;
+const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
+const MAX_READ_PREVIEW_LINES = 10;
+
+interface ReadFileParsedOutput {
+  blockBody: string;
+  blockTitle: string;
+  metadata: Map<string, string>;
+}
+
+const extractReadFilePath = (input: unknown): string | null => {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+
+  const record = input as Record<string, unknown>;
+  return typeof record.path === "string" ? record.path : null;
+};
+
+const shouldIncludeReadFilePreviewLine = (line: string): boolean => {
+  const match = line.match(READ_FILE_LINE_SPLIT_PATTERN);
+  const content = (match?.[2] ?? line).trim();
+  return !READ_FILE_MARKDOWN_FENCE_PATTERN.test(content);
+};
+
+interface ReadFileRenderPayload {
+  body: string;
+  path: string;
+  range: string | null;
+}
+
+const parseReadFileMetadataLine = (
+  line: string
+): { key: string; value: string } | null => {
+  const separatorIndex = line.indexOf(":");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const key = line.slice(0, separatorIndex).trim();
+  if (key.length === 0) {
+    return null;
+  }
+
+  return {
+    key,
+    value: line.slice(separatorIndex + 1).trim(),
+  };
+};
+
+const parseReadFileOutput = (output: string): ReadFileParsedOutput | null => {
+  const normalized = output.replaceAll("\r\n", "\n");
+  if (!normalized.startsWith(READ_FILE_SUCCESS_PREFIX)) {
+    return null;
+  }
+
+  const lines = normalized.split("\n");
+  const metadata = new Map<string, string>();
+  let blockStartIndex = -1;
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+
+    if (
+      line.startsWith(READ_FILE_BLOCK_PREFIX) &&
+      line.endsWith(READ_FILE_BLOCK_SUFFIX) &&
+      line !== READ_FILE_BLOCK_END
+    ) {
+      blockStartIndex = index;
+      break;
+    }
+
+    if (line.trim().length === 0) {
+      continue;
+    }
+
+    const parsed = parseReadFileMetadataLine(line);
+    if (!parsed) {
+      return null;
+    }
+    metadata.set(parsed.key, parsed.value);
+  }
+
+  if (blockStartIndex < 0) {
+    return null;
+  }
+
+  const blockEndIndex = lines.findIndex(
+    (line, index) => index > blockStartIndex && line === READ_FILE_BLOCK_END
+  );
+  if (blockEndIndex < 0) {
+    return null;
+  }
+
+  const blockTitle = lines[blockStartIndex]
+    .slice(READ_FILE_BLOCK_PREFIX.length, -READ_FILE_BLOCK_SUFFIX.length)
+    .trim();
+  const blockBody = lines.slice(blockStartIndex + 1, blockEndIndex).join("\n");
+
+  return {
+    metadata,
+    blockTitle,
+    blockBody,
+  };
+};
+
+const resolveReadPath = (parsed: ReadFileParsedOutput): string => {
+  const pathValue = parsed.metadata.get("path") ?? "";
+  return (
+    pathValue.trim() ||
+    parsed.blockTitle ||
+    pathValue.split(PATH_SEPARATOR_PATTERN).at(-1)?.trim() ||
+    "(unknown)"
+  );
+};
+
+const getToolOmittedLineCount = (metadata: Map<string, string>): number => {
+  const linesMetadata = metadata.get("lines");
+  if (!linesMetadata) {
+    return 0;
+  }
+
+  const matchedCounts = linesMetadata.match(
+    READ_FILE_LINES_WITH_RETURNED_PATTERN
+  );
+  if (!matchedCounts) {
+    return 0;
+  }
+
+  const totalLines = Number.parseInt(matchedCounts[1], 10);
+  const returnedLines = Number.parseInt(matchedCounts[2], 10);
+  if (!(Number.isFinite(totalLines) && Number.isFinite(returnedLines))) {
+    return 0;
+  }
+
+  const isTruncated = metadata.get("truncated")?.toLowerCase() === "true";
+  if (!isTruncated) {
+    return 0;
+  }
+
+  return Math.max(0, totalLines - returnedLines);
+};
+
+const buildReadPreviewLines = (
+  visibleLines: string[],
+  totalOmitted: number,
+  isModelTruncated: boolean
+): string[] => {
+  const previewLines =
+    visibleLines.length > 0 && visibleLines.some((line) => line.length > 0)
+      ? [...visibleLines]
+      : ["(empty)"];
+
+  if (totalOmitted <= 0) {
+    return previewLines;
+  }
+
+  const lineLabel = `line${totalOmitted === 1 ? "" : "s"}`;
+  previewLines.push("");
+  previewLines.push(
+    isModelTruncated
+      ? `... (${totalOmitted} more ${lineLabel}, truncated)`
+      : `... (${totalOmitted} more ${lineLabel})`
+  );
+
+  return previewLines;
+};
+
+const renderReadFileOutput = (output: string): ReadFileRenderPayload | null => {
+  const parsed = parseReadFileOutput(output);
+  if (!parsed) {
+    return null;
+  }
+
+  const readPath = resolveReadPath(parsed);
+
+  const contentBody =
+    parsed.blockBody.trim().length > 0 ? parsed.blockBody : "(empty)";
+  const allLines = contentBody
+    .split("\n")
+    .filter(shouldIncludeReadFilePreviewLine);
+  const omittedFromPreview = Math.max(
+    0,
+    allLines.length - MAX_READ_PREVIEW_LINES
+  );
+  const visibleLines =
+    omittedFromPreview > 0
+      ? allLines.slice(0, MAX_READ_PREVIEW_LINES)
+      : allLines;
+
+  const omittedFromTool = getToolOmittedLineCount(parsed.metadata);
+  const isModelTruncated =
+    parsed.metadata.get("truncated")?.toLowerCase() === "true";
+  const totalOmitted = omittedFromPreview + omittedFromTool;
+  const previewLines = buildReadPreviewLines(
+    visibleLines,
+    totalOmitted,
+    isModelTruncated
+  );
+  const rangeValue = parsed.metadata.get("range")?.trim() || null;
+
+  return {
+    path: readPath,
+    range: rangeValue,
+    body: previewLines.join("\n"),
+  };
+};
+
+const renderReadFilePendingOutput = (_path: string): string => {
+  return "Reading...";
+};
+
+const renderToolOutput = (_toolName: string, output: unknown): string => {
+  return renderCodeBlock("text", output);
 };
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_DIM = "\x1b[2m";
 const ANSI_ITALIC = "\x1b[3m";
 const ANSI_GRAY = "\x1b[90m";
+const ANSI_BG_GRAY = "\x1b[100m";
 const LEADING_NEWLINES = /^\n+/;
 const TRAILING_NEWLINES = /\n+$/;
+
+const applyReadPreviewBackground = (text: string): string => {
+  return `${ANSI_BG_GRAY}${text}${ANSI_RESET}`;
+};
 
 const styleThinkingText = (text: string): string => {
   return `${ANSI_DIM}${ANSI_ITALIC}${ANSI_GRAY}${text}${ANSI_RESET}`;
@@ -84,6 +318,74 @@ class TrimmedMarkdown extends Markdown {
       end -= 1;
     }
     return lines.slice(0, end);
+  }
+}
+
+class TruncatedReadBody {
+  private cachedLines?: string[];
+  private cachedText?: string;
+  private cachedWidth?: number;
+  private readonly background?: (text: string) => string;
+  private readonly paddingX: number;
+  private text: string;
+
+  constructor(
+    text: string,
+    paddingX: number,
+    background?: (text: string) => string
+  ) {
+    this.text = text;
+    this.paddingX = paddingX;
+    this.background = background;
+  }
+
+  setText(text: string): void {
+    this.text = text;
+    this.cachedText = undefined;
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  invalidate(): void {
+    this.cachedText = undefined;
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  render(width: number): string[] {
+    if (
+      this.cachedLines &&
+      this.cachedText === this.text &&
+      this.cachedWidth === width
+    ) {
+      return this.cachedLines;
+    }
+
+    if (!this.text || this.text.trim().length === 0) {
+      this.cachedText = this.text;
+      this.cachedWidth = width;
+      this.cachedLines = [];
+      return [];
+    }
+
+    const normalizedText = this.text.replace(/\t/g, "   ");
+    const contentWidth = Math.max(1, width - this.paddingX * 2);
+    const leftMargin = " ".repeat(this.paddingX);
+    const rightMargin = " ".repeat(this.paddingX);
+
+    const renderedLines = normalizedText.split("\n").map((line) => {
+      const truncatedLine = truncateToWidth(line, contentWidth, "");
+      const lineWithMargins = `${leftMargin}${truncatedLine}${rightMargin}`;
+      const visibleLength = visibleWidth(lineWithMargins);
+      const paddedLine = `${lineWithMargins}${" ".repeat(Math.max(0, width - visibleLength))}`;
+
+      return this.background ? this.background(paddedLine) : paddedLine;
+    });
+
+    this.cachedText = this.text;
+    this.cachedWidth = width;
+    this.cachedLines = renderedLines;
+    return renderedLines;
   }
 }
 
@@ -330,12 +632,16 @@ class AssistantStreamView extends Container {
 class ToolCallView extends Container {
   private readonly callId: string;
   private readonly content: TrimmedMarkdown;
+  private readonly readBlock: Container;
+  private readonly readBody: TruncatedReadBody;
+  private readonly readHeader: TrimmedMarkdown;
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
   private output: unknown;
   private outputDenied = false;
   private parsedInput: unknown;
+  private readMode = false;
   private toolName: string;
 
   constructor(callId: string, toolName: string, markdownTheme: MarkdownTheme) {
@@ -343,8 +649,24 @@ class ToolCallView extends Container {
     this.callId = callId;
     this.toolName = toolName;
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
+    this.readHeader = new TrimmedMarkdown("", 1, 0, markdownTheme);
+    this.readBody = new TruncatedReadBody("", 1, applyReadPreviewBackground);
+    this.readBlock = new Container();
+    this.readBlock.addChild(this.readHeader);
+    this.readBlock.addChild(new Spacer(1));
+    this.readBlock.addChild(this.readBody);
     this.addChild(this.content);
     this.refresh();
+  }
+
+  private setReadMode(enabled: boolean): void {
+    if (this.readMode === enabled) {
+      return;
+    }
+
+    this.readMode = enabled;
+    this.clear();
+    this.addChild(enabled ? this.readBlock : this.content);
   }
 
   appendInputChunk(chunk: string): void {
@@ -395,7 +717,52 @@ class ToolCallView extends Container {
     return undefined;
   }
 
+  private tryRenderReadFileMode(): boolean {
+    if (
+      this.toolName !== "read_file" ||
+      this.error !== undefined ||
+      this.outputDenied
+    ) {
+      return false;
+    }
+
+    const bestInput = this.resolveBestInput();
+    const readPath = extractReadFilePath(bestInput);
+
+    if (typeof this.output === "string") {
+      const renderedReadFile = renderReadFileOutput(this.output);
+      this.setReadMode(true);
+      if (renderedReadFile) {
+        const pathWithRange = renderedReadFile.range
+          ? `${renderedReadFile.path} ${renderedReadFile.range}`
+          : renderedReadFile.path;
+        this.readHeader.setText(`**Read** \`${pathWithRange}\``);
+        this.readBody.setText(renderedReadFile.body);
+      } else {
+        const fallbackPath = readPath ?? "(unknown)";
+        this.readHeader.setText(`**Read** \`${fallbackPath}\``);
+        this.readBody.setText(safeStringify(this.output));
+      }
+      return true;
+    }
+
+    if (!readPath) {
+      return false;
+    }
+
+    this.setReadMode(true);
+    this.readHeader.setText(`**Read** \`${readPath}\``);
+    this.readBody.setText(renderReadFilePendingOutput(readPath));
+    return true;
+  }
+
   private refresh(): void {
+    if (this.tryRenderReadFileMode()) {
+      return;
+    }
+
+    this.setReadMode(false);
+
     const blocks: string[] = [
       `**Tool** \`${this.toolName}\` (\`${this.callId}\`)`,
     ];
@@ -416,7 +783,9 @@ class ToolCallView extends Container {
     }
 
     if (this.output !== undefined) {
-      blocks.push(`**Output**\n\n${renderCodeBlock("text", this.output)}`);
+      blocks.push(
+        `**Output**\n\n${renderToolOutput(this.toolName, this.output)}`
+      );
     }
 
     if (this.error !== undefined) {
@@ -690,6 +1059,7 @@ const STREAM_HANDLERS: Record<string, StreamPartHandler> = {
 };
 
 const IGNORE_PART_TYPES = new Set([
+  "abort",
   "text-end",
   "reasoning-end",
   "start",
