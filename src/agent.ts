@@ -148,6 +148,9 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
         messages,
         maxOutputTokens,
         providerOptions,
+        // stepCountIs(n) replaces the deprecated maxSteps option.
+        // It configures the stream to stop after n tool-call round-trips,
+        // giving the model a single tool invocation cycle before returning.
         stopWhen: stepCountIs(1),
         abortSignal,
       });
