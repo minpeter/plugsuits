@@ -9,16 +9,18 @@ const actualAi = await import("ai");
 
 let shouldFailTranslation = false;
 let generateTextCallCount = 0;
+const USER_TEXT_CDATA_REGEX =
+  /<user_text><!\[CDATA\[([\s\S]*)\]\]><\/user_text>/;
+const CDATA_SPLIT_SEQUENCE = "]]]]><![CDATA[>";
+const CDATA_END_SEQUENCE = "]]>";
 
 const extractUserTextFromPrompt = (prompt: string): string => {
-  const match = prompt.match(
-    /<user_text><!\[CDATA\[([\s\S]*)\]\]><\/user_text>/
-  );
+  const match = prompt.match(USER_TEXT_CDATA_REGEX);
   if (!match) {
     return prompt;
   }
 
-  return match[1].replaceAll("]]]]><![CDATA[>", "]]>");
+  return match[1].replaceAll(CDATA_SPLIT_SEQUENCE, CDATA_END_SEQUENCE);
 };
 
 const mockedGenerateText = mock((options: Record<string, unknown>) => {

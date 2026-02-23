@@ -100,6 +100,10 @@ const REASONING_MODE_PRIORITY: readonly ReasoningMode[] = [
   "on",
   "off",
 ];
+const TRANSLATION_REASONING_MODE_PRIORITY: readonly ReasoningMode[] = [
+  "off",
+  "on",
+];
 
 const selectBestReasoningMode = (
   modes: readonly ReasoningMode[]
@@ -111,6 +115,18 @@ const selectBestReasoningMode = (
   }
 
   return DEFAULT_REASONING_MODE;
+};
+
+export const selectTranslationReasoningMode = (
+  modes: readonly ReasoningMode[]
+): ReasoningMode => {
+  for (const mode of TRANSLATION_REASONING_MODE_PRIORITY) {
+    if (modes.includes(mode)) {
+      return mode;
+    }
+  }
+
+  return selectBestReasoningMode(modes);
 };
 
 const isAnthropicWithReasoning = (
@@ -359,12 +375,17 @@ export class AgentManager {
     return this.translationEnabled;
   }
 
+  getTranslationReasoningMode(): ReasoningMode {
+    return selectTranslationReasoningMode(this.getSelectableReasoningModes());
+  }
+
   getTranslationModelConfig(): TranslationModelConfig {
+    const translationReasoningMode = this.getTranslationReasoningMode();
     const { wrappedModel, providerOptions } = createBaseModel(
       this.modelId,
       this.provider,
       this.toolFallbackMode,
-      "off"
+      translationReasoningMode
     );
 
     return {
