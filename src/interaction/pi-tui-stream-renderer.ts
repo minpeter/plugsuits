@@ -72,6 +72,7 @@ const renderCodeBlock = (language: string, value: unknown): string => {
 };
 
 const READ_FILE_SUCCESS_PREFIX = "OK - read file";
+const GLOB_SUCCESS_PREFIX = "OK - glob";
 const READ_FILE_BLOCK_PREFIX = "======== ";
 const READ_FILE_BLOCK_SUFFIX = " ========";
 const READ_FILE_BLOCK_END = "======== end ========";
@@ -80,6 +81,7 @@ const PATH_SEPARATOR_PATTERN = /[\\/]/;
 const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+\s\|\s)(.*)$/;
 const READ_FILE_LINES_WITH_RETURNED_PATTERN = /^(\d+)\s+\(returned:\s*(\d+)\)$/;
 const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
+const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;
 const MAX_READ_PREVIEW_LINES = 10;
 
 interface ReadFileParsedOutput {
@@ -97,6 +99,15 @@ const extractReadFilePath = (input: unknown): string | null => {
   return typeof record.path === "string" ? record.path : null;
 };
 
+const extractGlobPattern = (input: unknown): string | null => {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+
+  const record = input as Record<string, unknown>;
+  return typeof record.pattern === "string" ? record.pattern : null;
+};
+
 const shouldIncludeReadFilePreviewLine = (line: string): boolean => {
   const match = line.match(READ_FILE_LINE_SPLIT_PATTERN);
   const content = (match?.[2] ?? line).trim();
@@ -108,6 +119,23 @@ interface ReadFileRenderPayload {
   path: string;
   range: string | null;
 }
+
+interface GlobRenderPayload {
+  body: string;
+  pattern: string;
+}
+
+interface GlobPreviewMetadata {
+  fileCount: string | null;
+  path: string | null;
+  truncated: boolean;
+}
+
+const stripSurroundedDoubleQuotes = (value: string): string => {
+  const trimmed = value.trim();
+  const matched = trimmed.match(SURROUNDED_BY_DOUBLE_QUOTES_PATTERN);
+  return matched?.[1] ?? trimmed;
+};
 
 const parseReadFileMetadataLine = (
   line: string
@@ -128,9 +156,12 @@ const parseReadFileMetadataLine = (
   };
 };
 
-const parseReadFileOutput = (output: string): ReadFileParsedOutput | null => {
+const parseNumberedBlockToolOutput = (
+  output: string,
+  successPrefix: string
+): ReadFileParsedOutput | null => {
   const normalized = output.replaceAll("\r\n", "\n");
-  if (!normalized.startsWith(READ_FILE_SUCCESS_PREFIX)) {
+  if (!normalized.startsWith(successPrefix)) {
     return null;
   }
 
@@ -182,6 +213,14 @@ const parseReadFileOutput = (output: string): ReadFileParsedOutput | null => {
     blockTitle,
     blockBody,
   };
+};
+
+const parseReadFileOutput = (output: string): ReadFileParsedOutput | null => {
+  return parseNumberedBlockToolOutput(output, READ_FILE_SUCCESS_PREFIX);
+};
+
+const parseGlobOutput = (output: string): ReadFileParsedOutput | null => {
+  return parseNumberedBlockToolOutput(output, GLOB_SUCCESS_PREFIX);
 };
 
 const resolveReadPath = (parsed: ReadFileParsedOutput): string => {
@@ -246,6 +285,51 @@ const buildReadPreviewLines = (
   return previewLines;
 };
 
+const parseIntegerMetadataValue = (
+  rawValue: string | undefined
+): number | null => {
+  if (!rawValue) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const buildGlobPreviewLines = (
+  visibleLines: string[],
+  totalOmitted: number,
+  metadata: GlobPreviewMetadata
+): string[] => {
+  const previewLines =
+    visibleLines.length > 0 && visibleLines.some((line) => line.length > 0)
+      ? [...visibleLines]
+      : ["(no matches)"];
+
+  if (totalOmitted <= 0) {
+    return previewLines;
+  }
+
+  const lineLabel = `line${totalOmitted === 1 ? "" : "s"}`;
+  const metadataParts = [`path: ${metadata.path ?? "."}`];
+  if (metadata.fileCount) {
+    metadataParts.push(`file_count (${metadata.fileCount})`);
+  }
+  if (metadata.truncated) {
+    metadataParts.push("truncated: true");
+  }
+
+  previewLines.push("");
+  previewLines.push(
+    metadata.truncated
+      ? `... (${totalOmitted} more ${lineLabel}, truncated)`
+      : `... (${totalOmitted} more ${lineLabel})`
+  );
+  previewLines.push(metadataParts.join(", "));
+
+  return previewLines;
+};
+
 const renderReadFileOutput = (output: string): ReadFileRenderPayload | null => {
   const parsed = parseReadFileOutput(output);
   if (!parsed) {
@@ -286,8 +370,67 @@ const renderReadFileOutput = (output: string): ReadFileRenderPayload | null => {
   };
 };
 
+const renderGlobOutput = (output: string): GlobRenderPayload | null => {
+  const parsed = parseGlobOutput(output);
+  if (!parsed) {
+    return null;
+  }
+
+  const contentBody = parsed.blockBody.trim();
+  const allLines =
+    contentBody.length > 0
+      ? contentBody
+          .split("\n")
+          .filter((line) => READ_FILE_LINE_SPLIT_PATTERN.test(line))
+      : [];
+
+  const omittedFromPreview = Math.max(
+    0,
+    allLines.length - MAX_READ_PREVIEW_LINES
+  );
+  const visibleLines =
+    omittedFromPreview > 0
+      ? allLines.slice(0, MAX_READ_PREVIEW_LINES)
+      : allLines;
+
+  const fileCountRaw = parsed.metadata.get("file_count");
+  const fileCount = parseIntegerMetadataValue(fileCountRaw);
+  const isToolTruncated =
+    parsed.metadata.get("truncated")?.toLowerCase() === "true";
+  const omittedFromTool =
+    isToolTruncated && fileCount !== null
+      ? Math.max(0, fileCount - allLines.length)
+      : 0;
+  const totalOmitted = omittedFromPreview + omittedFromTool;
+
+  const metadata: GlobPreviewMetadata = {
+    path: parsed.metadata.get("path") ?? null,
+    fileCount: fileCountRaw ?? null,
+    truncated: isToolTruncated,
+  };
+
+  const previewLines = buildGlobPreviewLines(
+    visibleLines,
+    totalOmitted,
+    metadata
+  );
+  const patternValue =
+    stripSurroundedDoubleQuotes(parsed.metadata.get("pattern") ?? "") ||
+    parsed.blockTitle ||
+    "(unknown)";
+
+  return {
+    pattern: patternValue,
+    body: previewLines.join("\n"),
+  };
+};
+
 const renderReadFilePendingOutput = (_path: string): string => {
   return "Reading...";
+};
+
+const renderGlobPendingOutput = (_pattern: string): string => {
+  return "Searching...";
 };
 
 const renderToolOutput = (_toolName: string, output: unknown): string => {
@@ -756,8 +899,44 @@ class ToolCallView extends Container {
     return true;
   }
 
+  private tryRenderGlobMode(): boolean {
+    if (
+      this.toolName !== "glob_files" ||
+      this.error !== undefined ||
+      this.outputDenied
+    ) {
+      return false;
+    }
+
+    const bestInput = this.resolveBestInput();
+    const globPattern = extractGlobPattern(bestInput);
+
+    if (typeof this.output === "string") {
+      const renderedGlob = renderGlobOutput(this.output);
+      this.setReadMode(true);
+      if (renderedGlob) {
+        this.readHeader.setText(`**Glob** \`${renderedGlob.pattern}\``);
+        this.readBody.setText(renderedGlob.body);
+      } else {
+        const fallbackPattern = globPattern ?? "(unknown)";
+        this.readHeader.setText(`**Glob** \`${fallbackPattern}\``);
+        this.readBody.setText(safeStringify(this.output));
+      }
+      return true;
+    }
+
+    if (!globPattern) {
+      return false;
+    }
+
+    this.setReadMode(true);
+    this.readHeader.setText(`**Glob** \`${globPattern}\``);
+    this.readBody.setText(renderGlobPendingOutput(globPattern));
+    return true;
+  }
+
   private refresh(): void {
-    if (this.tryRenderReadFileMode()) {
+    if (this.tryRenderReadFileMode() || this.tryRenderGlobMode()) {
       return;
     }
 
