@@ -1,0 +1,8 @@
+### glob_files
+**Purpose**: Find files matching glob patterns
+
+**When to use**:
+- Finding files by name/extension: `**/*.ts`, `src/**/*.json`
+- Locating config files and discovering structure
+
+**DO NOT use shell**: Prefer this over `find`, `ls`, `tree`

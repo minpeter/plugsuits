@@ -8,12 +8,30 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { executeReadFile } from "../explore/read-file";
 import { executeEditFile } from "./edit-file";
 
-const EDITED_LINE_PATTERN = /^>/;
-const CONTEXT_LINE_PATTERN = /^ /;
+const FILE_HASH_REGEX = /^file_hash:\s+([0-9a-f]{8})$/m;
+const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
+  new RegExp(`\\s${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\s\\|`);
 
-describe("editFileTool", () => {
+function extractFileHash(readOutput: string): string {
+  const matched = readOutput.match(FILE_HASH_REGEX);
+  if (!matched?.[1]) {
+    throw new Error("Failed to extract file_hash from read output");
+  }
+  return matched[1];
+}
+
+function extractLineRef(readOutput: string, lineNumber: number): string {
+  const matched = readOutput.match(LINE_REF_REGEX_TEMPLATE(lineNumber));
+  if (!matched?.[1]) {
+    throw new Error(`Failed to extract line reference for line ${lineNumber}`);
+  }
+  return `${lineNumber}#${matched[1]}`;
+}
+
+describe("edit_file (hashline-only)", () => {
   let tempDir: string;
 
   beforeAll(() => {
@@ -26,400 +44,154 @@ describe("editFileTool", () => {
     }
   });
 
-  describe("basic replacement", () => {
-    it("replaces single occurrence and returns context", async () => {
-      const testFile = join(tempDir, "basic.txt");
-      writeFileSync(testFile, "line1\nline2\nline3\nline4\nline5");
+  it("replaces target line using LINE#HASH anchor", async () => {
+    const testFile = join(tempDir, "hashline-replace.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
 
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "line3",
-        new_str: "MODIFIED",
-        replace_all: false,
-      });
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+    const fileHash = extractFileHash(readOutput);
 
-      expect(result).toContain("OK");
-      expect(result).toContain("======== basic.txt L3-L3 ========");
-      expect(result).toContain("MODIFIED");
-      expect(result).toContain("======== end ========");
-
-      const content = readFileSync(testFile, "utf-8");
-      expect(content).toBe("line1\nline2\nMODIFIED\nline4\nline5");
+    const result = await executeEditFile({
+      path: testFile,
+      expected_file_hash: fileHash,
+      edits: [
+        {
+          op: "replace",
+          pos: lineRef,
+          lines: ["BRAVO"],
+        },
+      ],
     });
 
-    it("shows context lines around edit", async () => {
-      const testFile = join(tempDir, "context.txt");
-      writeFileSync(testFile, "a\nb\nc\nd\ne\nf\ng");
-
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "d",
-        new_str: "CHANGED",
-        replace_all: false,
-      });
-
-      expect(result).toContain("b");
-      expect(result).toContain("c");
-      expect(result).toContain("CHANGED");
-      expect(result).toContain("e");
-      expect(result).toContain("f");
-    });
-
-    it("marks edited lines with > prefix", async () => {
-      const testFile = join(tempDir, "prefix.txt");
-      writeFileSync(testFile, "keep1\nkeep2\nchange\nkeep3\nkeep4");
-
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "change",
-        new_str: "EDITED",
-        replace_all: false,
-      });
-
-      const lines = result.split("\n");
-      const editedLine = lines.find((l: string) => l.includes("EDITED"));
-      const contextLine = lines.find((l: string) => l.includes("keep2"));
-
-      expect(editedLine).toMatch(EDITED_LINE_PATTERN);
-      expect(contextLine).toMatch(CONTEXT_LINE_PATTERN);
-    });
+    expect(result).toContain("OK - hashline edit");
+    expect(result).toContain("file_hash:");
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
   });
 
-  describe("multiline replacement", () => {
-    it("handles multiline old_str and new_str", async () => {
-      const testFile = join(tempDir, "multiline.txt");
-      writeFileSync(testFile, "header\nold1\nold2\nold3\nfooter");
+  it("fails with helpful mismatch when anchor is stale", async () => {
+    const testFile = join(tempDir, "hashline-stale.txt");
+    writeFileSync(testFile, "one\ntwo\nthree\n");
 
-      const result = await executeEditFile({
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+
+    writeFileSync(testFile, "one\nTWO-CHANGED\nthree\n");
+
+    await expect(
+      executeEditFile({
         path: testFile,
-        old_str: "old1\nold2\nold3",
-        new_str: "new1\nnew2",
-        replace_all: false,
-      });
-
-      expect(result).toContain("L2-L3");
-      expect(result).toContain("new1");
-      expect(result).toContain("new2");
-
-      const content = readFileSync(testFile, "utf-8");
-      expect(content).toBe("header\nnew1\nnew2\nfooter");
-    });
-
-    it("shows correct line range for multiline edits", async () => {
-      const testFile = join(tempDir, "range.txt");
-      writeFileSync(testFile, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10");
-
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "4\n5\n6",
-        new_str: "A\nB\nC\nD",
-        replace_all: false,
-      });
-
-      expect(result).toContain("L4-L7");
-
-      const content = readFileSync(testFile, "utf-8");
-      expect(content).toBe("1\n2\n3\nA\nB\nC\nD\n7\n8\n9\n10");
-    });
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["two-updated"],
+          },
+        ],
+      })
+    ).rejects.toThrow("changed since last read");
   });
 
-  describe("replace_all mode", () => {
-    it("replaces all occurrences and shows each edit", async () => {
-      const testFile = join(tempDir, "replaceall.txt");
-      writeFileSync(testFile, "foo\nbar\nfoo\nbaz\nfoo");
+  it("rejects stale expected_file_hash", async () => {
+    const testFile = join(tempDir, "hashline-filehash.txt");
+    writeFileSync(testFile, "x\ny\n");
 
-      const result = await executeEditFile({
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+    const fileHash = extractFileHash(readOutput);
+
+    writeFileSync(testFile, "x\nY-NEW\n");
+
+    await expect(
+      executeEditFile({
         path: testFile,
-        old_str: "foo",
-        new_str: "XXX",
-        replace_all: true,
-      });
-
-      expect(result).toContain("OK - replaced 3 occurrence(s)");
-
-      const editBlocks = result.split("======== end ========").length - 1;
-      expect(editBlocks).toBe(3);
-
-      const content = readFileSync(testFile, "utf-8");
-      expect(content).toBe("XXX\nbar\nXXX\nbaz\nXXX");
-    });
-
-    it("shows correct line numbers for each replacement", async () => {
-      const testFile = join(tempDir, "positions.txt");
-      writeFileSync(testFile, "target\nother\ntarget\nother\ntarget");
-
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "target",
-        new_str: "REPLACED",
-        replace_all: true,
-      });
-
-      expect(result).toContain("L1-L1");
-      expect(result).toContain("L3-L3");
-      expect(result).toContain("L5-L5");
-    });
+        expected_file_hash: fileHash,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["y-updated"],
+          },
+        ],
+      })
+    ).rejects.toThrow("File changed since read_file output");
   });
 
-  describe("file creation", () => {
-    it("creates new file when old_str is empty", async () => {
-      const newFile = join(tempDir, "newfile.txt");
+  it("supports prepend and append in one call", async () => {
+    const testFile = join(tempDir, "hashline-insert.txt");
+    writeFileSync(testFile, "a\nb\nc\n");
 
-      const result = await executeEditFile({
-        path: newFile,
-        old_str: "",
-        new_str: "brand new content",
-        replace_all: false,
-      });
+    const readOutput = await executeReadFile({ path: testFile });
+    const middleRef = extractLineRef(readOutput, 2);
 
-      expect(result).toContain("Successfully created file");
-      expect(existsSync(newFile)).toBe(true);
-
-      const content = readFileSync(newFile, "utf-8");
-      expect(content).toBe("brand new content");
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "prepend",
+          pos: middleRef,
+          lines: ["before-b"],
+        },
+        {
+          op: "append",
+          pos: middleRef,
+          lines: ["after-b"],
+        },
+      ],
     });
 
-    it("creates parent directories when needed", async () => {
-      const nestedFile = join(tempDir, "deep", "nested", "file.txt");
-
-      const result = await executeEditFile({
-        path: nestedFile,
-        old_str: "",
-        new_str: "nested content",
-        replace_all: false,
-      });
-
-      expect(result).toContain("Successfully created file");
-      expect(existsSync(nestedFile)).toBe(true);
-    });
+    expect(readFileSync(testFile, "utf-8")).toBe(
+      "a\nbefore-b\nb\nafter-b\nc\n"
+    );
   });
 
-  describe("error handling", () => {
-    it("throws error when old_str not found", async () => {
-      const testFile = join(tempDir, "notfound.txt");
-      writeFileSync(testFile, "some content");
+  it("creates missing file with anchorless append", async () => {
+    const testFile = join(tempDir, "hashline-create.txt");
 
-      await expect(
-        executeEditFile({
-          path: testFile,
-          old_str: "nonexistent",
-          new_str: "replacement",
-          replace_all: false,
-        })
-      ).rejects.toThrow("old_str not found in file");
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "append",
+          lines: ["created-via-hashline"],
+        },
+      ],
     });
 
-    it("throws error when multiple matches without replace_all", async () => {
-      const testFile = join(tempDir, "multiple.txt");
-      writeFileSync(testFile, "dup\ndup\ndup");
-
-      await expect(
-        executeEditFile({
-          path: testFile,
-          old_str: "dup",
-          new_str: "single",
-          replace_all: false,
-        })
-      ).rejects.toThrow("found 3 times");
-    });
-
-    it("throws error when old_str equals new_str", async () => {
-      const testFile = join(tempDir, "same.txt");
-      writeFileSync(testFile, "content");
-
-      await expect(
-        executeEditFile({
-          path: testFile,
-          old_str: "content",
-          new_str: "content",
-          replace_all: false,
-        })
-      ).rejects.toThrow("old_str and new_str are identical");
-    });
-
-    it("throws error for non-existent file (unless creating)", async () => {
-      await expect(
-        executeEditFile({
-          path: join(tempDir, "nonexistent.txt"),
-          old_str: "something",
-          new_str: "else",
-          replace_all: false,
-        })
-      ).rejects.toThrow();
-    });
+    expect(result).toContain("OK - hashline edit");
+    expect(readFileSync(testFile, "utf-8")).toBe("created-via-hashline");
   });
 
-  describe("edge cases", () => {
-    it("handles edit at start of file", async () => {
-      const testFile = join(tempDir, "start.txt");
-      writeFileSync(testFile, "first\nsecond\nthird");
+  it("rejects empty edits", async () => {
+    const testFile = join(tempDir, "hashline-empty-edits.txt");
+    writeFileSync(testFile, "a\nb\n");
 
-      const result = await executeEditFile({
+    await expect(
+      executeEditFile({
         path: testFile,
-        old_str: "first",
-        new_str: "FIRST",
-        replace_all: false,
-      });
-
-      expect(result).toContain("L1-L1");
-      expect(result).toContain("FIRST");
-    });
-
-    it("handles edit at end of file", async () => {
-      const testFile = join(tempDir, "end.txt");
-      writeFileSync(testFile, "first\nsecond\nthird");
-
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "third",
-        new_str: "THIRD",
-        replace_all: false,
-      });
-
-      expect(result).toContain("L3-L3");
-      expect(result).toContain("THIRD");
-    });
-
-    it("handles single line file", async () => {
-      const testFile = join(tempDir, "single.txt");
-      writeFileSync(testFile, "only line");
-
-      const result = await executeEditFile({
-        path: testFile,
-        old_str: "only",
-        new_str: "ONLY",
-        replace_all: false,
-      });
-
-      expect(result).toContain("L1-L1");
-      expect(result).toContain("ONLY line");
-    });
-
-    it("handles empty new_str (deletion)", async () => {
-      const testFile = join(tempDir, "delete.txt");
-      writeFileSync(testFile, "keep\nremove\nkeep");
-
-      await executeEditFile({
-        path: testFile,
-        old_str: "remove\n",
-        new_str: "",
-        replace_all: false,
-      });
-
-      const content = readFileSync(testFile, "utf-8");
-      expect(content).toBe("keep\nkeep");
-    });
-
-    it("handles special characters in replacement", async () => {
-      const testFile = join(tempDir, "special.txt");
-      writeFileSync(testFile, "placeholder");
-
-      await executeEditFile({
-        path: testFile,
-        old_str: "placeholder",
-        new_str: 'const x = { a: 1, b: "test" };',
-        replace_all: false,
-      });
-
-      const content = readFileSync(testFile, "utf-8");
-      expect(content).toBe('const x = { a: 1, b: "test" };');
-    });
+        edits: [],
+      })
+    ).rejects.toThrow();
   });
 
-  describe("enhanced error messages with Unicode", () => {
-    it("provides helpful suggestions when Unicode characters cause mismatch", async () => {
-      const testFile = join(tempDir, "unicode-corrupt.txt");
-      writeFileSync(testFile, "model = load(model\u0D4D\n");
+  it("rejects no-op edits", async () => {
+    const testFile = join(tempDir, "hashline-noop.txt");
+    writeFileSync(testFile, "a\nb\n");
 
-      try {
-        await executeEditFile({
-          path: testFile,
-          old_str: "modelname",
-          new_str: "model_name",
-          replace_all: false,
-        });
-      } catch (error) {
-        const errorMsg = (error as Error).message;
-        expect(errorMsg).toContain("SEARCH TARGET");
-        expect(errorMsg).toContain("escaped");
-      }
-    });
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
 
-    it("suggests similar strings when exact match fails", async () => {
-      const testFile = join(tempDir, "unicode-suggest.txt");
-      writeFileSync(
-        testFile,
-        "if probs[1] >= probs[\u6E38\u620F] else negative\n"
-      );
-
-      try {
-        await executeEditFile({
-          path: testFile,
-          old_str: "probs[1] >= probs[0]",
-          new_str: "probs[1] > probs[0]",
-          replace_all: false,
-        });
-      } catch (error) {
-        const errorMsg = (error as Error).message;
-        expect(errorMsg).toContain("SIMILAR STRINGS FOUND");
-        expect(errorMsg).toContain("Escaped:");
-        expect(errorMsg).toContain("SUGGESTION");
-      }
-    });
-
-    it("detects non-ASCII characters in file diagnostics", async () => {
-      const testFile = join(tempDir, "unicode-diagnostic.txt");
-      writeFileSync(testFile, "hello\u{1F600}world\n");
-
-      try {
-        await executeEditFile({
-          path: testFile,
-          old_str: "nonexistent",
-          new_str: "replacement",
-          replace_all: false,
-        });
-      } catch (error) {
-        const errorMsg = (error as Error).message;
-        expect(errorMsg).toContain("FILE DIAGNOSTICS");
-        expect(errorMsg).toContain("Non-ASCII characters");
-      }
-    });
-
-    it("provides recovery strategies in error message", async () => {
-      const testFile = join(tempDir, "unicode-recovery.txt");
-      writeFileSync(testFile, "some content");
-
-      try {
-        await executeEditFile({
-          path: testFile,
-          old_str: "missing",
-          new_str: "replacement",
-          replace_all: false,
-        });
-      } catch (error) {
-        const errorMsg = (error as Error).message;
-        expect(errorMsg).toContain("RECOVERY STRATEGIES");
-        expect(errorMsg).toContain("Re-run read_file");
-        expect(errorMsg).toContain("write_file");
-      }
-    });
-
-    it("escapes Unicode in error messages for copy-paste", async () => {
-      const testFile = join(tempDir, "unicode-escape.txt");
-      const content = "test\u0D4Dstring\nother line";
-      writeFileSync(testFile, content);
-
-      try {
-        await executeEditFile({
-          path: testFile,
-          old_str: "teststring",
-          new_str: "right",
-          replace_all: false,
-        });
-      } catch (error) {
-        const errorMsg = (error as Error).message;
-        expect(errorMsg).toContain("\\u0D4D");
-      }
-    });
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["b"],
+          },
+        ],
+      })
+    ).rejects.toThrow("No changes made");
   });
 });

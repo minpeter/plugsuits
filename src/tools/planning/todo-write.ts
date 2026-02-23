@@ -4,6 +4,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { TODO_DIR } from "../../context/paths";
 import { getSessionId } from "../../context/session";
+import TODO_WRITE_DESCRIPTION from "./todo-write.txt";
 
 const todoItemSchema = z.object({
   id: z.string().describe("Unique identifier for the todo item"),
@@ -134,11 +135,7 @@ export async function executeTodoWrite({
 }
 
 export const todoWriteTool = tool({
-  description:
-    "Create and manage a structured task list for your current coding session. " +
-    "This helps track progress, organize complex tasks, and demonstrate thoroughness to the user. " +
-    "Use this tool when a task has 3+ steps or when the user provides multiple requirements. " +
-    "IMPORTANT: If todos are incomplete when the conversation ends, they will automatically continue in the next message.",
+  description: TODO_WRITE_DESCRIPTION,
   inputSchema,
   execute: executeTodoWrite,
 });

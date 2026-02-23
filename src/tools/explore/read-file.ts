@@ -2,27 +2,41 @@ import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import READ_FILE_DESCRIPTION from "./read-file.txt";
 import { formatBlock, safeReadFileEnhanced } from "./safety-utils";
 
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),
   offset: z
     .number()
+    .int()
+    .min(0)
     .optional()
     .describe(
       "Start line (0-based, default: 0). Use around_line for smarter reading."
     ),
-  limit: z.number().optional().describe("Max lines to read (default: 2000)"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Max lines to read (default: 2000)"),
   around_line: z
     .number()
+    .int()
+    .min(1)
     .optional()
     .describe("Read around this line (1-based). Combines with before/after."),
   before: z
     .number()
+    .int()
+    .min(0)
     .optional()
     .describe("Lines before around_line (default: 5)"),
   after: z
     .number()
+    .int()
+    .min(0)
     .optional()
     .describe("Lines after around_line (default: 10)"),
 });
@@ -37,7 +51,8 @@ export async function executeReadFile({
   before,
   after,
 }: ReadFileInput): Promise<string> {
-  const result = await safeReadFileEnhanced(path, {
+  const parsedInput = inputSchema.parse({
+    path,
     offset,
     limit,
     around_line,
@@ -45,12 +60,29 @@ export async function executeReadFile({
     after,
   });
 
+  const result = await safeReadFileEnhanced(path, {
+    offset: parsedInput.offset,
+    limit: parsedInput.limit,
+    around_line: parsedInput.around_line,
+    before: parsedInput.before,
+    after: parsedInput.after,
+  });
+
   let mtime = "";
   try {
     const stats = await stat(path);
     mtime = stats.mtime.toISOString();
-  } catch {
-    mtime = "unknown";
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof (error as NodeJS.ErrnoException).code === "string"
+    ) {
+      mtime = `unknown(${(error as NodeJS.ErrnoException).code})`;
+    } else {
+      mtime = "unknown(error)";
+    }
   }
 
   const fileName = basename(path);
@@ -62,6 +94,7 @@ export async function executeReadFile({
     `bytes: ${result.bytes}`,
     `last_modified: ${mtime}`,
     `lines: ${result.totalLines} (returned: ${result.endLine1 - result.startLine1 + 1})`,
+    `file_hash: ${result.fileHash}`,
     `range: ${rangeStr}`,
     `truncated: ${result.truncated}`,
     "",
@@ -72,10 +105,7 @@ export async function executeReadFile({
 }
 
 export const readFileTool = tool({
-  description:
-    "Read file contents with line numbers. " +
-    "ALWAYS read before editing. " +
-    "Use around_line for smart reading (grep_files result → read around match).",
+  description: READ_FILE_DESCRIPTION,
   inputSchema,
   execute: executeReadFile,
 });

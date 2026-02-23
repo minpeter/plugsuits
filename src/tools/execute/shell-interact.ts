@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import SHELL_INTERACT_DESCRIPTION from "./shell-interact.txt";
 
 const SPECIAL_KEYS: Record<string, string> = {
   enter: "Enter",
@@ -105,13 +106,13 @@ export interface InteractResult {
 }
 
 const CTRL_C_GUIDANCE = [
-  "No persistent terminal session exists. Each shell_execute command runs independently.",
+  "No retained terminal context exists. Each shell_execute command runs independently.",
   "To interrupt a long-running command, wait for its timeout (default: 120s) or use shell_execute to kill the process by PID:",
   '  shell_execute({ command: "kill -SIGINT <PID>" })',
 ].join("\n");
 
 const GENERIC_GUIDANCE = [
-  "No persistent terminal session exists. Each shell_execute command runs independently.",
+  "No retained terminal context exists. Each shell_execute command runs independently.",
   "To run a command, use shell_execute directly:",
   '  shell_execute({ command: "your command here" })',
 ].join("\n");
@@ -121,10 +122,7 @@ function hasCtrlC(parsedKeys: string[]): boolean {
 }
 
 export const shellInteractTool = tool({
-  description:
-    "Guidance tool: no persistent terminal session exists. " +
-    "Use shell_execute to run commands directly. " +
-    "This tool returns guidance on how to interact with processes using shell_execute.",
+  description: SHELL_INTERACT_DESCRIPTION,
 
   inputSchema: z.object({
     keystrokes: z

@@ -1,45 +1,19 @@
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import ignore, { type Ignore } from "ignore";
+import {
+  computeFileHash,
+  formatHashlineNumberedLines,
+} from "../utils/hashline/hashline";
 
-const MAX_FILE_SIZE = 1024 * 1024; // 1MB
-const MAX_LINES = 2000;
-const BINARY_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".webp",
-  ".ico",
-  ".svg",
-  ".bmp",
-  ".mp3",
-  ".mp4",
-  ".wav",
-  ".avi",
-  ".mov",
-  ".mkv",
-  ".pdf",
-  ".zip",
-  ".tar",
-  ".gz",
-  ".rar",
-  ".7z",
-  ".exe",
-  ".dll",
-  ".so",
-  ".dylib",
-  ".woff",
-  ".woff2",
-  ".ttf",
-  ".eot",
-  ".otf",
-  ".db",
-  ".sqlite",
-  ".lock",
-]);
+const FILE_READ_POLICY = {
+  maxFileSizeBytes: 1024 * 1024, // 1MB
+  maxLinesPerRead: 2000,
+  binarySampleBytes: 4096,
+  nonPrintableThreshold: 0.3,
+} as const;
 
-const DEFAULT_IGNORE_PATTERNS = [
+const DEFAULT_IGNORED_DIRECTORIES = [
   "node_modules",
   ".git",
   ".next",
@@ -52,43 +26,102 @@ const DEFAULT_IGNORE_PATTERNS = [
   ".vercel",
   ".output",
   "__pycache__",
-  "*.pyc",
   ".venv",
   "venv",
-  ".env.local",
-  ".env.*.local",
 ];
 
-let cachedIgnore: Ignore | null = null;
+const DEFAULT_IGNORED_FILE_PATTERNS = ["*.pyc", ".env.local", ".env.*.local"];
 
-export async function getIgnoreFilter(): Promise<Ignore> {
-  if (cachedIgnore) {
-    return cachedIgnore;
+const ignoreCache = new Map<string, Ignore>();
+
+function buildDefaultIgnorePatterns(): string[] {
+  return [...DEFAULT_IGNORED_DIRECTORIES, ...DEFAULT_IGNORED_FILE_PATTERNS];
+}
+
+export async function getIgnoreFilter(
+  baseDir = process.cwd()
+): Promise<Ignore> {
+  const cacheKey = baseDir;
+  const cached = ignoreCache.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  const ig = ignore().add(DEFAULT_IGNORE_PATTERNS);
+  const ig = ignore().add(buildDefaultIgnorePatterns());
 
   try {
-    const gitignorePath = join(process.cwd(), ".gitignore");
+    const gitignorePath = join(baseDir, ".gitignore");
     const gitignoreContent = await readFile(gitignorePath, "utf-8");
     ig.add(gitignoreContent);
-  } catch {
-    // .gitignore doesn't exist, use default patterns only
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      // .gitignore doesn't exist, use default patterns only
+    } else {
+      throw error;
+    }
   }
 
-  cachedIgnore = ig;
+  ignoreCache.set(cacheKey, ig);
   return ig;
 }
 
-function isBinaryFile(path: string): boolean {
-  const ext = path.toLowerCase().slice(path.lastIndexOf("."));
-  return BINARY_EXTENSIONS.has(ext);
+async function isLikelyBinaryFile(
+  filePath: string,
+  fileSize: number
+): Promise<boolean> {
+  if (fileSize === 0) {
+    return false;
+  }
+
+  const sampleSize = Math.min(FILE_READ_POLICY.binarySampleBytes, fileSize);
+  const handle = await open(filePath, "r");
+  try {
+    const bytes = Buffer.alloc(sampleSize);
+    const result = await handle.read(bytes, 0, sampleSize, 0);
+    if (result.bytesRead === 0) {
+      return false;
+    }
+
+    let nonPrintableCount = 0;
+    for (let i = 0; i < result.bytesRead; i++) {
+      const value = bytes[i];
+      if (value === 0) {
+        return true;
+      }
+
+      if (value < 9 || (value > 13 && value < 32)) {
+        nonPrintableCount++;
+      }
+    }
+
+    return (
+      nonPrintableCount / result.bytesRead >
+      FILE_READ_POLICY.nonPrintableThreshold
+    );
+  } finally {
+    await handle.close();
+  }
 }
 
 interface FileCheckResult {
   allowed: boolean;
   reason?: string;
 }
+
+interface FileReadGuardContext {
+  filePath: string;
+  ig: Ignore;
+  pathForIgnoreCheck: string | null;
+}
+
+type FileReadGuard = (
+  context: FileReadGuardContext
+) => FileCheckResult | null | Promise<FileCheckResult | null>;
 
 function getPathForIgnoreCheck(filePath: string, cwd: string): string | null {
   if (isAbsolute(filePath)) {
@@ -101,34 +134,73 @@ function getPathForIgnoreCheck(filePath: string, cwd: string): string | null {
   return filePath;
 }
 
-async function checkFileReadable(filePath: string): Promise<FileCheckResult> {
-  const ig = await getIgnoreFilter();
-  const pathForIgnoreCheck = getPathForIgnoreCheck(filePath, process.cwd());
-
-  if (pathForIgnoreCheck && ig.ignores(pathForIgnoreCheck)) {
-    return {
-      allowed: false,
-      reason: `File '${filePath}' is excluded by .gitignore. Use glob_files with respect_git_ignore: false if you need to access it.`,
-    };
+const checkIgnoreGuard: FileReadGuard = ({
+  filePath,
+  ig,
+  pathForIgnoreCheck,
+}) => {
+  if (!(pathForIgnoreCheck && ig.ignores(pathForIgnoreCheck))) {
+    return null;
   }
 
-  if (isBinaryFile(filePath)) {
-    return {
-      allowed: false,
-      reason: `File '${filePath}' is binary. read_file only supports text files. Use appropriate tools for binary content.`,
-    };
-  }
+  return {
+    allowed: false,
+    reason: `File '${filePath}' is excluded by .gitignore. Use glob_files with respect_git_ignore: false if you need to access it.`,
+  };
+};
 
+const checkFileStatGuards: FileReadGuard = async ({ filePath }) => {
   try {
     const stats = await stat(filePath);
-    if (stats.size > MAX_FILE_SIZE) {
+
+    if (stats.size > FILE_READ_POLICY.maxFileSizeBytes) {
       return {
         allowed: false,
-        reason: `File too large (${Math.round(stats.size / 1024)}KB > ${MAX_FILE_SIZE / 1024}KB): ${filePath}`,
+        reason: `File too large (${Math.round(stats.size / 1024)}KB > ${FILE_READ_POLICY.maxFileSizeBytes / 1024}KB): ${filePath}`,
       };
     }
-  } catch {
-    // stat failed - let the actual read operation handle this
+
+    if (await isLikelyBinaryFile(filePath, stats.size)) {
+      return {
+        allowed: false,
+        reason: `File '${filePath}' is binary. read_file only supports text files. Use appropriate tools for binary content.`,
+      };
+    }
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code !== "ENOENT"
+    ) {
+      return {
+        allowed: false,
+        reason: `Unable to inspect file metadata for '${filePath}'.`,
+      };
+    }
+  }
+
+  return null;
+};
+
+const FILE_READ_GUARDS: FileReadGuard[] = [
+  checkIgnoreGuard,
+  checkFileStatGuards,
+];
+
+async function checkFileReadable(filePath: string): Promise<FileCheckResult> {
+  const ig = await getIgnoreFilter();
+  const context: FileReadGuardContext = {
+    filePath,
+    ig,
+    pathForIgnoreCheck: getPathForIgnoreCheck(filePath, process.cwd()),
+  };
+
+  for (const guard of FILE_READ_GUARDS) {
+    const result = await guard(context);
+    if (result) {
+      return result;
+    }
   }
 
   return { allowed: true };
@@ -143,12 +215,7 @@ export function formatNumberedLines(
   lines: string[],
   startLine1: number
 ): string {
-  return lines
-    .map((line, i) => {
-      const lineNum = startLine1 + i;
-      return `  ${String(lineNum).padStart(4)} | ${line}`;
-    })
-    .join("\n");
+  return formatHashlineNumberedLines(lines, startLine1);
 }
 
 export function formatBlock(title: string, body: string): string {
@@ -176,6 +243,7 @@ export interface ReadFileResultEnhanced {
   bytes: number;
   content: string;
   endLine1: number;
+  fileHash: string;
   numberedContent: string;
   startLine1: number;
   totalLines: number;
@@ -204,10 +272,14 @@ export async function safeReadFileEnhanced(
   let endLine1: number;
 
   if (options?.around_line !== undefined) {
-    const before = options.before ?? 5;
-    const after = options.after ?? 10;
+    const before = Math.max(options.before ?? 5, 0);
+    const after = Math.max(options.after ?? 10, 0);
+    const clampedAroundLine = Math.min(
+      Math.max(options.around_line, 1),
+      totalLines
+    );
     const window = computeLineWindow({
-      aroundLine1: options.around_line,
+      aroundLine1: clampedAroundLine,
       before,
       after,
       totalLines,
@@ -215,8 +287,11 @@ export async function safeReadFileEnhanced(
     startLine1 = window.startLine1;
     endLine1 = window.endLine1;
   } else {
-    const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? MAX_LINES;
+    const offset = Math.max(options?.offset ?? 0, 0);
+    const limit = Math.max(
+      options?.limit ?? FILE_READ_POLICY.maxLinesPerRead,
+      1
+    );
     startLine1 = Math.min(offset + 1, totalLines);
     endLine1 = Math.min(offset + limit, totalLines);
   }
@@ -232,5 +307,6 @@ export async function safeReadFileEnhanced(
     endLine1,
     truncated,
     bytes,
+    fileHash: computeFileHash(rawContent),
   };
 }

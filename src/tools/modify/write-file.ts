@@ -2,6 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import WRITE_FILE_DESCRIPTION from "./write-file.txt";
 
 const PREVIEW_LINES = 3;
 
@@ -76,10 +77,7 @@ export async function executeWriteFile({
 }
 
 export const writeFileTool = tool({
-  description:
-    "Create new file or completely overwrite existing file. " +
-    "Creates parent directories automatically. " +
-    "Use edit_file for surgical changes to existing files.",
+  description: WRITE_FILE_DESCRIPTION,
   inputSchema,
   execute: executeWriteFile,
 });

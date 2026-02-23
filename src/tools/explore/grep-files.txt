@@ -1,0 +1,8 @@
+### grep_files
+**Purpose**: Search file contents by regex or literal pattern
+
+**When to use**:
+- Finding function/variable usages
+- Locating specific code patterns and messages
+
+**DO NOT use shell**: Prefer this over `grep`, `rg`, `ag`

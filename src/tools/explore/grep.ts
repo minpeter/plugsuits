@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { ensureTool } from "../../utils/tools-manager";
+import GREP_FILES_DESCRIPTION from "./grep-files.txt";
 import { formatBlock } from "./safety-utils";
 
 const MAX_MATCHES = 20_000;
@@ -204,9 +205,7 @@ export async function executeGrep({
 }
 
 export const grepTool = tool({
-  description:
-    "Search file contents (regex or literal). " +
-    "Returns file:line:content format. Use result line numbers with read_file(around_line).",
+  description: GREP_FILES_DESCRIPTION,
   inputSchema,
   execute: executeGrep,
 });
