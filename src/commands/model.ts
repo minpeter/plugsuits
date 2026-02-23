@@ -1,5 +1,7 @@
 import type { ProviderType } from "../agent";
 import { ANTHROPIC_MODELS, agentManager } from "../agent";
+import type { FriendliReasoningModelConfig } from "../friendli-models";
+import { FRIENDLI_MODELS } from "../friendli-models";
 import { colorize } from "../interaction/colors";
 import type { Command, CommandResult } from "./types";
 
@@ -7,35 +9,9 @@ export interface ModelInfo {
   id: string;
   name?: string;
   provider: ProviderType;
+  reasoning?: FriendliReasoningModelConfig | null;
   type?: "serverless" | "dedicated";
 }
-
-const FRIENDLI_MODELS: readonly ModelInfo[] = [
-  {
-    id: "MiniMaxAI/MiniMax-M2.5",
-    name: "MiniMax M2.5",
-    provider: "friendli",
-    type: "serverless",
-  },
-  {
-    id: "MiniMaxAI/MiniMax-M2.1",
-    name: "MiniMax M2.1",
-    provider: "friendli",
-    type: "serverless",
-  },
-  {
-    id: "zai-org/GLM-5",
-    name: "GLM 5",
-    provider: "friendli",
-    type: "serverless",
-  },
-  {
-    id: "zai-org/GLM-4.7",
-    name: "GLM 4.7",
-    provider: "friendli",
-    type: "serverless",
-  },
-] as const;
 
 function getAnthropicModels(): ModelInfo[] {
   return ANTHROPIC_MODELS.map((m) => ({

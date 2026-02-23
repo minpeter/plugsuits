@@ -42,9 +42,10 @@ import {
   getAvailableModels,
   type ModelInfo,
 } from "../commands/model";
+import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createRenderCommand } from "../commands/render";
-import { createThinkCommand } from "../commands/think";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
+import { createTranslateCommand } from "../commands/translate";
 import { MessageHistory } from "../context/message-history";
 import { getSessionId, initializeSession } from "../context/session";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
@@ -61,6 +62,11 @@ import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
+import {
+  DEFAULT_REASONING_MODE,
+  parseReasoningMode,
+  type ReasoningMode,
+} from "../reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
   LEGACY_ENABLED_TOOL_FALLBACK_MODE,
@@ -559,7 +565,9 @@ interface CliUi {
     currentProvider: ProviderType,
     initialFilter?: string
   ) => Promise<ModelInfo | null>;
-  showThinkSelector: (currentEnabled: boolean) => Promise<"on" | "off" | null>;
+  showReasoningModeSelector: (
+    currentMode: ReasoningMode
+  ) => Promise<ReasoningMode | null>;
   showToolFallbackSelector: (
     currentMode: ToolFallbackMode
   ) => Promise<ToolFallbackMode | null>;
@@ -719,10 +727,18 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     clearPromptInput();
   };
 
-  const showThinkSelector = async (
-    currentEnabled: boolean
-  ): Promise<"on" | "off" | null> => {
+  const showReasoningModeSelector = async (
+    currentMode: ReasoningMode
+  ): Promise<ReasoningMode | null> => {
     clearStatus();
+
+    const selectableModes = agentManager.getSelectableReasoningModes();
+    const descriptions: Record<ReasoningMode, string> = {
+      off: "Disable reasoning mode",
+      on: "Enable reasoning if supported",
+      interleaved: "Enable interleaved reasoning field mode",
+      preserved: "Enable preserved interleaved reasoning mode",
+    };
 
     const selectorContainer = new Container();
     selectorContainer.addChild(
@@ -731,22 +747,17 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     selectorContainer.addChild(new Spacer(1));
 
     const selectList = new SelectList(
-      [
-        {
-          value: "on",
-          label: "on",
-          description: "Enable model reasoning",
-        },
-        {
-          value: "off",
-          label: "off",
-          description: "Disable model reasoning",
-        },
-      ],
+      selectableModes.map((mode) => ({
+        value: mode,
+        label: buildCurrentIndicatorLabel(mode, currentMode === mode),
+        description: descriptions[mode],
+      })),
       2,
       editorTheme.selectList
     );
-    selectList.setSelectedIndex(currentEnabled ? 0 : 1);
+
+    const selectedIndex = selectableModes.indexOf(currentMode);
+    selectList.setSelectedIndex(selectedIndex >= 0 ? selectedIndex : 0);
 
     selectorContainer.addChild(selectList);
     statusContainer.addChild(selectorContainer);
@@ -762,7 +773,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
         tui.requestRender();
       };
 
-      const finish = (value: "on" | "off" | null): void => {
+      const finish = (value: ReasoningMode | null): void => {
         if (done) {
           return;
         }
@@ -777,7 +788,8 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       });
 
       selectList.onSelect = (item) => {
-        finish(item.value === "off" ? "off" : "on");
+        const selectedMode = parseReasoningMode(item.value);
+        finish(selectedMode ?? DEFAULT_REASONING_MODE);
       };
       selectList.onCancel = () => {
         finish(null);
@@ -1125,7 +1137,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     showLoader,
     showModelSelector,
     showToolFallbackSelector,
-    showThinkSelector,
+    showReasoningModeSelector,
     clearStatus,
     dispose,
   };
@@ -1138,14 +1150,15 @@ registerCommand(
     instructions: await agentManager.getInstructions(),
     tools: agentManager.getTools(),
     messages: messageHistory.toModelMessages(),
-    thinkingEnabled: agentManager.isThinkingEnabled(),
+    reasoningMode: agentManager.getReasoningMode(),
     toolFallbackMode: agentManager.getToolFallbackMode(),
   }))
 );
 registerCommand(createModelCommand());
 registerCommand(createClearCommand());
-registerCommand(createThinkCommand());
+registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
+registerCommand(createTranslateCommand());
 
 const parseProviderArg = (
   providerArg: string | undefined
@@ -1197,22 +1210,65 @@ const parseToolFallbackCliOption = (
   };
 };
 
+const parseReasoningCliOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; mode: ReasoningMode } | null => {
+  const arg = args[index];
+  if (arg === "--think") {
+    return { consumedArgs: 0, mode: "on" };
+  }
+
+  if (arg !== "--reasoning-mode") {
+    return null;
+  }
+
+  const candidate = args[index + 1];
+  if (candidate && !candidate.startsWith("--")) {
+    const parsedMode = parseReasoningMode(candidate);
+    return {
+      consumedArgs: 1,
+      mode: parsedMode ?? DEFAULT_REASONING_MODE,
+    };
+  }
+
+  return {
+    consumedArgs: 0,
+    mode: DEFAULT_REASONING_MODE,
+  };
+};
+
+const parseTranslateCliOption = (arg: string): boolean | null => {
+  if (arg === "--translate") {
+    return true;
+  }
+  if (arg === "--no-translate") {
+    return false;
+  }
+  return null;
+};
+
 const parseCliArgs = (): {
-  thinking: boolean;
+  reasoningMode: ReasoningMode;
   toolFallbackMode: ToolFallbackMode;
   model: string | null;
   provider: ProviderType | null;
+  translateUserPrompts: boolean;
 } => {
   const args = process.argv.slice(2);
-  let thinking = false;
+  let reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   let model: string | null = null;
   let provider: ProviderType | null = null;
+  let translateUserPrompts = false;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === "--think") {
-      thinking = true;
+
+    const reasoningOption = parseReasoningCliOption(args, i);
+    if (reasoningOption) {
+      reasoningMode = reasoningOption.mode;
+      i += reasoningOption.consumedArgs;
       continue;
     }
 
@@ -1232,16 +1288,35 @@ const parseCliArgs = (): {
     if (arg === "--provider" && i + 1 < args.length) {
       provider = parseProviderArg(args[i + 1]) ?? provider;
       i += 1;
+      continue;
+    }
+
+    const translateOption = parseTranslateCliOption(arg);
+    if (translateOption !== null) {
+      translateUserPrompts = translateOption;
     }
   }
 
-  return { thinking, toolFallbackMode, model, provider };
+  return {
+    reasoningMode,
+    toolFallbackMode,
+    model,
+    provider,
+    translateUserPrompts,
+  };
 };
 
 const setupAgent = (): void => {
-  const { thinking, toolFallbackMode, model, provider } = parseCliArgs();
-  agentManager.setThinkingEnabled(thinking);
+  const {
+    reasoningMode,
+    toolFallbackMode,
+    model,
+    provider,
+    translateUserPrompts,
+  } = parseCliArgs();
+  agentManager.setReasoningMode(reasoningMode);
   agentManager.setToolFallbackMode(toolFallbackMode);
+  agentManager.setUserInputTranslationEnabled(translateUserPrompts);
   if (provider) {
     agentManager.setProvider(provider);
   }
@@ -1422,21 +1497,27 @@ const resolveToolFallbackCommandInput = async (
   return `/tool-fallback ${selected}`;
 };
 
-const resolveThinkCommandInput = async (
+const resolveReasoningModeCommandInput = async (
   ui: CliUi,
   commandInput: string,
   parsed: ReturnType<typeof parseCommand>
 ): Promise<string | null> => {
-  if (parsed?.name !== "think" || parsed.args.length > 0) {
+  if (
+    !parsed ||
+    (parsed.name !== "think" && parsed.name !== "reasoning-mode") ||
+    parsed.args.length > 0
+  ) {
     return commandInput;
   }
 
-  const selected = await ui.showThinkSelector(agentManager.isThinkingEnabled());
+  const selected = await ui.showReasoningModeSelector(
+    agentManager.getReasoningMode()
+  );
   if (!selected) {
     return null;
   }
 
-  return `/think ${selected}`;
+  return `/reasoning-mode ${selected}`;
 };
 
 const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
@@ -1462,15 +1543,15 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   }
   commandInput = toolFallbackCommandInput;
 
-  const thinkCommandInput = await resolveThinkCommandInput(
+  const reasoningModeCommandInput = await resolveReasoningModeCommandInput(
     ui,
     commandInput,
     initialParsed
   );
-  if (!thinkCommandInput) {
+  if (!reasoningModeCommandInput) {
     return true;
   }
-  commandInput = thinkCommandInput;
+  commandInput = reasoningModeCommandInput;
 
   const parsed = parseCommand(commandInput);
   const resolvedCommandName = parsed
@@ -1478,7 +1559,7 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
     : null;
   const isNativeCommand =
     resolvedCommandName === "clear" ||
-    resolvedCommandName === "think" ||
+    resolvedCommandName === "reasoning-mode" ||
     resolvedCommandName === "tool-fallback";
 
   if (!isNativeCommand) {
@@ -1532,8 +1613,10 @@ const processInput = async (ui: CliUi, input: string): Promise<boolean> => {
       return await handleCommand(ui, trimmed);
     }
 
+    const preparedUserInput = await agentManager.preprocessUserInput(trimmed);
+
     addUserMessage(ui.chatContainer, ui.markdownTheme, trimmed);
-    messageHistory.addUserMessage(trimmed);
+    messageHistory.addUserMessage(preparedUserInput.text);
     ui.tui.requestRender();
     await handleAgentResponse(ui);
     return true;
@@ -1574,22 +1657,22 @@ const run = async (): Promise<void> => {
     }
   } finally {
     ui.dispose();
-    cleanupTmuxSession();
+    cleanupExecutionResources();
     setSpinnerOutputEnabled(true);
   }
 };
 
-const cleanupTmuxSession = (): void => {
+const cleanupExecutionResources = (): void => {
   cleanup();
 };
 
 const exitWithCleanup = (code: number): never => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
   process.exit(code);
 };
 
 process.once("exit", () => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
 });
 
 process.once("SIGTERM", () => {

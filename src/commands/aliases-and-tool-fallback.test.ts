@@ -7,7 +7,8 @@ import {
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
 import { createHelpCommand } from "./help";
-import { executeCommand, registerCommand } from "./index";
+import { executeCommand, getCommands, registerCommand } from "./index";
+import { createReasoningModeCommand } from "./reasoning-mode";
 import { createToolFallbackCommand } from "./tool-fallback";
 import type { Command } from "./types";
 
@@ -82,6 +83,49 @@ describe("Skill command prefixes", () => {
     if (result && "isSkill" in result && result.isSkill) {
       expect(result.skillId).toBe("prompts:example");
     }
+  });
+});
+
+describe("Reasoning mode command", () => {
+  let originalMode: ReturnType<typeof agentManager.getReasoningMode>;
+  let originalProvider: ReturnType<typeof agentManager.getProvider>;
+  let originalModelId: ReturnType<typeof agentManager.getModelId>;
+
+  beforeEach(() => {
+    originalMode = agentManager.getReasoningMode();
+    originalProvider = agentManager.getProvider();
+    originalModelId = agentManager.getModelId();
+    agentManager.setProvider("friendli");
+    agentManager.setModelId("MiniMaxAI/MiniMax-M2.5");
+    agentManager.setReasoningMode("on");
+  });
+
+  afterEach(() => {
+    agentManager.setProvider(originalProvider);
+    agentManager.setModelId(originalModelId);
+    agentManager.setReasoningMode(originalMode);
+  });
+
+  it("supports /think alias for /reasoning-mode", async () => {
+    if (!getCommands().has("reasoning-mode")) {
+      registerCommand(createReasoningModeCommand());
+    }
+
+    const result = await executeCommand("/think interleaved");
+    expect(result).not.toBeNull();
+    expect(result?.success).toBe(true);
+    expect(agentManager.getReasoningMode()).toBe("interleaved");
+  });
+
+  it("rejects unsupported mode for current model", async () => {
+    if (!getCommands().has("reasoning-mode")) {
+      registerCommand(createReasoningModeCommand());
+    }
+
+    const result = await executeCommand("/reasoning-mode preserved");
+    expect(result).not.toBeNull();
+    expect(result?.success).toBe(false);
+    expect(result?.message).toContain("not supported");
   });
 });
 

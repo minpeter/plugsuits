@@ -3,7 +3,6 @@
 import { agentManager, DEFAULT_MODEL_ID } from "../agent";
 import { MessageHistory } from "../context/message-history";
 import { setSessionId } from "../context/session";
-import { env } from "../env";
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
   shouldContinueManualToolLoop,
@@ -12,6 +11,11 @@ import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
+import {
+  DEFAULT_REASONING_MODE,
+  parseReasoningMode,
+  type ReasoningMode,
+} from "../reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
   LEGACY_ENABLED_TOOL_FALLBACK_MODE,
@@ -69,17 +73,17 @@ type TrajectoryEvent =
 
 const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const cleanupTmuxSession = (): void => {
+const cleanupExecutionResources = (): void => {
   cleanup();
 };
 
 const exitWithCleanup = (code: number): never => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
   process.exit(code);
 };
 
 process.once("exit", () => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
 });
 
 process.once("SIGINT", () => {
@@ -157,13 +161,13 @@ const parseToolFallbackCliOption = (
 const parseArgs = (): {
   prompt: string;
   model?: string;
-  thinking: boolean;
+  reasoningMode: ReasoningMode;
   toolFallbackMode: ToolFallbackMode;
 } => {
   const args = process.argv.slice(2);
   let prompt = "";
   let model: string | undefined;
-  let thinking = false;
+  let reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
 
   for (let i = 0; i < args.length; i++) {
@@ -176,7 +180,14 @@ const parseArgs = (): {
       model = args[i + 1] || undefined;
       i++;
     } else if (arg === "--think") {
-      thinking = true;
+      reasoningMode = "on";
+    } else if (arg === "--reasoning-mode") {
+      const candidate = args[i + 1];
+      if (candidate && !candidate.startsWith("--")) {
+        const parsedMode = parseReasoningMode(candidate);
+        reasoningMode = parsedMode ?? DEFAULT_REASONING_MODE;
+        i++;
+      }
     } else {
       const toolFallbackOption = parseToolFallbackCliOption(args, i);
       if (toolFallbackOption) {
@@ -188,12 +199,12 @@ const parseArgs = (): {
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
     );
     process.exit(1);
   }
 
-  return { prompt, model, thinking, toolFallbackMode };
+  return { prompt, model, reasoningMode, toolFallbackMode };
 };
 
 const extractToolOutput = (
@@ -481,16 +492,15 @@ const processAgentResponse = async (
 };
 
 const run = async (): Promise<void> => {
-  // Initialize required tools (ripgrep, tmux)
   await initializeTools();
 
-  const { prompt, model, thinking, toolFallbackMode } = parseArgs();
+  const { prompt, model, reasoningMode, toolFallbackMode } = parseArgs();
 
   setSessionId(sessionId);
 
   agentManager.setHeadlessMode(true);
   agentManager.setModelId(model || DEFAULT_MODEL_ID);
-  agentManager.setThinkingEnabled(thinking);
+  agentManager.setReasoningMode(reasoningMode);
   agentManager.setToolFallbackMode(toolFallbackMode);
 
   const messageHistory = new MessageHistory();
@@ -547,7 +557,7 @@ const run = async (): Promise<void> => {
     exitWithCleanup(1);
   }
 
-  cleanupTmuxSession();
+  cleanupExecutionResources();
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   console.error(`[headless] Completed in ${elapsed}s`);
 };

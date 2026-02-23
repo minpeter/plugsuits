@@ -3,9 +3,14 @@ import type { ModelMessage, ToolSet } from "ai";
 import { generateText, wrapLanguageModel } from "ai";
 import type { ModelType } from "../agent";
 import { env } from "../env";
+import {
+  applyFriendliInterleavedField,
+  buildFriendliChatTemplateKwargs,
+} from "../friendli-reasoning";
 import { colors } from "../interaction/colors";
 import { Spinner } from "../interaction/spinner";
 import { buildMiddlewares } from "../middleware";
+import type { ReasoningMode } from "../reasoning-mode";
 import type { ToolFallbackMode } from "../tool-fallback-mode";
 import type { Command, CommandResult } from "./types";
 
@@ -14,10 +19,25 @@ interface RenderData {
   messages: ModelMessage[];
   model: string;
   modelType: ModelType;
-  thinkingEnabled: boolean;
+  reasoningMode: ReasoningMode;
   toolFallbackMode: ToolFallbackMode;
   tools: ToolSet;
 }
+
+export const NEXT_USER_PROMPT_SENTINEL =
+  "THE NEXT USER PROMPT IS LOCATED HERE.";
+
+export const appendNextUserPromptSentinel = (
+  messages: ModelMessage[]
+): ModelMessage[] => {
+  return [
+    ...messages,
+    {
+      role: "user",
+      content: NEXT_USER_PROMPT_SENTINEL,
+    },
+  ];
+};
 
 /**
  * Render chat prompt to raw text.
@@ -37,13 +57,24 @@ async function renderChatPrompt({
   instructions,
   tools,
   messages,
-  thinkingEnabled,
+  reasoningMode,
   toolFallbackMode,
 }: RenderData): Promise<string> {
   const isDedicated = modelType === "dedicated";
   const baseURL = isDedicated
     ? "https://api.friendli.ai/dedicated/v1"
     : "https://api.friendli.ai/serverless/v1";
+
+  const chatTemplateKwargs = buildFriendliChatTemplateKwargs(
+    model,
+    reasoningMode
+  );
+  const messagesWithSentinel = appendNextUserPromptSentinel(messages);
+  const preparedMessages = applyFriendliInterleavedField(
+    messagesWithSentinel,
+    model,
+    reasoningMode
+  );
 
   let capturedText = "";
 
@@ -70,10 +101,9 @@ async function renderChatPrompt({
         },
         body: JSON.stringify({
           ...bodyWithoutToolChoice,
-          chat_template_kwargs: {
-            enable_thinking: thinkingEnabled,
-            thinking: thinkingEnabled,
-          },
+          ...(chatTemplateKwargs
+            ? { chat_template_kwargs: chatTemplateKwargs }
+            : {}),
         }),
       });
 
@@ -127,7 +157,7 @@ async function renderChatPrompt({
     }),
     system: instructions,
     tools,
-    messages,
+    messages: preparedMessages,
   });
 
   return capturedText;
