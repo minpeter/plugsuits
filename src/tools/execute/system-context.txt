@@ -4,7 +4,7 @@ Use shell for: (a) package install/build/test/git, (b) OS-level operations not p
 For file read/write/search, ALWAYS use dedicated tools instead.
 
 ### shell_execute
-**Purpose**: Run shell commands with configurable timeout (default: 10s)
+**Purpose**: Run shell commands with configurable timeout (default: 120s)
 
 **When to use**:
 - Package management: `npm install`, `pip install`, `cargo build`
@@ -14,18 +14,16 @@ For file read/write/search, ALWAYS use dedicated tools instead.
 - OS-level only: `chmod`, `ln -s`, `chown` (use file tools for mkdir - write_file auto-creates parent dirs)
 
 **Timeout guidelines**:
-- Quick commands (git status, whoami, pwd): default 10s is fine
+- Quick commands (git status, whoami, pwd): default 120s is fine
 - Package install (npm install, pip install): use `timeout_ms: 120000` (2 min)
 - Build commands (npm run build, cargo build): use `timeout_ms: 300000` (5 min)
 - Test suites (npm test, pytest): use `timeout_ms: 300000` (5 min)
 - Model downloads, large operations: use `timeout_ms: 600000` (10 min)
 
-**On timeout or interactive state**:
-- `[TIMEOUT]`: Process may still be running. Check terminal screen for status.
-- `[ERROR] Command blocked - terminal entered interactive state`: Terminal has a foreground process.
-  - **IMMEDIATE ACTION REQUIRED**: Use `shell_interact` to handle before ANY other shell commands
-  - DO NOT ignore this error and continue with other tools
-  - Common actions: `shell_interact('<Ctrl+C>')` to interrupt, or send appropriate response
+**On timeout**:
+- `[TIMEOUT]`: Process may still be running. Check output and process state before deciding next steps.
+
+- Large outputs are automatically truncated. Full output saved to temp file.
 
 **Automatic non-interactive mode**:
 Commands are automatically wrapped with non-interactive flags when possible:
@@ -50,27 +48,27 @@ Commands are automatically wrapped with non-interactive flags when possible:
   - Check port: `shell_execute("lsof -i :5000")`
 
 ### shell_interact
-**Purpose**: Send raw keystrokes to the terminal (for interactive programs)
+**Purpose**: Guidance tool — returns instructions on how to interact with processes using shell_execute
 
 **When to use**:
-- **REQUIRED** after interactive state error - respond IMMEDIATELY before any other commands
 - Responding to prompts (y/n questions, config conflicts)
-- Recovering from timeouts (send `<Ctrl+C>`)
-- Navigating interactive programs (vim, less, pagers)
+- Recovering from or interrupting long-running commands when guidance is requested
+- Navigating interactive programs (vim, less, pagers) via follow-up shell_execute steps
 
 **Key points**:
-- Must include `<Enter>` to execute commands
-- Shares the SAME persistent terminal session with `shell_execute`
-- If response shows `[SYSTEM REMINDER] Terminal is in interactive state`, continue using shell_interact
+- Input schema is retained for compatibility: `keystrokes` (string), `timeout_ms` (number, optional)
+- No retained terminal context exists; all commands are run per `shell_execute`
 
 **Common responses**:
 ```
-shell_interact("<Ctrl+C>")     # Interrupt/cancel current process
-shell_interact("q")            # Quit pagers (less, more, git diff)
-shell_interact(":q!<Enter>")   # Force quit vim
-shell_interact("y<Enter>")     # Answer yes
-shell_interact("n<Enter>")     # Answer no
-shell_interact("<Enter>")      # Accept default / continue
+shell_interact("<Ctrl+C>")
+# Each `shell_execute` command runs independently. To interrupt a long-running command, wait for its timeout (default: 120s) or use shell_execute to kill the process by PID: shell_execute({ command: 'kill -SIGINT <PID>' })
+
+shell_interact("y<Enter>")
+# Commands are not connected between calls. To run a command, use shell_execute directly: shell_execute({ command: 'your command here' })
+
+shell_interact("n<Enter>")
+# Commands are not connected between calls. To run a command, use shell_execute directly: shell_execute({ command: 'your command here' })
 ```
 
 ### Tool Selection Rules (STRICT)
@@ -116,6 +114,5 @@ read_file("src/utils.py", offset=35, limit=30)  # Lines 35-65
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `Command blocked - interactive state` | Previous command waiting for input | Use `shell_interact` immediately |
-| `[TIMEOUT]` with process still running | Command exceeded timeout | Increase `timeout_ms` or use `shell_interact('<Ctrl+C>')` |
+| `[TIMEOUT]` with process still running | Command exceeded timeout | Increase `timeout_ms` or run a new `shell_execute` to kill by PID |
 | Service not responding after background start | Service failed to start | Check logs, verify with curl/health check |

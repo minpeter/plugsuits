@@ -1,39 +1,13 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { getSharedSession } from "./shared-tmux-session";
+import { formatBackgroundMessage, formatTimeoutMessage } from "./format-utils";
+import { executeCommand as pmExecuteCommand } from "./process-manager";
 
-const MAX_OUTPUT_LENGTH = 50_000;
-const DEFAULT_TIMEOUT_MS = 2000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
-interface CommandResult {
-  exitCode: number;
-  output: string;
-}
-
-function truncateOutput(output: string, maxLength: number): string {
-  if (output.length <= maxLength) {
-    return output;
-  }
-  const half = Math.floor(maxLength / 2);
-  const first = output.slice(0, half);
-  const last = output.slice(-half);
-  const omitted = output.length - maxLength;
-  return `${first}\n[... ${omitted} characters omitted ...]\n${last}`;
-}
-
-export async function executeCommand(
-  command: string,
-  options: { workdir?: string; timeoutMs?: number } = {}
-): Promise<CommandResult> {
-  const { workdir, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
-  const session = getSharedSession();
-
-  const result = await session.executeCommand(command, { workdir, timeoutMs });
-
-  return {
-    exitCode: result.exitCode,
-    output: truncateOutput(result.output, MAX_OUTPUT_LENGTH),
-  };
+function isBackgroundCommand(command: string): boolean {
+  const trimmed = command.trimEnd();
+  return trimmed.endsWith("&") && !trimmed.endsWith("&&");
 }
 
 export interface ToolOutput {
@@ -41,11 +15,37 @@ export interface ToolOutput {
   output: string;
 }
 
+export async function executeCommand(
+  command: string,
+  options: { workdir?: string; timeoutMs?: number } = {}
+): Promise<{ exitCode: number; output: string }> {
+  const { workdir, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+  const result = await pmExecuteCommand(command, { workdir, timeoutMs });
+
+  if (result.timedOut) {
+    return {
+      exitCode: result.exitCode,
+      output: formatTimeoutMessage(timeoutMs, result.output),
+    };
+  }
+
+  if (isBackgroundCommand(command)) {
+    return {
+      exitCode: result.exitCode,
+      output: formatBackgroundMessage(result.output),
+    };
+  }
+
+  return {
+    exitCode: result.exitCode,
+    output: result.output,
+  };
+}
+
 export const shellExecuteTool = tool({
   description:
     "Execute shell commands (git, npm, build, tests). " +
-    "Shares terminal session with shell_interact. " +
-    "2s timeout (configurable). On timeout, use shell_interact with '<Ctrl+C>' to interrupt.",
+    "120s timeout (configurable). Returns exit code and combined stdout/stderr output.",
 
   inputSchema: z.object({
     command: z.string().describe("Shell command to execute"),
@@ -56,13 +56,13 @@ export const shellExecuteTool = tool({
     timeout_ms: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 2000)"),
+      .describe("Timeout in milliseconds (default: 120000)"),
   }),
 
   execute: async ({ command, workdir, timeout_ms }): Promise<ToolOutput> => {
     const result = await executeCommand(command, {
       workdir,
-      timeoutMs: timeout_ms,
+      timeoutMs: timeout_ms ?? DEFAULT_TIMEOUT_MS,
     });
     return {
       exit_code: result.exitCode,

@@ -18,7 +18,7 @@ import {
   parseToolFallbackMode,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
-import { cleanupSession } from "../tools/execute/shared-tmux-session";
+import { cleanup } from "../tools/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
 
 interface BaseEvent {
@@ -69,17 +69,8 @@ type TrajectoryEvent =
 
 const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-let tmuxCleanupExecuted = false;
-
 const cleanupTmuxSession = (): void => {
-  if (tmuxCleanupExecuted) {
-    return;
-  }
-  tmuxCleanupExecuted = true;
-
-  if (env.TMUX_CLEANUP_SESSION) {
-    cleanupSession();
-  }
+  cleanup();
 };
 
 const exitWithCleanup = (code: number): never => {

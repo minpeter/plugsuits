@@ -55,15 +55,7 @@ const TOOLS: Record<string, ToolConfig> = {
       return null;
     },
   },
-  tmux: {
-    name: "tmux",
-    repo: "", // tmux doesn't have simple GitHub releases
-    binaryName: "tmux",
-    tagPrefix: "",
-    installable: false, // Must be installed via system package manager
-    getAssetName: () => null,
-  },
-};
+  };
 
 /**
  * Check if a command exists and is executable
@@ -85,7 +77,7 @@ function commandExists(cmd: string): boolean {
 /**
  * Get the path to a tool (system-wide or in our tools dir)
  */
-export function getToolPath(tool: "rg" | "tmux"): string | null {
+export function getToolPath(tool: "rg"): string | null {
   const config = TOOLS[tool];
   if (!config) {
     return null;
@@ -291,7 +283,7 @@ async function attemptToolDownload(
  * Returns the path to the tool, or null if unavailable
  */
 export async function ensureTool(
-  tool: "rg" | "tmux",
+  tool: "rg",
   silent = false
 ): Promise<string | undefined> {
   const existingPath = getToolPath(tool);
@@ -320,7 +312,7 @@ export async function ensureTool(
  * Throws an error if any required tool is unavailable
  */
 export async function initializeTools(): Promise<void> {
-  const tools: Array<"rg" | "tmux"> = ["rg", "tmux"];
+  const tools: Array<"rg"> = ["rg"];
   const results = await Promise.allSettled(
     tools.map((tool) => ensureTool(tool, false))
   );

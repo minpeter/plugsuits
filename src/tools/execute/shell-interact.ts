@@ -1,8 +1,5 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { formatTerminalScreen } from "./format-utils";
-import { isInteractiveState } from "./interactive-detector";
-import { getSharedSession } from "./shared-tmux-session";
 
 const SPECIAL_KEYS: Record<string, string> = {
   enter: "Enter",
@@ -107,11 +104,27 @@ export interface InteractResult {
   success: boolean;
 }
 
+const CTRL_C_GUIDANCE = [
+  "No persistent terminal session exists. Each shell_execute command runs independently.",
+  "To interrupt a long-running command, wait for its timeout (default: 120s) or use shell_execute to kill the process by PID:",
+  '  shell_execute({ command: "kill -SIGINT <PID>" })',
+].join("\n");
+
+const GENERIC_GUIDANCE = [
+  "No persistent terminal session exists. Each shell_execute command runs independently.",
+  "To run a command, use shell_execute directly:",
+  '  shell_execute({ command: "your command here" })',
+].join("\n");
+
+function hasCtrlC(parsedKeys: string[]): boolean {
+  return parsedKeys.includes("C-c");
+}
+
 export const shellInteractTool = tool({
   description:
-    "Send keystrokes to terminal (same session as shell_execute). " +
-    "MUST include '<Enter>' to execute. " +
-    "Use for: prompts (y/n), interactive programs, timeout recovery ('<Ctrl+C>').",
+    "Guidance tool: no persistent terminal session exists. " +
+    "Use shell_execute to run commands directly. " +
+    "This tool returns guidance on how to interact with processes using shell_execute.",
 
   inputSchema: z.object({
     keystrokes: z
@@ -126,34 +139,13 @@ export const shellInteractTool = tool({
       .describe("Wait time after sending keys (default: 500)"),
   }),
 
-  execute: async ({ keystrokes, timeout_ms }): Promise<InteractResult> => {
-    const session = getSharedSession();
+  execute: ({ keystrokes }): Promise<InteractResult> => {
     const parsedKeys = parseKeys(keystrokes);
-    const waitTime = timeout_ms ?? 500;
+    const guidance = hasCtrlC(parsedKeys) ? CTRL_C_GUIDANCE : GENERIC_GUIDANCE;
 
-    const output = await session.sendKeys(parsedKeys, {
-      block: false,
-      minTimeoutMs: waitTime,
-    });
-
-    const formattedOutput = formatTerminalScreen(output);
-    const interactiveResult = isInteractiveState(session.getSessionId());
-
-    if (interactiveResult.isInteractive) {
-      const reminder = [
-        `[SYSTEM REMINDER] Terminal is in interactive state (foreground: ${interactiveResult.currentProcess})`,
-        "Use shell_interact to continue interacting with the process.",
-      ].join("\n");
-
-      return {
-        success: true,
-        output: `${formattedOutput}\n\n${reminder}`,
-      };
-    }
-
-    return {
+    return Promise.resolve({
       success: true,
-      output: formattedOutput,
-    };
+      output: guidance,
+    });
   },
 });
