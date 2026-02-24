@@ -52,7 +52,7 @@ describe("shellInteractTool", () => {
       const result = await interact("<Ctrl+C>");
 
       expect(result.success).toBe(true);
-      expect(result.output).toContain("No persistent terminal session exists");
+      expect(result.output).toContain("No retained terminal context exists");
       expect(result.output).toContain("kill -SIGINT");
     });
 
@@ -89,7 +89,7 @@ describe("shellInteractTool", () => {
       const result = await interact("ls -la");
 
       expect(result.success).toBe(true);
-      expect(result.output).toContain("No persistent terminal session exists");
+      expect(result.output).toContain("No retained terminal context exists");
       expect(result.output).toContain("shell_execute");
       expect(result.output).not.toContain("kill -SIGINT");
     });
@@ -116,11 +116,11 @@ describe("shellInteractTool", () => {
       expect(result.output).toContain("shell_execute");
     });
 
-    it("explains no persistent session exists", async () => {
+    it("explains no retained terminal context exists", async () => {
       const result = await interact("any command");
 
       expect(result.output).toContain(
-        "No persistent terminal session exists. Each shell_execute command runs independently."
+        "No retained terminal context exists. Each shell_execute command runs independently."
       );
     });
   });

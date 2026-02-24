@@ -217,7 +217,6 @@ class CodeEditingAgent(BaseInstalledAgent):
 
         env = {
             "FRIENDLI_TOKEN": os.environ.get("FRIENDLI_TOKEN", ""),
-            "TMUX_CLEANUP_SESSION": "false",
             "BUN_INSTALL": "/root/.bun",
             "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
         }

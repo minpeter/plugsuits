@@ -1,123 +1,83 @@
-# Ultracite Code Standards
+# PROJECT KNOWLEDGE BASE
 
-This project uses **Ultracite**, a zero-config preset that enforces strict code quality standards through automated formatting and linting.
+**Generated:** 2026-02-23 14:40 KST
+**Commit:** 4671d67
+**Branch:** main
+**Mode:** update
 
-## Quick Reference
+## OVERVIEW
+`code-editing-agent` is a Bun + TypeScript CLI agent with two runtime paths: interactive TUI (`cli.ts`) and JSONL event streaming (`headless.ts`).
+Core source code lives in `src/`, benchmark integration lives in `benchmark/`, and run artifacts are persisted under `jobs/`.
 
-- **Format code**: `npm exec -- ultracite fix`
-- **Check for issues**: `npm exec -- ultracite check`
-- **Diagnose setup**: `npm exec -- ultracite doctor`
+## STRUCTURE
+```text
+code-editing-agent/
+|- src/                 # Runtime code, tools, interaction, command handling
+|  |- AGENTS.md         # Source-level conventions and navigation
+|  |- entrypoints/
+|  |  `- AGENTS.md      # Runtime front-door invariants (CLI/headless)
+|  `- tools/
+|     |- AGENTS.md      # Tool subsystem boundaries and rules
+|     `- modify/
+|        `- AGENTS.md   # High-risk file mutation constraints
+|- benchmark/           # Harbor terminal-bench adapter (Python + templates)
+|- jobs/                # Generated benchmark run artifacts (do not edit manually)
+|- dist/                # TypeScript build output
+|- package/dist/        # Published package artifacts
+|- package.json         # Canonical scripts and toolchain entrypoints
+`- bunfig.toml          # Bun test root (`src`)
+```
 
-Biome (the underlying engine) provides robust linting and formatting. Most issues are automatically fixable.
+## WHERE TO LOOK
+| Task | Location | Notes |
+|------|----------|-------|
+| Interactive runtime loop | `src/entrypoints/cli.ts` | Input loop, command execution, stream lifecycle |
+| Headless event pipeline | `src/entrypoints/headless.ts` | JSONL events for benchmark/verifier integration |
+| Model/provider/tool orchestration | `src/agent.ts` | Agent manager, provider selection, stream setup |
+| Tool registration map | `src/tools/index.ts` | Stable tool key names to implementations |
+| Deterministic file editing | `src/tools/modify/edit-file.ts` | Hashline mode + legacy compatibility mode |
+| Stream rendering behavior | `src/interaction/pi-tui-stream-renderer.ts` | Text/reasoning/tool output rendering |
+| Benchmark adapter rules | `benchmark/AGENTS.md` | Trajectory conversion and validation constraints |
 
----
+## CODE MAP
+| Symbol | Type | Location | Refs | Role |
+|--------|------|----------|------|------|
+| `run` | function | `src/entrypoints/cli.ts:1553` | n/a | Main interactive session loop |
+| `processAgentResponse` | function | `src/entrypoints/cli.ts:1255` | n/a | Handles one stream turn and continuation |
+| `shouldContinueManualToolLoop` | constant fn | `src/interaction/tool-loop-control.ts:5` | 9 | Shared continuation gate for CLI/headless |
+| `executeEditFile` | function | `src/tools/modify/edit-file.ts:1042` | 32 | Primary file mutation entrypoint |
+| `AgentManager` | class | `src/agent.ts:163` | 2 | Central manager for model, provider, and tool config |
 
-## Core Principles
+## CONVENTIONS
+- Runtime and scripts are Bun-first (`packageManager: bun@1.3.9`); prefer `bun run <script>` over ad-hoc `npm exec`.
+- Canonical quality flow is `check` (non-mutating) and `lint` (mutating via `ultracite fix`).
+- Tests are colocated in `src/**` as `*.test.ts` and executed with `bun test` (`bunfig.toml` test root is `src`).
+- `tsconfig.json` enforces `strict` and builds from `src` to `dist`; do not treat `dist` as source-of-truth.
+- Legacy code should always be fully deprecated, and aggressive updates without backward-compatibility guarantees are acceptable in this repository.
 
-Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.
+## ANTI-PATTERNS (THIS PROJECT)
+- Editing generated outputs (`jobs/`, `dist/`, `package/dist/`) as if they were source code.
+- Using shell commands (`cat`, `sed`, `rm`, `find`, `grep`) for file operations that dedicated tools already cover.
+- Stopping at planning/todo updates without executing the concrete actions.
+- For benchmark work: changing event types without updating trajectory conversion rules in `benchmark/harbor_agent.py`.
 
-### Type Safety & Explicitness
+## UNIQUE STYLES
+- File edits favor hashline-aware operations (`LINE#HASH` + `expected_file_hash`) for stale-safe modifications.
+- Manual tool-loop continuation is intentionally constrained to finish reasons `tool-calls` and `unknown`.
+- Headless mode emits structured event types (`user`, `tool_call`, `tool_result`, `assistant`, `error`) consumed by benchmark tooling.
 
-- Use explicit types for function parameters and return values when they enhance clarity
-- Prefer `unknown` over `any` when the type is genuinely unknown
-- Use const assertions (`as const`) for immutable values and literal types
-- Leverage TypeScript's type narrowing instead of type assertions
-- Use meaningful variable names instead of magic numbers - extract constants with descriptive names
+## COMMANDS
+```bash
+bun install
+bun run start
+bun run headless -- --prompt "<task>"
+bun run check
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+```
 
-### Modern JavaScript/TypeScript
-
-- Use arrow functions for callbacks and short functions
-- Prefer `for...of` loops over `.forEach()` and indexed `for` loops
-- Use optional chaining (`?.`) and nullish coalescing (`??`) for safer property access
-- Prefer template literals over string concatenation
-- Use destructuring for object and array assignments
-- Use `const` by default, `let` only when reassignment is needed, never `var`
-
-### Async & Promises
-
-- Always `await` promises in async functions - don't forget to use the return value
-- Use `async/await` syntax instead of promise chains for better readability
-- Handle errors appropriately in async code with try-catch blocks
-- Don't use async functions as Promise executors
-
-### React & JSX
-
-- Use function components over class components
-- Call hooks at the top level only, never conditionally
-- Specify all dependencies in hook dependency arrays correctly
-- Use the `key` prop for elements in iterables (prefer unique IDs over array indices)
-- Nest children between opening and closing tags instead of passing as props
-- Don't define components inside other components
-- Use semantic HTML and ARIA attributes for accessibility:
-  - Provide meaningful alt text for images
-  - Use proper heading hierarchy
-  - Add labels for form inputs
-  - Include keyboard event handlers alongside mouse events
-  - Use semantic elements (`<button>`, `<nav>`, etc.) instead of divs with roles
-
-### Error Handling & Debugging
-
-- Remove `console.log`, `debugger`, and `alert` statements from production code
-- Throw `Error` objects with descriptive messages, not strings or other values
-- Use `try-catch` blocks meaningfully - don't catch errors just to rethrow them
-- Prefer early returns over nested conditionals for error cases
-
-### Code Organization
-
-- Keep functions focused and under reasonable cognitive complexity limits
-- Extract complex conditions into well-named boolean variables
-- Use early returns to reduce nesting
-- Prefer simple conditionals over nested ternary operators
-- Group related code together and separate concerns
-
-### Security
-
-- Add `rel="noopener"` when using `target="_blank"` on links
-- Avoid `dangerouslySetInnerHTML` unless absolutely necessary
-- Don't use `eval()` or assign directly to `document.cookie`
-- Validate and sanitize user input
-
-### Performance
-
-- Avoid spread syntax in accumulators within loops
-- Use top-level regex literals instead of creating them in loops
-- Prefer specific imports over namespace imports
-- Avoid barrel files (index files that re-export everything)
-- Use proper image components (e.g., Next.js `<Image>`) over `<img>` tags
-
-### Framework-Specific Guidance
-
-**Next.js:**
-- Use Next.js `<Image>` component for images
-- Use `next/head` or App Router metadata API for head elements
-- Use Server Components for async data fetching instead of async Client Components
-
-**React 19+:**
-- Use ref as a prop instead of `React.forwardRef`
-
-**Solid/Svelte/Vue/Qwik:**
-- Use `class` and `for` attributes (not `className` or `htmlFor`)
-
----
-
-## Testing
-
-- Write assertions inside `it()` or `test()` blocks
-- Avoid done callbacks in async tests - use async/await instead
-- Don't use `.only` or `.skip` in committed code
-- Keep test suites reasonably flat - avoid excessive `describe` nesting
-
-## When Biome Can't Help
-
-Biome's linter will catch most issues automatically. Focus your attention on:
-
-1. **Business logic correctness** - Biome can't validate your algorithms
-2. **Meaningful naming** - Use descriptive names for functions, variables, and types
-3. **Architecture decisions** - Component structure, data flow, and API design
-4. **Edge cases** - Handle boundary conditions and error states
-5. **User experience** - Accessibility, performance, and usability considerations
-6. **Documentation** - Add comments for complex logic, but prefer self-documenting code
-
----
-
-Most formatting and common issues are automatically fixed by Biome. Run `npm exec -- ultracite fix` before committing to ensure compliance.
+## NOTES
+- Root rules are global; see `src/AGENTS.md`, `src/entrypoints/AGENTS.md`, `src/tools/AGENTS.md`, and `src/tools/modify/AGENTS.md` for local, non-duplicated guidance.
+- `benchmark/AGENTS.md` is intentionally specialized and should remain benchmark-focused.

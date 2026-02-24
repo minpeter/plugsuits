@@ -8,7 +8,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { computeLineHash } from "../utils/hashline/hashline";
 import { executeGrep } from "./grep";
+
+const HASHLINE_ALPHABET = "[ZPMQVRWSNKTXJBYH]{2}";
 
 describe("executeGrep", () => {
   let tempDir: string;
@@ -43,7 +46,20 @@ describe("executeGrep", () => {
       expect(result).toContain("truncated: false");
       expect(result).toContain("======== grep results ========");
       expect(result).toContain("foo");
+      expect(result).toMatch(
+        new RegExp(`file1\\.ts[:\\-]1#${HASHLINE_ALPHABET}\\|const foo = 1;`)
+      );
       expect(result).toContain("======== end ========");
+    });
+
+    it("emits grep lines with line hash markers", async () => {
+      const result = await executeGrep({ pattern: "foo", path: tempDir });
+      const lineHash = computeLineHash(1, "const foo = 1;");
+
+      expect(result).toContain(`:1#${lineHash}|const foo = 1;`);
+      expect(result).toContain("file1.ts");
+      expect(result).toContain(":1#");
+      expect(result).not.toContain("file1.ts:1:const foo = 1;");
     });
 
     it("shows match count correctly", async () => {
@@ -118,6 +134,33 @@ describe("executeGrep", () => {
       });
 
       expect(fixed).toContain("match_count: 1");
+    });
+
+    it("formats context lines with hashline markers", async () => {
+      writeFileSync(
+        join(tempDir, "context.ts"),
+        "before line\nneedle target\nafter line"
+      );
+
+      const result = await executeGrep({
+        pattern: "needle",
+        path: tempDir,
+        include: "context.ts",
+        before: 1,
+        after: 1,
+      });
+
+      expect(result).toContain(
+        `:1#${computeLineHash(1, "before line")}|before line`
+      );
+      expect(result).toContain(
+        `:2#${computeLineHash(2, "needle target")}|needle target`
+      );
+      expect(result).toContain(
+        `:3#${computeLineHash(3, "after line")}|after line`
+      );
+      expect(result).not.toContain("context.ts-1-before line");
+      expect(result).not.toContain("context.ts:2:needle target");
     });
   });
 

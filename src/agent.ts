@@ -1,28 +1,38 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
 import { stepCountIs, streamText, wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
+import type { TranslationModelConfig } from "./context/translation";
 import { env } from "./env";
+import {
+  applyFriendliInterleavedField,
+  buildFriendliChatTemplateKwargs,
+  getFriendliSelectableReasoningModes,
+} from "./friendli-reasoning";
 import { buildMiddlewares } from "./middleware";
 import {
   buildTodoContinuationPrompt,
   getIncompleteTodos,
 } from "./middleware/todo-continuation";
+import { DEFAULT_REASONING_MODE, type ReasoningMode } from "./reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
   LEGACY_ENABLED_TOOL_FALLBACK_MODE,
   type ToolFallbackMode,
 } from "./tool-fallback-mode";
-import { tools } from "./tools";
+import { createTools, type ToolRegistry } from "./tools";
 
 export const DEFAULT_MODEL_ID = "MiniMaxAI/MiniMax-M2.5";
 export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_MAX = 64_000;
+const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
 
 type CoreStreamResult = ReturnType<typeof streamText>;
+type ProviderOptions = AiProviderOptions | undefined;
 
 export interface AgentStreamOptions {
   abortSignal?: AbortSignal;
@@ -58,7 +68,9 @@ interface CreateAgentOptions {
   enableThinking?: boolean;
   instructions?: string;
   provider?: ProviderType;
+  reasoningMode?: ReasoningMode;
   toolFallbackMode?: ToolFallbackMode;
+  toolRegistry?: ToolRegistry;
 }
 
 const getModel = (modelId: string, provider: ProviderType) => {
@@ -81,11 +93,59 @@ const getModel = (modelId: string, provider: ProviderType) => {
 
 const ANTHROPIC_THINKING_BUDGET_TOKENS = 10_000;
 const ANTHROPIC_MAX_OUTPUT_TOKENS = 64_000;
+const ANTHROPIC_SELECTABLE_REASONING_MODES: ReasoningMode[] = ["off", "on"];
+const REASONING_MODE_PRIORITY: readonly ReasoningMode[] = [
+  "preserved",
+  "interleaved",
+  "on",
+  "off",
+];
+const TRANSLATION_REASONING_MODE_PRIORITY: readonly ReasoningMode[] = [
+  "off",
+  "on",
+];
 
-const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
-  const provider = options.provider ?? "friendli";
-  const thinkingEnabled = options.enableThinking ?? false;
-  const model = getModel(modelId, provider);
+const selectBestReasoningMode = (
+  modes: readonly ReasoningMode[]
+): ReasoningMode => {
+  for (const mode of REASONING_MODE_PRIORITY) {
+    if (modes.includes(mode)) {
+      return mode;
+    }
+  }
+
+  return DEFAULT_REASONING_MODE;
+};
+
+export const selectTranslationReasoningMode = (
+  modes: readonly ReasoningMode[]
+): ReasoningMode => {
+  for (const mode of TRANSLATION_REASONING_MODE_PRIORITY) {
+    if (modes.includes(mode)) {
+      return mode;
+    }
+  }
+
+  return selectBestReasoningMode(modes);
+};
+
+const isAnthropicWithReasoning = (
+  modelId: string,
+  provider: ProviderType,
+  reasoningMode: ReasoningMode
+): boolean => {
+  const thinkingEnabled = reasoningMode !== "off";
+  return (
+    provider === "anthropic" && thinkingEnabled && !modelId.includes("opus")
+  );
+};
+
+const getProviderOptions = (
+  modelId: string,
+  provider: ProviderType,
+  reasoningMode: ReasoningMode
+): { options: ProviderOptions; maxOutputTokens: number } => {
+  const thinkingEnabled = reasoningMode !== "off";
 
   const getAnthropicProviderOptions = () => {
     if (!thinkingEnabled) {
@@ -96,6 +156,7 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
     if (isOpus) {
       return { anthropic: { effort: "high" } };
     }
+
     return {
       anthropic: {
         thinking: {
@@ -106,46 +167,89 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
     };
   };
 
-  const getProviderOptions = () => {
-    if (provider === "anthropic") {
-      return getAnthropicProviderOptions();
-    }
+  if (provider === "anthropic") {
     return {
-      friendli: {
-        chat_template_kwargs: {
-          enable_thinking: thinkingEnabled,
-          thinking: thinkingEnabled,
-        },
-      },
+      options: getAnthropicProviderOptions(),
+      maxOutputTokens: isAnthropicWithReasoning(
+        modelId,
+        provider,
+        reasoningMode
+      )
+        ? ANTHROPIC_MAX_OUTPUT_TOKENS - ANTHROPIC_THINKING_BUDGET_TOKENS
+        : OUTPUT_TOKEN_MAX,
     };
+  }
+
+  const chatTemplateKwargs = buildFriendliChatTemplateKwargs(
+    modelId,
+    reasoningMode
+  );
+
+  return {
+    options: chatTemplateKwargs
+      ? {
+          friendli: {
+            chat_template_kwargs: chatTemplateKwargs,
+          },
+        }
+      : undefined,
+    maxOutputTokens: OUTPUT_TOKEN_MAX,
   };
+};
 
-  const providerOptions = getProviderOptions();
-
-  // Anthropic with thinking: maxOutputTokens + thinkingBudget must be <= 64000
-  const isAnthropicWithThinking =
-    provider === "anthropic" && thinkingEnabled && !modelId.includes("opus");
-  const maxOutputTokens = isAnthropicWithThinking
-    ? ANTHROPIC_MAX_OUTPUT_TOKENS - ANTHROPIC_THINKING_BUDGET_TOKENS
-    : OUTPUT_TOKEN_MAX;
+const createBaseModel = (
+  modelId: string,
+  provider: ProviderType,
+  toolFallbackMode: ToolFallbackMode,
+  reasoningMode: ReasoningMode
+) => {
+  const model = getModel(modelId, provider);
+  const { options, maxOutputTokens } = getProviderOptions(
+    modelId,
+    provider,
+    reasoningMode
+  );
 
   const wrappedModel = wrapLanguageModel({
     model,
     middleware: buildMiddlewares({
-      toolFallbackMode: options.toolFallbackMode ?? DEFAULT_TOOL_FALLBACK_MODE,
+      toolFallbackMode,
     }),
   });
+
+  return { wrappedModel, providerOptions: options, maxOutputTokens };
+};
+
+const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
+  const provider = options.provider ?? "friendli";
+  const reasoningMode =
+    options.reasoningMode ??
+    (options.enableThinking ? "on" : DEFAULT_REASONING_MODE);
+  const toolFallbackMode =
+    options.toolFallbackMode ?? DEFAULT_TOOL_FALLBACK_MODE;
+
+  const { wrappedModel, providerOptions, maxOutputTokens } = createBaseModel(
+    modelId,
+    provider,
+    toolFallbackMode,
+    reasoningMode
+  );
 
   return {
     stream: ({
       messages,
       abortSignal,
     }: { messages: ModelMessage[] } & AgentStreamOptions) => {
+      const preparedMessages =
+        provider === "friendli"
+          ? applyFriendliInterleavedField(messages, modelId, reasoningMode)
+          : messages;
+
       return streamText({
         model: wrappedModel,
         system: options.instructions ?? SYSTEM_PROMPT,
-        tools,
-        messages,
+        tools: options.toolRegistry ?? defaultToolRegistry,
+        messages: preparedMessages,
         maxOutputTokens,
         providerOptions,
         // stepCountIs(n) replaces the deprecated maxSteps option.
@@ -158,15 +262,29 @@ const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
   };
 };
 
+const defaultToolRegistry = createTools();
+
 export type ModelType = "serverless" | "dedicated";
 
-class AgentManager {
+export class AgentManager {
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
   private provider: ProviderType = "friendli";
   private headlessMode = false;
-  private thinkingEnabled = false;
+  private reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
+  private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
+  private translationEnabled = true;
+
+  constructor() {
+    this.applyBestReasoningModeForCurrentModel();
+  }
+
+  private applyBestReasoningModeForCurrentModel(): void {
+    this.reasoningMode = selectBestReasoningMode(
+      this.getSelectableReasoningModes()
+    );
+  }
 
   getModelId(): string {
     return this.modelId;
@@ -174,6 +292,7 @@ class AgentManager {
 
   setModelId(modelId: string): void {
     this.modelId = modelId;
+    this.applyBestReasoningModeForCurrentModel();
   }
 
   getModelType(): ModelType {
@@ -195,6 +314,8 @@ class AgentManager {
     } else {
       this.modelId = DEFAULT_MODEL_ID;
     }
+
+    this.applyBestReasoningModeForCurrentModel();
   }
 
   setHeadlessMode(enabled: boolean): void {
@@ -205,12 +326,27 @@ class AgentManager {
     return this.headlessMode;
   }
 
+  setReasoningMode(mode: ReasoningMode): void {
+    this.reasoningMode = mode;
+  }
+
+  getReasoningMode(): ReasoningMode {
+    return this.reasoningMode;
+  }
+
+  getSelectableReasoningModes(): ReasoningMode[] {
+    if (this.provider === "friendli") {
+      return getFriendliSelectableReasoningModes(this.modelId);
+    }
+    return [...ANTHROPIC_SELECTABLE_REASONING_MODES];
+  }
+
   setThinkingEnabled(enabled: boolean): void {
-    this.thinkingEnabled = enabled;
+    this.reasoningMode = enabled ? "on" : DEFAULT_REASONING_MODE;
   }
 
   isThinkingEnabled(): boolean {
-    return this.thinkingEnabled;
+    return this.reasoningMode !== DEFAULT_REASONING_MODE;
   }
 
   getToolFallbackMode(): ToolFallbackMode {
@@ -231,6 +367,34 @@ class AgentManager {
     return this.toolFallbackMode !== DEFAULT_TOOL_FALLBACK_MODE;
   }
 
+  setTranslationEnabled(enabled: boolean): void {
+    this.translationEnabled = enabled;
+  }
+
+  isTranslationEnabled(): boolean {
+    return this.translationEnabled;
+  }
+
+  getTranslationReasoningMode(): ReasoningMode {
+    return selectTranslationReasoningMode(this.getSelectableReasoningModes());
+  }
+
+  getTranslationModelConfig(): TranslationModelConfig {
+    const translationReasoningMode = this.getTranslationReasoningMode();
+    const { wrappedModel, providerOptions } = createBaseModel(
+      this.modelId,
+      this.provider,
+      this.toolFallbackMode,
+      translationReasoningMode
+    );
+
+    return {
+      model: wrappedModel,
+      providerOptions,
+      maxOutputTokens: TRANSLATION_MAX_OUTPUT_TOKENS,
+    };
+  }
+
   async getInstructions(): Promise<string> {
     let instructions = SYSTEM_PROMPT + getEnvironmentContext();
 
@@ -241,14 +405,20 @@ class AgentManager {
 
     const incompleteTodos = await getIncompleteTodos();
     if (incompleteTodos.length > 0) {
-      instructions += `\n\n${buildTodoContinuationPrompt(incompleteTodos)}`;
+      instructions += `
+
+${buildTodoContinuationPrompt(incompleteTodos)}`;
     }
 
     return instructions;
   }
 
-  getTools() {
-    return tools;
+  getTools(): ToolRegistry {
+    return this.toolRegistry;
+  }
+
+  setTools(toolRegistry: ToolRegistry): void {
+    this.toolRegistry = toolRegistry;
   }
 
   async stream(
@@ -257,7 +427,8 @@ class AgentManager {
   ): Promise<AgentStreamResult> {
     const agent = createAgent(this.modelId, {
       instructions: await this.getInstructions(),
-      enableThinking: this.thinkingEnabled,
+      reasoningMode: this.reasoningMode,
+      toolRegistry: this.toolRegistry,
       toolFallbackMode: this.toolFallbackMode,
       provider: this.provider,
     });

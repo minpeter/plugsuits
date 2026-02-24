@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { getShell, getShellArgs } from "./shell-detection";
 
 const SHELL_DETECTION_SCRIPT =
-  "import { getShell } from './src/tools/execute/shell-detection'; console.log(getShell());";
+  "import { getShell } from './src/tools/utils/execute/shell-detection'; console.log(getShell());";
 
 function runShellDetectionWithEnv(shellPath: string): string {
   const env = { ...process.env, SHELL: shellPath };

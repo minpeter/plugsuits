@@ -2,34 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-
-const PREVIEW_LINES = 3;
-
-function formatPreview(content: string): string {
-  const lines = content.split("\n");
-  const totalLines = lines.length;
-
-  if (totalLines <= PREVIEW_LINES * 2) {
-    return lines
-      .map((line, i) => `  ${String(i + 1).padStart(4)} | ${line}`)
-      .join("\n");
-  }
-
-  const head = lines
-    .slice(0, PREVIEW_LINES)
-    .map((line, i) => `  ${String(i + 1).padStart(4)} | ${line}`)
-    .join("\n");
-
-  const tail = lines
-    .slice(-PREVIEW_LINES)
-    .map((line, i) => {
-      const lineNum = totalLines - PREVIEW_LINES + i + 1;
-      return `  ${String(lineNum).padStart(4)} | ${line}`;
-    })
-    .join("\n");
-
-  return `${head}\n       ... (${totalLines - PREVIEW_LINES * 2} lines omitted) ...\n${tail}`;
-}
+import WRITE_FILE_DESCRIPTION from "./write-file.txt";
 
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),
@@ -66,20 +39,13 @@ export async function executeWriteFile({
   const output = [
     `OK - ${action} ${fileName}`,
     `bytes: ${byteCount}, lines: ${lineCount}`,
-    "",
-    `======== ${fileName} (preview) ========`,
-    formatPreview(content),
-    "======== end ========",
   ];
 
   return output.join("\n");
 }
 
 export const writeFileTool = tool({
-  description:
-    "Create new file or completely overwrite existing file. " +
-    "Creates parent directories automatically. " +
-    "Use edit_file for surgical changes to existing files.",
+  description: WRITE_FILE_DESCRIPTION,
   inputSchema,
   execute: executeWriteFile,
 });

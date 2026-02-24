@@ -1,0 +1,24 @@
+### read_file
+**Purpose**: Read file contents with hashline anchors (`LINE#HASH`)
+
+**When to use**:
+- ALWAYS read a file before editing it
+- Inspecting data files to confirm real structure
+- Capturing `LINE#HASH` and `file_hash` for `edit_file`
+
+**Parameters**:
+- `path` (required): file path
+- `offset` (optional, 0-based, min 0): start line index
+- `limit` (optional, min 1): max lines to return
+- `around_line` (optional, 1-based, min 1): center line for windowed read
+- `before` / `after` (optional, min 0): context window around `around_line`
+- `respect_git_ignore` (optional, default true): apply `.gitignore` / `.ignore` / `.fdignore`
+
+**Output fields**:
+- `file_hash`: stale-check token for `edit_file.expected_file_hash`
+- `range`: returned line range (`Lx-Ly`)
+- `truncated`: whether partial content was returned
+
+**Guidelines**:
+- Prefer `around_line` after `grep_files` hits
+- Re-run `read_file` before retrying stale hashline edits

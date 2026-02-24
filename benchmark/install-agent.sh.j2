@@ -6,10 +6,9 @@ echo "Installing system dependencies..."
 # Required tools:
 #   - curl, git, ca-certificates: for cloning and downloading
 #   - unzip, tar: for extracting archives (bun install, ripgrep auto-download)
-#   - tmux: required for shell execution
 #   - ripgrep: for code search (faster than grep)
 apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-  curl git ca-certificates unzip tar tmux ripgrep \
+  curl git ca-certificates unzip tar ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
 echo "Installing bun..."

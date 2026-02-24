@@ -4,7 +4,9 @@ import { dirname, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { ensureTool } from "../../utils/tools-manager";
-import { formatBlock } from "./safety-utils";
+import { formatLineTag } from "../utils/hashline/hashline";
+import { formatBlock } from "../utils/safety-utils";
+import GREP_FILES_DESCRIPTION from "./grep-files.txt";
 
 const MAX_MATCHES = 20_000;
 
@@ -12,6 +14,37 @@ interface GrepResult {
   matchCount: number;
   matches: string;
   truncated: boolean;
+}
+
+const RG_RESULT_LINE_PATTERN = /^(.*?)[:-](\d+)[:-](.*)$/;
+
+function formatHashlineCompatibleMatches(rawMatches: string): string {
+  if (!rawMatches) {
+    return rawMatches;
+  }
+
+  return rawMatches
+    .split("\n")
+    .map((line) => {
+      if (line.length === 0 || line === "--") {
+        return line;
+      }
+
+      const matched = line.match(RG_RESULT_LINE_PATTERN);
+      if (!matched) {
+        return line;
+      }
+
+      const [, filePath, lineNumberText, content] = matched;
+      const lineNumber = Number.parseInt(lineNumberText, 10);
+      if (!Number.isFinite(lineNumber) || lineNumber < 1) {
+        return line;
+      }
+
+      const tag = formatLineTag(lineNumber, content);
+      return `${filePath}:${tag}|${content}`;
+    })
+    .join("\n");
 }
 
 async function runRipgrep(args: string[], cwd: string): Promise<GrepResult> {
@@ -181,6 +214,7 @@ export async function executeGrep({
   args.push("--", pattern, ".");
 
   const result = await runRipgrep(args, searchDir);
+  const formattedMatches = formatHashlineCompatibleMatches(result.matches);
 
   const output = [
     result.matchCount > 0 ? "OK - grep" : "OK - grep (no matches)",
@@ -195,7 +229,7 @@ export async function executeGrep({
   ];
 
   if (result.matchCount > 0) {
-    output.push(formatBlock("grep results", result.matches));
+    output.push(formatBlock("grep results", formattedMatches));
   } else {
     output.push(formatBlock("grep results", "(no matches)"));
   }
@@ -204,9 +238,7 @@ export async function executeGrep({
 }
 
 export const grepTool = tool({
-  description:
-    "Search file contents (regex or literal). " +
-    "Returns file:line:content format. Use result line numbers with read_file(around_line).",
+  description: GREP_FILES_DESCRIPTION,
   inputSchema,
   execute: executeGrep,
 });

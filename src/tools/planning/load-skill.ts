@@ -3,6 +3,7 @@ import { isAbsolute, join, normalize, relative } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { loadSkillById, type SkillInfo } from "../../context/skills";
+import LOAD_SKILL_DESCRIPTION from "./load-skill.txt";
 
 const inputSchema = z.object({
   skillName: z
@@ -129,8 +130,7 @@ export async function executeLoadSkill({
 }
 
 export const loadSkillTool = tool({
-  description:
-    "Load detailed skill documentation or files from a skill directory. Skills provide comprehensive workflows and references. For v2 skills, you can optionally load subdirectory files (scripts/, references/, etc.) by providing a relativePath.",
+  description: LOAD_SKILL_DESCRIPTION,
   inputSchema,
   execute: executeLoadSkill,
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Container, type MarkdownTheme } from "@mariozechner/pi-tui";
 import type { TextStreamPart, ToolSet } from "ai";
+import { computeLineHash } from "../tools/utils/hashline/hashline";
 import {
   type PiTuiStreamRenderOptions,
   renderFullStreamWithPiTui,
@@ -9,21 +10,16 @@ import {
 type TestStreamPart = TextStreamPart<ToolSet>;
 
 const LARGE_BLANK_GAP_REGEX = /\n[ \t]*\n[ \t]*\n[ \t]*\n/;
-
-const findLastLineIndexContaining = (
-  lines: string[],
-  predicate: (line: string) => boolean,
-  beforeIndex: number
-): number => {
-  for (let i = beforeIndex - 1; i >= 0; i -= 1) {
-    if (predicate(lines[i])) {
-      return i;
-    }
-  }
-
-  return -1;
+const tagGrepLine = (
+  path: string,
+  lineNumber: number,
+  content: string
+): string => {
+  return `${path}:${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
 };
-
+const tagReadLine = (lineNumber: number, content: string): string => {
+  return `${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
+};
 const markdownTheme: MarkdownTheme = {
   heading: (text) => text,
   link: (text) => text,
@@ -46,13 +42,22 @@ interface RenderResult {
   renderCalls: number;
 }
 
-const renderParts = async (parts: TestStreamPart[]): Promise<RenderResult> => {
+interface RenderPartsOptions {
+  onFirstVisiblePart?: () => void;
+  showRawToolIo?: boolean;
+}
+
+const renderParts = async (
+  parts: TestStreamPart[],
+  overrides: RenderPartsOptions = {}
+): Promise<RenderResult> => {
   const chatContainer = new Container();
   let renderCalls = 0;
 
   const options: PiTuiStreamRenderOptions = {
     chatContainer,
     markdownTheme,
+    onFirstVisiblePart: overrides.onFirstVisiblePart,
     ui: {
       requestRender: () => {
         renderCalls += 1;
@@ -62,6 +67,7 @@ const renderParts = async (parts: TestStreamPart[]): Promise<RenderResult> => {
     showSteps: false,
     showFinishReason: false,
     showToolResults: true,
+    showRawToolIo: overrides.showRawToolIo,
     showSources: false,
     showFiles: false,
   };
@@ -80,6 +86,47 @@ const renderParts = async (parts: TestStreamPart[]): Promise<RenderResult> => {
 };
 
 describe("renderFullStreamWithPiTui", () => {
+  it("calls onFirstVisiblePart exactly once", async () => {
+    let calls = 0;
+
+    await renderParts(
+      [
+        { type: "start" } as never,
+        { type: "text-start", id: "text_1" },
+        { type: "text-delta", id: "text_1", text: "Hello" },
+        { type: "text-delta", id: "text_1", text: " world" },
+        { type: "text-end", id: "text_1" },
+      ],
+      {
+        onFirstVisiblePart: () => {
+          calls += 1;
+        },
+      }
+    );
+
+    expect(calls).toBe(1);
+  });
+
+  it("does not call onFirstVisiblePart for ignored-only stream", async () => {
+    let calls = 0;
+
+    await renderParts(
+      [
+        { type: "start" } as never,
+        { type: "text-end", id: "text_1" },
+        { type: "reasoning-end", id: "reason_1" } as never,
+        { type: "abort" } as never,
+      ],
+      {
+        onFirstVisiblePart: () => {
+          calls += 1;
+        },
+      }
+    );
+
+    expect(calls).toBe(0);
+  });
+
   it("streams markdown text into assistant view", async () => {
     const { output, renderCalls } = await renderParts([
       { type: "text-start", id: "text_1" },
@@ -179,13 +226,16 @@ describe("renderFullStreamWithPiTui", () => {
     );
     expect(reasoningLineIndex).toBeGreaterThan(-1);
 
-    const outputFenceIndex = findLastLineIndexContaining(
-      lines,
-      (line) => line.trim() === "```",
-      reasoningLineIndex
-    );
-    expect(outputFenceIndex).toBeGreaterThan(-1);
-    expect(reasoningLineIndex).toBe(outputFenceIndex + 1);
+    let previousNonEmptyLineIndex = -1;
+    for (let i = reasoningLineIndex - 1; i >= 0; i -= 1) {
+      if (lines[i].trim().length > 0) {
+        previousNonEmptyLineIndex = i;
+        break;
+      }
+    }
+
+    expect(previousNonEmptyLineIndex).toBeGreaterThan(-1);
+    expect(reasoningLineIndex).toBe(previousNonEmptyLineIndex + 1);
   });
 
   it("renders live diff preview for edit_file tool input", async () => {
@@ -267,6 +317,95 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).not.toContain("Tool read_file");
     expect(output).not.toContain("Output");
     expect(output).not.toContain("OK - read file");
+  });
+
+  it("normalizes split hashline read line fragments", async () => {
+    const lineContent = "const value = 2;";
+    const lineTag = tagReadLine(2, lineContent).split("|")[0];
+    const readOutput = [
+      "OK - read file",
+      "path: src/demo.ts",
+      "bytes: 48",
+      "last_modified: 2026-01-19T03:33:57.520Z",
+      "lines: 5 (returned: 1)",
+      "range: L2-L2",
+      "truncated: false",
+      "",
+      "======== demo.ts L2-L2 ========",
+      `   ${lineTag}`,
+      "|",
+      lineContent,
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_read_split",
+        toolName: "read_file",
+        input: {
+          path: "src/demo.ts",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_read_split",
+        toolName: "read_file",
+        input: {
+          path: "src/demo.ts",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain(tagReadLine(2, lineContent));
+    expect(output).not.toContain(`   ${lineTag}\n|\n${lineContent}`);
+  });
+
+  it("preserves intentionally empty hashline lines", async () => {
+    const headingLine = "# Code Editing Agent";
+    const paragraphLine = "A code-editing agent built with Vercel AI SDK.";
+    const readOutput = [
+      "OK - read file",
+      "path: README.md",
+      "bytes: 120",
+      "last_modified: 2026-02-23T01:00:00.000Z",
+      "lines: 3 (returned: 3)",
+      "range: L1-L3",
+      "truncated: false",
+      "",
+      "======== README.md L1-L3 ========",
+      tagReadLine(1, headingLine),
+      tagReadLine(2, ""),
+      tagReadLine(3, paragraphLine),
+      "======== end ========",
+    ].join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_read_empty_line",
+        toolName: "read_file",
+        input: {
+          path: "README.md",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_read_empty_line",
+        toolName: "read_file",
+        input: {
+          path: "README.md",
+        },
+        output: readOutput,
+      },
+    ]);
+
+    expect(output).toContain(tagReadLine(2, ""));
+    expect(output).toContain(tagReadLine(3, paragraphLine));
+    expect(output).not.toContain(
+      `${tagReadLine(2, "")}${tagReadLine(3, paragraphLine)}`
+    );
   });
 
   it("omits read_file content after 10 lines", async () => {
@@ -380,8 +519,8 @@ describe("renderFullStreamWithPiTui", () => {
       },
     ]);
 
-    expect(output).toContain("call_1");
-    expect((output.match(/call_1/g) ?? []).length).toBe(1);
+    expect(output).toContain("Write src/file.ts");
+    expect((output.match(/Write src\/file\.ts/g) ?? []).length).toBe(1);
   });
 
   it("supports toolCallId and inputTextDelta aliases", async () => {
@@ -411,8 +550,92 @@ describe("renderFullStreamWithPiTui", () => {
       } as never,
     ]);
 
-    expect(output).toContain("call_3");
-    expect(output).toContain("src/big.ts");
+    expect(output).toContain("Write src/big.ts");
+  });
+
+  it("streams read_file pretty header from partial tool-input-delta", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_stream_read",
+        toolName: "read_file",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_stream_read",
+        delta: '{"path":"src/streamed.ts"',
+      },
+    ]);
+
+    expect(output).toContain("Read src/streamed.ts");
+    expect(output).toContain("Reading...");
+    expect(output).not.toContain("Tool read_file");
+  });
+
+  it("streams shell_execute pretty header from partial tool-input-delta", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_stream_shell",
+        toolName: "shell_execute",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_stream_shell",
+        delta: '{"command":"echo streamed"',
+      },
+    ]);
+
+    expect(output).toContain("Shell echo streamed");
+    expect(output).toContain("Running...");
+    expect(output).not.toContain("Tool shell_execute");
+  });
+
+  it("waits to render non-raw tool input until tool name is known", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-delta",
+        id: "call_late_name",
+        delta: '{"path":"src/late-name.ts"}',
+      } as never,
+      {
+        type: "tool-input-start",
+        id: "call_late_name",
+        toolName: "read_file",
+      },
+    ]);
+
+    expect(output).toContain("Read src/late-name.ts");
+    expect(output).toContain("Reading...");
+    expect(output).not.toContain("Tool tool");
+  });
+
+  it("does not render tool block on input-start before deltas in non-raw mode", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_start_only",
+        toolName: "read_file",
+      },
+    ]);
+
+    expect(output).toBe("");
+  });
+
+  it("keeps unknown-name tool input visible in raw debug mode", async () => {
+    const { output } = await renderParts(
+      [
+        {
+          type: "tool-input-delta",
+          id: "call_unknown_raw",
+          delta: '{"path":"src/raw-mode.ts"}',
+        } as never,
+      ],
+      { showRawToolIo: true }
+    );
+
+    expect(output).toContain("Tool tool");
+    expect(output).toContain("src/raw-mode.ts");
   });
 
   it("keeps reasoning visible after tool blocks in stream order", async () => {
@@ -445,7 +668,7 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     const beforeIndex = output.indexOf("Before tool");
-    const toolIndex = output.indexOf("call_reason");
+    const toolIndex = output.indexOf("Shell ls");
     const afterIndex = output.indexOf("After tool");
 
     expect(beforeIndex).toBeGreaterThan(-1);
@@ -500,9 +723,9 @@ describe("renderFullStreamWithPiTui", () => {
       },
     ]);
 
-    const firstToolIndex = output.indexOf("call_a");
+    const firstToolIndex = output.indexOf("Shell pwd");
     const reasoningIndex = output.indexOf("Between tools");
-    const secondToolIndex = output.indexOf("call_b");
+    const secondToolIndex = output.indexOf("Shell ls");
 
     expect(firstToolIndex).toBeGreaterThan(-1);
     expect(reasoningIndex).toBeGreaterThan(-1);
@@ -701,18 +924,18 @@ describe("renderFullStreamWithPiTui", () => {
       "truncated: false",
       "",
       "======== grep results ========",
-      "/project/a.ts:1:const foo = 1;",
-      "/project/b.ts:2:const foo = 2;",
-      "/project/c.ts:3:const foo = 3;",
-      "/project/d.ts:4:const foo = 4;",
-      "/project/e.ts:5:const foo = 5;",
-      "/project/f.ts:6:const foo = 6;",
-      "/project/g.ts:7:const foo = 7;",
-      "/project/h.ts:8:const foo = 8;",
-      "/project/i.ts:9:const foo = 9;",
-      "/project/j.ts:10:const foo = 10;",
-      "/project/k.ts:11:const foo = 11;",
-      "/project/l.ts:12:const foo = 12;",
+      tagGrepLine("/project/a.ts", 1, "const foo = 1;"),
+      tagGrepLine("/project/b.ts", 2, "const foo = 2;"),
+      tagGrepLine("/project/c.ts", 3, "const foo = 3;"),
+      tagGrepLine("/project/d.ts", 4, "const foo = 4;"),
+      tagGrepLine("/project/e.ts", 5, "const foo = 5;"),
+      tagGrepLine("/project/f.ts", 6, "const foo = 6;"),
+      tagGrepLine("/project/g.ts", 7, "const foo = 7;"),
+      tagGrepLine("/project/h.ts", 8, "const foo = 8;"),
+      tagGrepLine("/project/i.ts", 9, "const foo = 9;"),
+      tagGrepLine("/project/j.ts", 10, "const foo = 10;"),
+      tagGrepLine("/project/k.ts", 11, "const foo = 11;"),
+      tagGrepLine("/project/l.ts", 12, "const foo = 12;"),
       "======== end ========",
     ].join("\n");
 
@@ -737,7 +960,7 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     expect(output).toContain("Grep foo");
-    expect(output).toContain("/project/a.ts:1:const foo = 1;");
+    expect(output).toContain(tagGrepLine("/project/a.ts", 1, "const foo = 1;"));
     expect(output).toContain("... (2 more lines)");
     expect(output).not.toContain("Tool grep_files");
     expect(output).not.toContain("Output");
@@ -797,18 +1020,18 @@ describe("renderFullStreamWithPiTui", () => {
       "truncated: true",
       "",
       "======== grep results ========",
-      "/project/a.ts:1:const foo = 1;",
-      "/project/b.ts:2:const foo = 2;",
-      "/project/c.ts:3:const foo = 3;",
-      "/project/d.ts:4:const foo = 4;",
-      "/project/e.ts:5:const foo = 5;",
-      "/project/f.ts:6:const foo = 6;",
-      "/project/g.ts:7:const foo = 7;",
-      "/project/h.ts:8:const foo = 8;",
-      "/project/i.ts:9:const foo = 9;",
-      "/project/j.ts:10:const foo = 10;",
-      "/project/k.ts:11:const foo = 11;",
-      "/project/l.ts:12:const foo = 12;",
+      tagGrepLine("/project/a.ts", 1, "const foo = 1;"),
+      tagGrepLine("/project/b.ts", 2, "const foo = 2;"),
+      tagGrepLine("/project/c.ts", 3, "const foo = 3;"),
+      tagGrepLine("/project/d.ts", 4, "const foo = 4;"),
+      tagGrepLine("/project/e.ts", 5, "const foo = 5;"),
+      tagGrepLine("/project/f.ts", 6, "const foo = 6;"),
+      tagGrepLine("/project/g.ts", 7, "const foo = 7;"),
+      tagGrepLine("/project/h.ts", 8, "const foo = 8;"),
+      tagGrepLine("/project/i.ts", 9, "const foo = 9;"),
+      tagGrepLine("/project/j.ts", 10, "const foo = 10;"),
+      tagGrepLine("/project/k.ts", 11, "const foo = 11;"),
+      tagGrepLine("/project/l.ts", 12, "const foo = 12;"),
       "======== end ========",
     ].join("\n");
 
@@ -835,5 +1058,221 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).toContain("... (30 more lines, truncated)");
     expect(output).toContain("match_count (40)");
     expect(output).toContain("truncated: true");
+  });
+
+  it("renders read/glob/grep tool IO in raw mode when enabled", async () => {
+    const cases = [
+      {
+        toolCallId: "call_read_raw",
+        toolName: "read_file",
+        input: { path: "src/demo.ts" },
+        output: [
+          "OK - read file",
+          "path: src/demo.ts",
+          "bytes: 12",
+          "last_modified: 2026-02-23T01:00:00.000Z",
+          "lines: 1 (returned: 1)",
+          "range: L1-L1",
+          "truncated: false",
+          "",
+          "======== demo.ts L1-L1 ========",
+          "   1 | const x = 1;",
+          "======== end ========",
+        ].join("\n"),
+        prettyHeading: "Read src/demo.ts",
+      },
+      {
+        toolCallId: "call_glob_raw",
+        toolName: "glob_files",
+        input: { pattern: "src/**/*.ts" },
+        output: [
+          "OK - glob",
+          'pattern: "src/**/*.ts"',
+          "path: /project",
+          "respect_git_ignore: true",
+          "file_count: 1",
+          "truncated: false",
+          "sorted_by: mtime desc",
+          "",
+          "======== glob results ========",
+          "/project/file1.ts",
+          "======== end ========",
+        ].join("\n"),
+        prettyHeading: "Glob src/**/*.ts",
+      },
+      {
+        toolCallId: "call_grep_raw",
+        toolName: "grep_files",
+        input: { pattern: "foo" },
+        output: [
+          "OK - grep",
+          'pattern: "foo"',
+          "path: /project",
+          "include: *.ts",
+          "case_sensitive: false",
+          "fixed_strings: false",
+          "match_count: 1",
+          "truncated: false",
+          "",
+          "======== grep results ========",
+          tagGrepLine("/project/file1.ts", 1, "const foo = 1;"),
+          "======== end ========",
+        ].join("\n"),
+        prettyHeading: "Grep foo",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { output } = await renderParts(
+        [
+          {
+            type: "tool-call",
+            toolCallId: testCase.toolCallId,
+            toolName: testCase.toolName,
+            input: testCase.input,
+          },
+          {
+            type: "tool-result",
+            toolCallId: testCase.toolCallId,
+            toolName: testCase.toolName,
+            input: testCase.input,
+            output: testCase.output,
+          },
+        ],
+        { showRawToolIo: true }
+      );
+
+      expect(output).toContain(`Tool ${testCase.toolName}`);
+      expect(output).toContain("Input");
+      expect(output).toContain("Output");
+      expect(output).toContain(testCase.output.split("\n")[0]);
+      expect(output).not.toContain(testCase.prettyHeading);
+    }
+  });
+
+  it("hides call id in raw shell headers", async () => {
+    const { output } = await renderParts(
+      [
+        {
+          type: "tool-call",
+          toolCallId: "call_shell_raw",
+          toolName: "bash",
+          input: {
+            command: "pwd",
+          },
+        },
+      ],
+      { showRawToolIo: true }
+    );
+
+    expect(output).toContain("Tool bash");
+    expect(output).not.toContain("call_shell_raw");
+  });
+
+  it("renders dedicated pretty wrappers for all other tools", async () => {
+    const cases = [
+      {
+        toolCallId: "call_shell_pretty",
+        toolName: "shell_execute",
+        input: {
+          command: "echo hello",
+          workdir: "/tmp",
+          timeout_ms: 1000,
+        },
+        output: {
+          exit_code: 0,
+          output: "hello",
+        },
+        expectedHeading: "Shell echo hello",
+      },
+      {
+        toolCallId: "call_interact_pretty",
+        toolName: "shell_interact",
+        input: {
+          keystrokes: "<Enter>",
+        },
+        output: {
+          success: true,
+          output: "sent",
+        },
+        expectedHeading: "Interact <Enter>",
+      },
+      {
+        toolCallId: "call_write_pretty",
+        toolName: "write_file",
+        input: {
+          path: "src/new.ts",
+          content: "const x = 1;",
+        },
+        output: "OK - created new.ts\nbytes: 12, lines: 1",
+        expectedHeading: "Write src/new.ts",
+      },
+      {
+        toolCallId: "call_edit_pretty",
+        toolName: "edit_file",
+        input: {
+          path: "src/demo.ts",
+          edits: [{ op: "replace", pos: "2#AB", lines: ["const x = 2;"] }],
+        },
+        output: "Updated src/demo.ts",
+        expectedHeading: "Edit src/demo.ts",
+      },
+      {
+        toolCallId: "call_delete_pretty",
+        toolName: "delete_file",
+        input: {
+          path: "src/old.ts",
+        },
+        output: "OK - deleted file: old.ts\npath: src/old.ts",
+        expectedHeading: "Delete src/old.ts",
+      },
+      {
+        toolCallId: "call_skill_pretty",
+        toolName: "load_skill",
+        input: {
+          skillName: "git-workflow",
+        },
+        output: "# Skill Loaded: git-workflow [Project]",
+        expectedHeading: "Skill git-workflow",
+      },
+      {
+        toolCallId: "call_todo_pretty",
+        toolName: "todo_write",
+        input: {
+          todos: [
+            { id: "1", content: "A", status: "pending", priority: "high" },
+            {
+              id: "2",
+              content: "B",
+              status: "completed",
+              priority: "medium",
+            },
+          ],
+        },
+        output: "OK - updated todo list\ntotal: 2 tasks",
+        expectedHeading: "Todo 2 tasks",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { output } = await renderParts([
+        {
+          type: "tool-call",
+          toolCallId: testCase.toolCallId,
+          toolName: testCase.toolName,
+          input: testCase.input,
+        },
+        {
+          type: "tool-result",
+          toolCallId: testCase.toolCallId,
+          toolName: testCase.toolName,
+          input: testCase.input,
+          output: testCase.output,
+        },
+      ]);
+
+      expect(output).toContain(testCase.expectedHeading);
+      expect(output).not.toContain(`Tool ${testCase.toolName}`);
+    }
   });
 });

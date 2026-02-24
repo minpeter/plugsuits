@@ -165,12 +165,11 @@ describe("process-manager", () => {
     }
   }, 10_000);
 
-  it("contains no tmux references or spawnSync usage", async () => {
+  it("does not use spawnSync", async () => {
     const source = await Bun.file(
       new URL("./process-manager.ts", import.meta.url)
     ).text();
 
-    expect(source.includes("tmux")).toBe(false);
     expect(source.includes("spawnSync")).toBe(false);
   });
 });

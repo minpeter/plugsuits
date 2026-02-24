@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,10 +28,32 @@ export function sanitizeOutput(text: string): string {
     .replace(MULTIPLE_NEWLINE_PATTERN, "\n\n");
 }
 
-export function truncateOutput(
+async function persistFullOutput(text: string): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const tempPath = join(tmpdir(), `cea-output-${randomUUID()}.txt`);
+    try {
+      await writeFile(tempPath, text, { encoding: "utf-8", flag: "wx" });
+      return tempPath;
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "EEXIST"
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Failed to persist truncated output.");
+}
+
+export async function truncateOutput(
   text: string,
   options: { maxLines?: number; maxBytes?: number } = {}
-): TruncationResult {
+): Promise<TruncationResult> {
   const maxLines = options.maxLines ?? 2000;
   const maxBytes = options.maxBytes ?? 51_200;
 
@@ -58,8 +81,7 @@ export function truncateOutput(
     lines.length - (firstLines.length + lastLines.length)
   );
 
-  const tempPath = join(tmpdir(), `cea-output-${Date.now()}.txt`);
-  writeFileSync(tempPath, text);
+  const tempPath = await persistFullOutput(text);
 
   const truncatedText = [
     ...firstLines,

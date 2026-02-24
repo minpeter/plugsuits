@@ -2,13 +2,30 @@ import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-import { formatBlock, getIgnoreFilter } from "./safety-utils";
+import { formatBlock, getIgnoreFilter } from "../utils/safety-utils";
+import GLOB_FILES_DESCRIPTION from "./glob-files.txt";
 
 const MAX_RESULTS = 500;
+const STAT_CONCURRENCY = 32;
 
 interface FileWithMtime {
   mtime: Date;
   path: string;
+}
+
+function insertTopByMtime(list: FileWithMtime[], item: FileWithMtime): void {
+  let insertAt = list.length;
+  for (let i = 0; i < list.length; i++) {
+    if (item.mtime.getTime() > list[i].mtime.getTime()) {
+      insertAt = i;
+      break;
+    }
+  }
+
+  list.splice(insertAt, 0, item);
+  if (list.length > MAX_RESULTS) {
+    list.pop();
+  }
 }
 
 const inputSchema = z.object({
@@ -21,7 +38,9 @@ const inputSchema = z.object({
     .boolean()
     .optional()
     .default(true)
-    .describe("Respect .gitignore (default: true)"),
+    .describe(
+      "Respect ignore rules from .gitignore/.ignore/.fdignore (default: true)"
+    ),
 });
 
 export type GlobInput = z.input<typeof inputSchema>;
@@ -34,9 +53,34 @@ export async function executeGlob({
   const searchDir = path ? resolve(path) : process.cwd();
 
   const glob = new Bun.Glob(pattern);
-  const filesWithMtime: FileWithMtime[] = [];
+  const topFilesByMtime: FileWithMtime[] = [];
+  let totalMatches = 0;
+  let skippedUnreadable = 0;
 
-  const ignoreFilter = respect_git_ignore ? await getIgnoreFilter() : null;
+  const ignoreFilter = respect_git_ignore
+    ? await getIgnoreFilter(searchDir)
+    : null;
+
+  const pending = new Set<Promise<void>>();
+
+  const enqueueStat = (absolutePath: string): void => {
+    const task = stat(absolutePath)
+      .then((stats) => {
+        totalMatches += 1;
+        insertTopByMtime(topFilesByMtime, {
+          path: absolutePath,
+          mtime: stats.mtime,
+        });
+      })
+      .catch(() => {
+        skippedUnreadable += 1;
+      })
+      .finally(() => {
+        pending.delete(task);
+      });
+
+    pending.add(task);
+  };
 
   for await (const file of glob.scan({
     cwd: searchDir,
@@ -48,31 +92,26 @@ export async function executeGlob({
     }
 
     const absolutePath = join(searchDir, file);
-    try {
-      const stats = await stat(absolutePath);
-      filesWithMtime.push({
-        path: absolutePath,
-        mtime: stats.mtime,
-      });
-    } catch {
-      // Ignore files that cannot be accessed
+    enqueueStat(absolutePath);
+
+    if (pending.size >= STAT_CONCURRENCY) {
+      await Promise.race(pending);
     }
   }
 
-  filesWithMtime.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  await Promise.all(pending);
 
-  const truncated = filesWithMtime.length > MAX_RESULTS;
-  const displayFiles = truncated
-    ? filesWithMtime.slice(0, MAX_RESULTS)
-    : filesWithMtime;
+  const truncated = totalMatches > MAX_RESULTS;
+  const displayFiles = topFilesByMtime;
 
   const output = [
-    filesWithMtime.length > 0 ? "OK - glob" : "OK - glob (no matches)",
+    totalMatches > 0 ? "OK - glob" : "OK - glob (no matches)",
     `pattern: "${pattern}"`,
     `path: ${path ?? "."}`,
     `respect_git_ignore: ${respect_git_ignore}`,
-    `file_count: ${filesWithMtime.length}`,
+    `file_count: ${totalMatches}`,
     `truncated: ${truncated}`,
+    `skipped_unreadable: ${skippedUnreadable}`,
     "sorted_by: mtime desc",
     "",
   ];
@@ -92,9 +131,7 @@ export async function executeGlob({
 }
 
 export const globTool = tool({
-  description:
-    "Find files by pattern (e.g., '**/*.ts', 'src/**/*.json'). " +
-    "Returns paths sorted by modification time (newest first).",
+  description: GLOB_FILES_DESCRIPTION,
   inputSchema,
   execute: executeGlob,
 });

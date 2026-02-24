@@ -42,14 +42,16 @@ import {
   getAvailableModels,
   type ModelInfo,
 } from "../commands/model";
+import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createRenderCommand } from "../commands/render";
-import { createThinkCommand } from "../commands/think";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
+import { createTranslateCommand } from "../commands/translate";
 import { MessageHistory } from "../context/message-history";
 import { getSessionId, initializeSession } from "../context/session";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
+import { isNonEnglish, translateToEnglish } from "../context/translation";
 import { env } from "../env";
 import { renderFullStreamWithPiTui } from "../interaction/pi-tui-stream-renderer";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
@@ -62,21 +64,28 @@ import {
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
 import {
+  DEFAULT_REASONING_MODE,
+  parseReasoningMode,
+  type ReasoningMode,
+} from "../reasoning-mode";
+import {
   DEFAULT_TOOL_FALLBACK_MODE,
   LEGACY_ENABLED_TOOL_FALLBACK_MODE,
   parseToolFallbackMode,
   TOOL_FALLBACK_MODES,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
-import { cleanup } from "../tools/execute/process-manager";
+import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
 
 const ANSI_RESET = "\x1b[0m";
+const ANSI_BLACK = "\x1b[30m";
 const ANSI_BOLD = "\x1b[1m";
 const ANSI_DIM = "\x1b[2m";
 const ANSI_ITALIC = "\x1b[3m";
 const ANSI_UNDERLINE = "\x1b[4m";
 const ANSI_BG_GRAY = "\x1b[100m";
+const ANSI_BG_SOFT_LIGHT = "\x1b[48;5;249m";
 const ANSI_GREEN = "\x1b[92m";
 const ANSI_YELLOW = "\x1b[93m";
 const ANSI_MAGENTA = "\x1b[95m";
@@ -184,6 +193,21 @@ const createEditorTheme = (): EditorTheme => {
 };
 
 const addUserMessage = (
+  chatContainer: Container,
+  markdownTheme: MarkdownTheme,
+  message: string
+): void => {
+  chatContainer.addChild(new Spacer(1));
+
+  chatContainer.addChild(
+    new Markdown(message, 1, 1, markdownTheme, {
+      bgColor: (text: string) =>
+        style(`${ANSI_BG_SOFT_LIGHT}${ANSI_BLACK}`, text),
+    })
+  );
+};
+
+const addTranslatedMessage = (
   chatContainer: Container,
   markdownTheme: MarkdownTheme,
   message: string
@@ -552,6 +576,7 @@ interface CliUi {
   editor: Editor;
   markdownTheme: MarkdownTheme;
   requestExit: () => void;
+  showCommandLoader: (message: string) => void;
   showLoader: (message: string) => void;
   showModelSelector: (
     models: ModelInfo[],
@@ -559,7 +584,9 @@ interface CliUi {
     currentProvider: ProviderType,
     initialFilter?: string
   ) => Promise<ModelInfo | null>;
-  showThinkSelector: (currentEnabled: boolean) => Promise<"on" | "off" | null>;
+  showReasoningModeSelector: (
+    currentMode: ReasoningMode
+  ) => Promise<ReasoningMode | null>;
   showToolFallbackSelector: (
     currentMode: ToolFallbackMode
   ) => Promise<ToolFallbackMode | null>;
@@ -621,12 +648,29 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   tui.setFocus(editor);
 
   let loader: Loader | null = null;
+  let commandLoaderInterval: Timer | null = null;
+  let commandLoaderText: Text | null = null;
   let inputResolver: ((value: string | null) => void) | null = null;
   let pendingExitConfirmation = false;
   let lastCtrlCPressAt = 0;
   let activeModalCancel: (() => void) | null = null;
 
+  const COMMAND_LOADER_FRAMES = ["-", "\\", "|", "/"] as const;
+
+  const stopCommandLoader = (): void => {
+    if (commandLoaderInterval) {
+      clearInterval(commandLoaderInterval);
+      commandLoaderInterval = null;
+    }
+
+    if (commandLoaderText) {
+      statusContainer.removeChild(commandLoaderText);
+      commandLoaderText = null;
+    }
+  };
+
   const clearStatus = (): void => {
+    stopCommandLoader();
     if (loader) {
       loader.stop();
       statusContainer.removeChild(loader);
@@ -646,6 +690,27 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     );
     statusContainer.addChild(loader);
     loader.start();
+    tui.requestRender();
+  };
+
+  const showCommandLoader = (message: string): void => {
+    clearStatus();
+
+    commandLoaderText = new Text("", 1, 0);
+    statusContainer.addChild(commandLoaderText);
+
+    let frameIndex = 0;
+    const updateFrame = (): void => {
+      const frame = COMMAND_LOADER_FRAMES[frameIndex];
+      frameIndex = (frameIndex + 1) % COMMAND_LOADER_FRAMES.length;
+      commandLoaderText?.setText(
+        `${style(ANSI_CYAN, frame)} ${style(ANSI_DIM, message)}`
+      );
+      tui.requestRender();
+    };
+
+    updateFrame();
+    commandLoaderInterval = setInterval(updateFrame, 80);
     tui.requestRender();
   };
 
@@ -719,10 +784,18 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     clearPromptInput();
   };
 
-  const showThinkSelector = async (
-    currentEnabled: boolean
-  ): Promise<"on" | "off" | null> => {
+  const showReasoningModeSelector = async (
+    currentMode: ReasoningMode
+  ): Promise<ReasoningMode | null> => {
     clearStatus();
+
+    const selectableModes = agentManager.getSelectableReasoningModes();
+    const descriptions: Record<ReasoningMode, string> = {
+      off: "Disable reasoning mode",
+      on: "Enable reasoning if supported",
+      interleaved: "Enable interleaved reasoning field mode",
+      preserved: "Enable preserved interleaved reasoning mode",
+    };
 
     const selectorContainer = new Container();
     selectorContainer.addChild(
@@ -731,22 +804,17 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     selectorContainer.addChild(new Spacer(1));
 
     const selectList = new SelectList(
-      [
-        {
-          value: "on",
-          label: "on",
-          description: "Enable model reasoning",
-        },
-        {
-          value: "off",
-          label: "off",
-          description: "Disable model reasoning",
-        },
-      ],
+      selectableModes.map((mode) => ({
+        value: mode,
+        label: buildCurrentIndicatorLabel(mode, currentMode === mode),
+        description: descriptions[mode],
+      })),
       2,
       editorTheme.selectList
     );
-    selectList.setSelectedIndex(currentEnabled ? 0 : 1);
+
+    const selectedIndex = selectableModes.indexOf(currentMode);
+    selectList.setSelectedIndex(selectedIndex >= 0 ? selectedIndex : 0);
 
     selectorContainer.addChild(selectList);
     statusContainer.addChild(selectorContainer);
@@ -762,7 +830,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
         tui.requestRender();
       };
 
-      const finish = (value: "on" | "off" | null): void => {
+      const finish = (value: ReasoningMode | null): void => {
         if (done) {
           return;
         }
@@ -777,7 +845,8 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       });
 
       selectList.onSelect = (item) => {
-        finish(item.value === "off" ? "off" : "on");
+        const selectedMode = parseReasoningMode(item.value);
+        finish(selectedMode ?? DEFAULT_REASONING_MODE);
       };
       selectList.onCancel = () => {
         finish(null);
@@ -1122,10 +1191,11 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     updateHeader,
     waitForInput,
     requestExit,
+    showCommandLoader,
     showLoader,
     showModelSelector,
     showToolFallbackSelector,
-    showThinkSelector,
+    showReasoningModeSelector,
     clearStatus,
     dispose,
   };
@@ -1138,14 +1208,15 @@ registerCommand(
     instructions: await agentManager.getInstructions(),
     tools: agentManager.getTools(),
     messages: messageHistory.toModelMessages(),
-    thinkingEnabled: agentManager.isThinkingEnabled(),
+    reasoningMode: agentManager.getReasoningMode(),
     toolFallbackMode: agentManager.getToolFallbackMode(),
   }))
 );
 registerCommand(createModelCommand());
 registerCommand(createClearCommand());
-registerCommand(createThinkCommand());
+registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
+registerCommand(createTranslateCommand());
 
 const parseProviderArg = (
   providerArg: string | undefined
@@ -1197,22 +1268,65 @@ const parseToolFallbackCliOption = (
   };
 };
 
+const parseReasoningCliOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; mode: ReasoningMode } | null => {
+  const arg = args[index];
+  if (arg === "--think") {
+    return { consumedArgs: 0, mode: "on" };
+  }
+
+  if (arg !== "--reasoning-mode") {
+    return null;
+  }
+
+  const candidate = args[index + 1];
+  if (candidate && !candidate.startsWith("--")) {
+    const parsedMode = parseReasoningMode(candidate);
+    return {
+      consumedArgs: 1,
+      mode: parsedMode ?? DEFAULT_REASONING_MODE,
+    };
+  }
+
+  return {
+    consumedArgs: 0,
+    mode: DEFAULT_REASONING_MODE,
+  };
+};
+
+const parseTranslateCliOption = (arg: string): boolean | null => {
+  if (arg === "--translate") {
+    return true;
+  }
+  if (arg === "--no-translate") {
+    return false;
+  }
+  return null;
+};
+
 const parseCliArgs = (): {
-  thinking: boolean;
+  reasoningMode: ReasoningMode | null;
   toolFallbackMode: ToolFallbackMode;
   model: string | null;
   provider: ProviderType | null;
+  translateUserPrompts: boolean;
 } => {
   const args = process.argv.slice(2);
-  let thinking = false;
+  let reasoningMode: ReasoningMode | null = null;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   let model: string | null = null;
   let provider: ProviderType | null = null;
+  let translateUserPrompts = true;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === "--think") {
-      thinking = true;
+
+    const reasoningOption = parseReasoningCliOption(args, i);
+    if (reasoningOption) {
+      reasoningMode = reasoningOption.mode;
+      i += reasoningOption.consumedArgs;
       continue;
     }
 
@@ -1232,22 +1346,45 @@ const parseCliArgs = (): {
     if (arg === "--provider" && i + 1 < args.length) {
       provider = parseProviderArg(args[i + 1]) ?? provider;
       i += 1;
+      continue;
+    }
+
+    const translateOption = parseTranslateCliOption(arg);
+    if (translateOption !== null) {
+      translateUserPrompts = translateOption;
     }
   }
 
-  return { thinking, toolFallbackMode, model, provider };
+  return {
+    reasoningMode,
+    toolFallbackMode,
+    model,
+    provider,
+    translateUserPrompts,
+  };
 };
 
 const setupAgent = (): void => {
-  const { thinking, toolFallbackMode, model, provider } = parseCliArgs();
-  agentManager.setThinkingEnabled(thinking);
-  agentManager.setToolFallbackMode(toolFallbackMode);
+  const {
+    reasoningMode,
+    toolFallbackMode,
+    model,
+    provider,
+    translateUserPrompts,
+  } = parseCliArgs();
   if (provider) {
     agentManager.setProvider(provider);
   }
   if (model) {
     agentManager.setModelId(model);
   }
+
+  if (reasoningMode !== null) {
+    agentManager.setReasoningMode(reasoningMode);
+  }
+
+  agentManager.setToolFallbackMode(toolFallbackMode);
+  agentManager.setTranslationEnabled(translateUserPrompts);
 };
 
 type AgentResponseStatus = "completed" | "interrupted";
@@ -1258,7 +1395,7 @@ const processAgentResponse = async (
   let manualToolLoopCount = 0;
 
   while (true) {
-    ui.showLoader(manualToolLoopCount === 0 ? "Thinking..." : "Continuing...");
+    ui.showLoader("Working...");
     const streamAbortController = new AbortController();
     activeStreamController = streamAbortController;
     streamInterruptRequested = false;
@@ -1268,12 +1405,21 @@ const processAgentResponse = async (
         messageHistory.toModelMessages(),
         { abortSignal: streamAbortController.signal }
       );
-      ui.clearStatus();
+
+      let hasClearedStreamingLoader = false;
+      const clearStreamingLoader = (): void => {
+        if (hasClearedStreamingLoader) {
+          return;
+        }
+        hasClearedStreamingLoader = true;
+        ui.clearStatus();
+      };
 
       await renderFullStreamWithPiTui(stream.fullStream, {
         ui: ui.tui,
         chatContainer: ui.chatContainer,
         markdownTheme: ui.markdownTheme,
+        onFirstVisiblePart: clearStreamingLoader,
         showReasoning: true,
         showSteps: false,
         showToolResults: true,
@@ -1281,6 +1427,8 @@ const processAgentResponse = async (
         showSources: false,
         showFinishReason: env.DEBUG_SHOW_FINISH_REASON,
       });
+
+      clearStreamingLoader();
 
       const [response, finishReason] = await Promise.all([
         stream.response,
@@ -1422,21 +1570,27 @@ const resolveToolFallbackCommandInput = async (
   return `/tool-fallback ${selected}`;
 };
 
-const resolveThinkCommandInput = async (
+const resolveReasoningModeCommandInput = async (
   ui: CliUi,
   commandInput: string,
   parsed: ReturnType<typeof parseCommand>
 ): Promise<string | null> => {
-  if (parsed?.name !== "think" || parsed.args.length > 0) {
+  if (
+    !parsed ||
+    (parsed.name !== "think" && parsed.name !== "reasoning-mode") ||
+    parsed.args.length > 0
+  ) {
     return commandInput;
   }
 
-  const selected = await ui.showThinkSelector(agentManager.isThinkingEnabled());
+  const selected = await ui.showReasoningModeSelector(
+    agentManager.getReasoningMode()
+  );
   if (!selected) {
     return null;
   }
 
-  return `/think ${selected}`;
+  return `/reasoning-mode ${selected}`;
 };
 
 const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
@@ -1462,15 +1616,15 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   }
   commandInput = toolFallbackCommandInput;
 
-  const thinkCommandInput = await resolveThinkCommandInput(
+  const reasoningModeCommandInput = await resolveReasoningModeCommandInput(
     ui,
     commandInput,
     initialParsed
   );
-  if (!thinkCommandInput) {
+  if (!reasoningModeCommandInput) {
     return true;
   }
-  commandInput = thinkCommandInput;
+  commandInput = reasoningModeCommandInput;
 
   const parsed = parseCommand(commandInput);
   const resolvedCommandName = parsed
@@ -1478,11 +1632,11 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
     : null;
   const isNativeCommand =
     resolvedCommandName === "clear" ||
-    resolvedCommandName === "think" ||
+    resolvedCommandName === "reasoning-mode" ||
     resolvedCommandName === "tool-fallback";
 
   if (!isNativeCommand) {
-    ui.showLoader("Running command...");
+    ui.showCommandLoader("Running command...");
   }
 
   const result = await executeCommand(commandInput);
@@ -1532,8 +1686,49 @@ const processInput = async (ui: CliUi, input: string): Promise<boolean> => {
       return await handleCommand(ui, trimmed);
     }
 
-    addUserMessage(ui.chatContainer, ui.markdownTheme, trimmed);
-    messageHistory.addUserMessage(trimmed);
+    let contentForModel = trimmed;
+    let originalContent: string | undefined;
+    let translationError: string | undefined;
+
+    if (agentManager.isTranslationEnabled()) {
+      const shouldShowTranslationLoader = isNonEnglish(trimmed);
+      if (shouldShowTranslationLoader) {
+        addUserMessage(ui.chatContainer, ui.markdownTheme, trimmed);
+        ui.tui.requestRender();
+      }
+
+      if (shouldShowTranslationLoader) {
+        ui.showLoader("Translating...");
+      }
+
+      try {
+        const translationResult = await translateToEnglish(
+          trimmed,
+          agentManager
+        );
+        contentForModel = translationResult.text;
+        originalContent = translationResult.originalText;
+        translationError = translationResult.error;
+      } finally {
+        if (shouldShowTranslationLoader) {
+          ui.clearStatus();
+        }
+      }
+    }
+
+    if (!(isNonEnglish(trimmed) && agentManager.isTranslationEnabled())) {
+      addUserMessage(ui.chatContainer, ui.markdownTheme, contentForModel);
+    } else if (originalContent) {
+      addTranslatedMessage(ui.chatContainer, ui.markdownTheme, contentForModel);
+    }
+
+    if (translationError) {
+      addSystemMessage(
+        ui.chatContainer,
+        `[translation] Failed to translate input: ${translationError}. Using original text.`
+      );
+    }
+    messageHistory.addUserMessage(contentForModel, originalContent);
     ui.tui.requestRender();
     await handleAgentResponse(ui);
     return true;
@@ -1574,22 +1769,22 @@ const run = async (): Promise<void> => {
     }
   } finally {
     ui.dispose();
-    cleanupTmuxSession();
+    cleanupExecutionResources();
     setSpinnerOutputEnabled(true);
   }
 };
 
-const cleanupTmuxSession = (): void => {
+const cleanupExecutionResources = (): void => {
   cleanup();
 };
 
 const exitWithCleanup = (code: number): never => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
   process.exit(code);
 };
 
 process.once("exit", () => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
 });
 
 process.once("SIGTERM", () => {

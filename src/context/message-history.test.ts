@@ -158,4 +158,37 @@ describe("MessageHistory", () => {
       },
     ]);
   });
+
+  it("stores originalContent for translated user messages", () => {
+    const history = new MessageHistory();
+
+    const message = history.addUserMessage(
+      "Please update src/foo.ts",
+      "src/foo.ts 파일을 수정해줘"
+    );
+
+    expect(message.modelMessage.content).toBe("Please update src/foo.ts");
+    expect(message.originalContent).toBe("src/foo.ts 파일을 수정해줘");
+    expect(history.toModelMessages()).toEqual([
+      {
+        role: "user",
+        content: "Please update src/foo.ts",
+      },
+    ]);
+  });
+
+  it("keeps originalContent undefined for English user messages", () => {
+    const history = new MessageHistory();
+
+    const message = history.addUserMessage("Please list the files");
+
+    expect(message.modelMessage.content).toBe("Please list the files");
+    expect(message.originalContent).toBeUndefined();
+    expect(history.toModelMessages()).toEqual([
+      {
+        role: "user",
+        content: "Please list the files",
+      },
+    ]);
+  });
 });

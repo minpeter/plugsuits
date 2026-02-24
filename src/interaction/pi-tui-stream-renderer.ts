@@ -7,20 +7,24 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
-import type { TextStreamPart, ToolSet } from "ai";
+import { parsePartialJson, type TextStreamPart, type ToolSet } from "ai";
 
 type StreamPart = TextStreamPart<ToolSet>;
 
 interface ToolInputRenderState {
   hasContent: boolean;
+  inputBuffer: string;
+  renderedInputLength: number;
   toolName: string;
 }
 
 export interface PiTuiStreamRenderOptions {
   chatContainer: Container;
   markdownTheme: MarkdownTheme;
+  onFirstVisiblePart?: () => void;
   showFiles?: boolean;
   showFinishReason?: boolean;
+  showRawToolIo?: boolean;
   showReasoning?: boolean;
   showSources?: boolean;
   showSteps?: boolean;
@@ -74,16 +78,42 @@ const renderCodeBlock = (language: string, value: unknown): string => {
 const READ_FILE_SUCCESS_PREFIX = "OK - read file";
 const GLOB_SUCCESS_PREFIX = "OK - glob";
 const GREP_SUCCESS_PREFIX = "OK - grep";
+const SHELL_EXECUTE_TOOL_NAMES = new Set(["shell_execute", "bash"]);
+const SHELL_TOOL_NAMES = new Set(["shell_execute", "bash", "shell_interact"]);
+const UNKNOWN_TOOL_NAME = "tool";
 const READ_FILE_BLOCK_PREFIX = "======== ";
 const READ_FILE_BLOCK_SUFFIX = " ========";
 const READ_FILE_BLOCK_END = "======== end ========";
 const BACKTICK_FENCE_PATTERN = /`{3,}/g;
-const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+\s\|\s)(.*)$/;
+const READ_FILE_LINE_SPLIT_PATTERN = /^(\s*\d+(?:#[^\s|]+)?\s*\|\s*)(.*)$/;
 const READ_FILE_LINES_WITH_RETURNED_PATTERN = /^(\d+)\s+\(returned:\s*(\d+)\)$/;
 const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
 const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;
 const TAB_PATTERN = /\t/g;
 const MAX_READ_PREVIEW_LINES = 10;
+const HASHLINE_TAG_ONLY_PATTERN = /^(.*\d+#[ZPMQVRWSNKTXJBYH]{2})\s*$/;
+const HASHLINE_PIPE_ONLY_PATTERN = /^\|\s*(.*)$/;
+const HASHLINE_TAG_PIPE_ONLY_PATTERN =
+  /^(.*\d+#[ZPMQVRWSNKTXJBYH]{2})\s*\|\s*$/;
+const HASHLINE_COMPACT_LINE_PATTERN = /^\s*\d+#[ZPMQVRWSNKTXJBYH]{2}\|.*$/;
+
+const isTruthyEnvFlag = (value: string | undefined): boolean => {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+};
+
+const isRawToolIoEnabledByEnv = (): boolean => {
+  return isTruthyEnvFlag(process.env.DEBUG_SHOW_RAW_TOOL_IO);
+};
 
 interface ReadFileParsedOutput {
   blockBody: string;
@@ -99,14 +129,93 @@ const extractStringField = (input: unknown, field: string): string | null => {
   return typeof record[field] === "string" ? (record[field] as string) : null;
 };
 
-const extractReadFilePath = (input: unknown): string | null =>
-  extractStringField(input, "path");
+const extractNumberField = (input: unknown, field: string): number | null => {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  const value = record[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
 
-const extractGlobPattern = (input: unknown): string | null =>
-  extractStringField(input, "pattern");
+const extractBooleanField = (input: unknown, field: string): boolean | null => {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  return typeof record[field] === "boolean" ? (record[field] as boolean) : null;
+};
 
-const extractGrepPattern = (input: unknown): string | null =>
-  extractStringField(input, "pattern");
+const buildTextPreviewLines = (
+  text: string,
+  emptyText = "(empty)"
+): string[] => {
+  const normalized = text.replaceAll("\r\n", "\n").trimEnd();
+  if (normalized.length === 0) {
+    return [emptyText];
+  }
+
+  const allLines = normalized.split("\n");
+  const omittedLines = Math.max(0, allLines.length - MAX_READ_PREVIEW_LINES);
+  const visibleLines =
+    omittedLines > 0 ? allLines.slice(0, MAX_READ_PREVIEW_LINES) : allLines;
+
+  const preview = [...visibleLines];
+  if (omittedLines > 0) {
+    const lineLabel = `line${omittedLines === 1 ? "" : "s"}`;
+    preview.push("");
+    preview.push(`... (${omittedLines} more ${lineLabel})`);
+  }
+
+  return preview;
+};
+
+const buildPrettyHeader = (title: string, target: string): string => {
+  return `**${title}** \`${target}\``;
+};
+
+const normalizeHashlineBreakArtifacts = (lines: string[]): string[] => {
+  const normalized: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const current = lines[index].replaceAll("\r", "");
+    const next = lines[index + 1]?.replaceAll("\r", "");
+    const nextNext = lines[index + 2]?.replaceAll("\r", "");
+
+    const currentTagOnly = current.match(HASHLINE_TAG_ONLY_PATTERN);
+    const nextPipeOnly = next?.match(HASHLINE_PIPE_ONLY_PATTERN);
+    const nextLooksLikeHashline =
+      next !== undefined && HASHLINE_COMPACT_LINE_PATTERN.test(next);
+    const nextNextLooksLikeHashline =
+      nextNext !== undefined && HASHLINE_COMPACT_LINE_PATTERN.test(nextNext);
+
+    if (currentTagOnly && nextPipeOnly) {
+      const pipedContent = nextPipeOnly[1].trim();
+      if (pipedContent.length > 0) {
+        normalized.push(`${currentTagOnly[1]}|${pipedContent}`);
+        index += 1;
+        continue;
+      }
+
+      if (nextNext !== undefined && !nextNextLooksLikeHashline) {
+        normalized.push(`${currentTagOnly[1]}|${nextNext.trimStart()}`);
+        index += 2;
+        continue;
+      }
+    }
+
+    const currentTagPipeOnly = current.match(HASHLINE_TAG_PIPE_ONLY_PATTERN);
+    if (currentTagPipeOnly && next !== undefined && !nextLooksLikeHashline) {
+      normalized.push(`${currentTagPipeOnly[1]}|${next.trimStart()}`);
+      index += 1;
+      continue;
+    }
+
+    normalized.push(current);
+  }
+
+  return normalized;
+};
 
 const shouldIncludeReadFilePreviewLine = (line: string): boolean => {
   const match = line.match(READ_FILE_LINE_SPLIT_PATTERN);
@@ -374,9 +483,9 @@ const renderReadFileOutput = (output: string): ReadFileRenderPayload | null => {
 
   const contentBody =
     parsed.blockBody.trim().length > 0 ? parsed.blockBody : "(empty)";
-  const allLines = contentBody
-    .split("\n")
-    .filter(shouldIncludeReadFilePreviewLine);
+  const allLines = normalizeHashlineBreakArtifacts(
+    contentBody.split("\n").filter(shouldIncludeReadFilePreviewLine)
+  );
   const omittedFromPreview = Math.max(
     0,
     allLines.length - MAX_READ_PREVIEW_LINES
@@ -462,7 +571,10 @@ const renderGrepOutput = (output: string): GrepRenderPayload | null => {
   }
 
   const contentBody = parsed.blockBody.trim();
-  const allLines = contentBody.length > 0 ? contentBody.split("\n") : [];
+  const allLines =
+    contentBody.length > 0
+      ? normalizeHashlineBreakArtifacts(contentBody.split("\n"))
+      : [];
 
   const omittedFromPreview = Math.max(
     0,
@@ -863,6 +975,7 @@ class ToolCallView extends Container {
   private readonly readBlock: Container;
   private readonly readBody: TruncatedReadBody;
   private readonly readHeader: TrimmedMarkdown;
+  private readonly showRawToolIo: boolean;
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
@@ -872,10 +985,16 @@ class ToolCallView extends Container {
   private readMode = false;
   private toolName: string;
 
-  constructor(callId: string, toolName: string, markdownTheme: MarkdownTheme) {
+  constructor(
+    callId: string,
+    toolName: string,
+    markdownTheme: MarkdownTheme,
+    showRawToolIo: boolean
+  ) {
     super();
     this.callId = callId;
     this.toolName = toolName;
+    this.showRawToolIo = showRawToolIo;
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.readHeader = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.readBody = new TruncatedReadBody("", 1, applyReadPreviewBackground);
@@ -897,13 +1016,11 @@ class ToolCallView extends Container {
     this.addChild(enabled ? this.readBlock : this.content);
   }
 
-  appendInputChunk(chunk: string): void {
+  async appendInputChunk(chunk: string): Promise<void> {
     this.inputBuffer += chunk;
-    try {
-      this.parsedInput = JSON.parse(this.inputBuffer) as unknown;
-    } catch {
-      this.parsedInput = undefined;
-    }
+
+    const { value } = await parsePartialJson(this.inputBuffer);
+    this.parsedInput = value;
     this.refresh();
   }
 
@@ -945,6 +1062,55 @@ class ToolCallView extends Container {
     return undefined;
   }
 
+  private canRenderPrettyTool(toolName: string | Set<string>): boolean {
+    if (this.error !== undefined || this.outputDenied) {
+      return false;
+    }
+
+    if (typeof toolName === "string") {
+      return this.toolName === toolName;
+    }
+
+    return toolName.has(this.toolName);
+  }
+
+  private resolveInputStringField(field: string): string | null {
+    const bestInput = this.resolveBestInput();
+    const fromObject = extractStringField(bestInput, field);
+    if (fromObject) {
+      return fromObject;
+    }
+
+    return null;
+  }
+
+  private resolveInputNumberField(field: string): number | null {
+    const bestInput = this.resolveBestInput();
+    const fromObject = extractNumberField(bestInput, field);
+    if (fromObject !== null) {
+      return fromObject;
+    }
+
+    return null;
+  }
+
+  private setPrettyBlock(header: string, body: string): void {
+    this.setReadMode(true);
+    this.readHeader.setText(header);
+    this.readBody.setText(body);
+  }
+
+  private renderOutputPreviewBody(
+    output: unknown,
+    emptyText = "(no output)"
+  ): string {
+    if (typeof output === "string") {
+      return buildTextPreviewLines(output, emptyText).join("\n");
+    }
+
+    return buildTextPreviewLines(safeStringify(output), emptyText).join("\n");
+  }
+
   private tryRenderReadFileMode(): boolean {
     if (
       this.toolName !== "read_file" ||
@@ -954,8 +1120,7 @@ class ToolCallView extends Container {
       return false;
     }
 
-    const bestInput = this.resolveBestInput();
-    const readPath = extractReadFilePath(bestInput);
+    const readPath = this.resolveInputStringField("path");
 
     if (typeof this.output === "string") {
       const renderedReadFile = renderReadFileOutput(this.output);
@@ -993,8 +1158,7 @@ class ToolCallView extends Container {
       return false;
     }
 
-    const bestInput = this.resolveBestInput();
-    const globPattern = extractGlobPattern(bestInput);
+    const globPattern = this.resolveInputStringField("pattern");
 
     if (typeof this.output === "string") {
       const renderedGlob = renderGlobOutput(this.output);
@@ -1029,8 +1193,7 @@ class ToolCallView extends Container {
       return false;
     }
 
-    const bestInput = this.resolveBestInput();
-    const grepPattern = extractGrepPattern(bestInput);
+    const grepPattern = this.resolveInputStringField("pattern");
 
     if (typeof this.output === "string") {
       const renderedGrep = renderGrepOutput(this.output);
@@ -1056,20 +1219,264 @@ class ToolCallView extends Container {
     return true;
   }
 
-  private refresh(): void {
-    if (
+  private tryRenderShellExecuteMode(): boolean {
+    if (!this.canRenderPrettyTool(SHELL_EXECUTE_TOOL_NAMES)) {
+      return false;
+    }
+
+    const command = this.resolveInputStringField("command") ?? "(command)";
+    const header = buildPrettyHeader("Shell", command);
+
+    if (this.output === undefined) {
+      this.setPrettyBlock(header, "Running...");
+      return true;
+    }
+
+    const exitCode = extractNumberField(this.output, "exit_code");
+    const shellOutput = extractStringField(this.output, "output");
+    const workdir = this.resolveInputStringField("workdir");
+    const timeoutMs = this.resolveInputNumberField("timeout_ms");
+
+    const bodyLines: string[] = [];
+    if (exitCode !== null) {
+      bodyLines.push(`exit_code: ${exitCode}`);
+    }
+    if (workdir) {
+      bodyLines.push(`workdir: ${workdir}`);
+    }
+    if (timeoutMs !== null) {
+      bodyLines.push(`timeout_ms: ${timeoutMs}`);
+    }
+    if (bodyLines.length > 0) {
+      bodyLines.push("");
+    }
+
+    bodyLines.push(
+      ...buildTextPreviewLines(
+        shellOutput ?? safeStringify(this.output),
+        "(no output)"
+      )
+    );
+
+    this.setPrettyBlock(header, bodyLines.join("\n"));
+    return true;
+  }
+
+  private tryRenderShellInteractMode(): boolean {
+    if (!this.canRenderPrettyTool("shell_interact")) {
+      return false;
+    }
+
+    const keystrokes =
+      this.resolveInputStringField("keystrokes") ?? "(keystrokes)";
+    const header = buildPrettyHeader("Interact", keystrokes);
+
+    if (this.output === undefined) {
+      this.setPrettyBlock(header, "Sending keys...");
+      return true;
+    }
+
+    const success = extractBooleanField(this.output, "success");
+    const interactOutput = extractStringField(this.output, "output");
+
+    const bodyLines: string[] = [];
+    if (success !== null) {
+      bodyLines.push(`success: ${success}`);
+      bodyLines.push("");
+    }
+
+    bodyLines.push(
+      ...buildTextPreviewLines(
+        interactOutput ?? safeStringify(this.output),
+        "(no output)"
+      )
+    );
+
+    this.setPrettyBlock(header, bodyLines.join("\n"));
+    return true;
+  }
+
+  private tryRenderWriteFileMode(): boolean {
+    if (!this.canRenderPrettyTool("write_file")) {
+      return false;
+    }
+
+    const path = this.resolveInputStringField("path") ?? "(unknown)";
+    const header = buildPrettyHeader("Write", path);
+
+    if (this.output === undefined) {
+      this.setPrettyBlock(header, "Writing...");
+      return true;
+    }
+
+    this.setPrettyBlock(header, this.renderOutputPreviewBody(this.output));
+    return true;
+  }
+
+  private tryRenderEditFileMode(): boolean {
+    if (!this.canRenderPrettyTool("edit_file")) {
+      return false;
+    }
+
+    const bestInput = this.resolveBestInput();
+    const path = this.resolveInputStringField("path") ?? "(unknown)";
+    const header = buildPrettyHeader("Edit", path);
+    const bodyLines: string[] = [];
+
+    if (typeof bestInput === "object" && bestInput !== null) {
+      const record = bestInput as Record<string, unknown>;
+      if (Array.isArray(record.edits)) {
+        bodyLines.push(`edits: ${record.edits.length}`);
+      }
+    }
+
+    if (this.output === undefined) {
+      if (bodyLines.length > 0) {
+        bodyLines.push("");
+      }
+      bodyLines.push("Editing...");
+    } else {
+      if (bodyLines.length > 0) {
+        bodyLines.push("");
+      }
+      bodyLines.push(...buildTextPreviewLines(safeStringify(this.output)));
+    }
+
+    const editPayload = tryExtractEditPayload(this.toolName, bestInput);
+    if (editPayload) {
+      bodyLines.push("");
+      bodyLines.push("Live diff preview:");
+      bodyLines.push(renderDiffBlock(editPayload.oldStr, editPayload.newStr));
+    }
+
+    this.setPrettyBlock(header, bodyLines.join("\n"));
+    return true;
+  }
+
+  private tryRenderDeleteFileMode(): boolean {
+    if (!this.canRenderPrettyTool("delete_file")) {
+      return false;
+    }
+
+    const path = this.resolveInputStringField("path") ?? "(unknown)";
+    const header = buildPrettyHeader("Delete", path);
+
+    if (this.output === undefined) {
+      this.setPrettyBlock(header, "Deleting...");
+      return true;
+    }
+
+    this.setPrettyBlock(header, this.renderOutputPreviewBody(this.output));
+    return true;
+  }
+
+  private tryRenderLoadSkillMode(): boolean {
+    if (!this.canRenderPrettyTool("load_skill")) {
+      return false;
+    }
+
+    const skillName = this.resolveInputStringField("skillName") ?? "(unknown)";
+    const relativePath = this.resolveInputStringField("relativePath");
+    const target = relativePath ? `${skillName}/${relativePath}` : skillName;
+    const header = buildPrettyHeader("Skill", target);
+
+    if (this.output === undefined) {
+      this.setPrettyBlock(header, "Loading skill...");
+      return true;
+    }
+
+    this.setPrettyBlock(header, this.renderOutputPreviewBody(this.output));
+    return true;
+  }
+
+  private tryRenderTodoWriteMode(): boolean {
+    if (!this.canRenderPrettyTool("todo_write")) {
+      return false;
+    }
+
+    const bestInput = this.resolveBestInput();
+    const todoItems =
+      typeof bestInput === "object" && bestInput !== null
+        ? (bestInput as Record<string, unknown>).todos
+        : undefined;
+    const todos = Array.isArray(todoItems)
+      ? todoItems.filter((item): item is Record<string, unknown> => {
+          return typeof item === "object" && item !== null;
+        })
+      : [];
+
+    const totalTodos = todos.length;
+    const headerTarget = `${totalTodos} task${totalTodos === 1 ? "" : "s"}`;
+    const header = buildPrettyHeader("Todo", headerTarget);
+
+    if (this.output === undefined) {
+      this.setPrettyBlock(header, "Updating todo list...");
+      return true;
+    }
+
+    const counts = {
+      completed: 0,
+      inProgress: 0,
+      pending: 0,
+      cancelled: 0,
+    };
+
+    for (const todo of todos) {
+      const status =
+        typeof todo.status === "string" ? todo.status.toLowerCase() : "";
+      if (status === "completed") {
+        counts.completed += 1;
+      } else if (status === "in_progress") {
+        counts.inProgress += 1;
+      } else if (status === "pending") {
+        counts.pending += 1;
+      } else if (status === "cancelled") {
+        counts.cancelled += 1;
+      }
+    }
+
+    const bodyLines = [
+      `total: ${totalTodos}`,
+      `completed: ${counts.completed}`,
+      `in_progress: ${counts.inProgress}`,
+      `pending: ${counts.pending}`,
+      `cancelled: ${counts.cancelled}`,
+      "",
+      ...buildTextPreviewLines(safeStringify(this.output)),
+    ];
+
+    this.setPrettyBlock(header, bodyLines.join("\n"));
+    return true;
+  }
+
+  private tryRenderPrettyMode(): boolean {
+    return (
       this.tryRenderReadFileMode() ||
       this.tryRenderGlobMode() ||
-      this.tryRenderGrepMode()
-    ) {
+      this.tryRenderGrepMode() ||
+      this.tryRenderShellExecuteMode() ||
+      this.tryRenderShellInteractMode() ||
+      this.tryRenderWriteFileMode() ||
+      this.tryRenderEditFileMode() ||
+      this.tryRenderDeleteFileMode() ||
+      this.tryRenderLoadSkillMode() ||
+      this.tryRenderTodoWriteMode()
+    );
+  }
+
+  private refresh(): void {
+    if (!this.showRawToolIo && this.tryRenderPrettyMode()) {
       return;
     }
 
     this.setReadMode(false);
 
-    const blocks: string[] = [
-      `**Tool** \`${this.toolName}\` (\`${this.callId}\`)`,
-    ];
+    const includeCallIdInRawHeader = !SHELL_TOOL_NAMES.has(this.toolName);
+    const rawHeader = includeCallIdInRawHeader
+      ? `**Tool** \`${this.toolName}\` (\`${this.callId}\`)`
+      : `**Tool** \`${this.toolName}\``;
+
+    const blocks: string[] = [rawHeader];
 
     const bestInput = this.resolveBestInput();
     if (bestInput !== undefined) {
@@ -1120,6 +1527,45 @@ const getToolInputChunk = (part: ToolInputDeltaPart): string | null => {
   return null;
 };
 
+const createToolInputState = (toolName: string): ToolInputRenderState => {
+  return {
+    toolName,
+    hasContent: false,
+    inputBuffer: "",
+    renderedInputLength: 0,
+  };
+};
+
+const syncToolInputToView = async (
+  state: PiTuiStreamState,
+  toolCallId: string,
+  toolState: ToolInputRenderState
+): Promise<void> => {
+  const hasKnownToolName = toolState.toolName !== UNKNOWN_TOOL_NAME;
+  if (!(state.flags.showRawToolIo || hasKnownToolName)) {
+    return;
+  }
+
+  const existingView = state.getToolView(toolCallId);
+  const pendingInput = toolState.inputBuffer.slice(
+    toolState.renderedInputLength
+  );
+  if (!existingView && pendingInput.length === 0) {
+    return;
+  }
+
+  state.resetAssistantView(true);
+  const toolView =
+    existingView ?? state.ensureToolView(toolCallId, toolState.toolName);
+
+  if (pendingInput.length === 0) {
+    return;
+  }
+
+  await toolView.appendInputChunk(pendingInput);
+  toolState.renderedInputLength = toolState.inputBuffer.length;
+};
+
 const createInfoMessage = (title: string, value: unknown): Text => {
   return new Text(`${title}\n${safeStringify(value)}`, 1, 0);
 };
@@ -1127,6 +1573,7 @@ const createInfoMessage = (title: string, value: unknown): Text => {
 interface PiTuiRenderFlags {
   showFiles: boolean;
   showFinishReason: boolean;
+  showRawToolIo: boolean;
   showReasoning: boolean;
   showSources: boolean;
   showSteps: boolean;
@@ -1139,11 +1586,15 @@ interface PiTuiStreamState {
   ensureAssistantView: () => AssistantStreamView;
   ensureToolView: (toolCallId: string, toolName: string) => ToolCallView;
   flags: PiTuiRenderFlags;
+  getToolView: (toolCallId: string) => ToolCallView | undefined;
   resetAssistantView: (suppressLeadingSpacer?: boolean) => void;
   streamedToolCallIds: Set<string>;
 }
 
-type StreamPartHandler = (part: StreamPart, state: PiTuiStreamState) => void;
+type StreamPartHandler = (
+  part: StreamPart,
+  state: PiTuiStreamState
+) => void | Promise<void>;
 
 const handleTextStart: StreamPartHandler = (_part, state) => {
   state.ensureAssistantView();
@@ -1171,7 +1622,7 @@ const handleReasoningDelta: StreamPartHandler = (part, state) => {
   state.ensureAssistantView().appendReasoning(reasoningPart.text);
 };
 
-const handleToolInputStart: StreamPartHandler = (part, state) => {
+const handleToolInputStart: StreamPartHandler = async (part, state) => {
   const toolInputStartPart = part as Extract<
     StreamPart,
     { type: "tool-input-start" }
@@ -1181,16 +1632,17 @@ const handleToolInputStart: StreamPartHandler = (part, state) => {
     return;
   }
 
-  state.activeToolInputs.set(toolCallId, {
-    toolName: toolInputStartPart.toolName,
-    hasContent: false,
-  });
+  const existingState = state.activeToolInputs.get(toolCallId);
+  const toolState =
+    existingState ?? createToolInputState(toolInputStartPart.toolName);
+  toolState.toolName = toolInputStartPart.toolName;
+
+  state.activeToolInputs.set(toolCallId, toolState);
   state.streamedToolCallIds.add(toolCallId);
-  state.resetAssistantView(true);
-  state.ensureToolView(toolCallId, toolInputStartPart.toolName);
+  await syncToolInputToView(state, toolCallId, toolState);
 };
 
-const handleToolInputDelta: StreamPartHandler = (part, state) => {
+const handleToolInputDelta: StreamPartHandler = async (part, state) => {
   const toolInputDeltaPart = part as Extract<
     StreamPart,
     { type: "tool-input-delta" }
@@ -1201,23 +1653,19 @@ const handleToolInputDelta: StreamPartHandler = (part, state) => {
   }
 
   if (!state.activeToolInputs.has(toolCallId)) {
-    state.activeToolInputs.set(toolCallId, {
-      toolName: "tool",
-      hasContent: false,
-    });
+    state.activeToolInputs.set(
+      toolCallId,
+      createToolInputState(UNKNOWN_TOOL_NAME)
+    );
   }
 
   const toolState = state.activeToolInputs.get(toolCallId);
-  const toolName = toolState?.toolName ?? "tool";
-  state.resetAssistantView(true);
-  const toolView = state.ensureToolView(toolCallId, toolName);
   const chunk = getToolInputChunk(toolInputDeltaPart);
 
-  if (chunk) {
-    toolView.appendInputChunk(chunk);
-    if (toolState) {
-      toolState.hasContent = true;
-    }
+  if (chunk && toolState) {
+    toolState.inputBuffer += chunk;
+    toolState.hasContent = true;
+    await syncToolInputToView(state, toolCallId, toolState);
   }
 
   state.streamedToolCallIds.add(toolCallId);
@@ -1370,10 +1818,45 @@ const IGNORE_PART_TYPES = new Set([
   "tool-approval-request",
 ]);
 
-const handleStreamPart = (part: StreamPart, state: PiTuiStreamState): void => {
+const isVisibleStreamPart = (
+  part: StreamPart,
+  flags: PiTuiRenderFlags
+): boolean => {
+  switch (part.type) {
+    case "abort":
+    case "text-end":
+    case "reasoning-end":
+    case "start":
+    case "tool-approval-request":
+    case "text-start":
+    case "reasoning-start":
+    case "tool-input-end":
+      return false;
+    case "reasoning-delta":
+      return flags.showReasoning;
+    case "tool-result":
+      return flags.showToolResults;
+    case "start-step":
+    case "finish-step":
+      return flags.showSteps;
+    case "source":
+      return flags.showSources;
+    case "file":
+      return flags.showFiles;
+    case "finish":
+      return flags.showFinishReason;
+    default:
+      return true;
+  }
+};
+
+const handleStreamPart = async (
+  part: StreamPart,
+  state: PiTuiStreamState
+): Promise<void> => {
   const handler = STREAM_HANDLERS[part.type];
   if (handler) {
-    handler(part, state);
+    await handler(part, state);
     return;
   }
 
@@ -1396,6 +1879,7 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
     showReasoning: options.showReasoning ?? true,
     showSteps: options.showSteps ?? false,
     showFinishReason: options.showFinishReason ?? false,
+    showRawToolIo: options.showRawToolIo ?? isRawToolIoEnabledByEnv(),
     showToolResults: options.showToolResults ?? true,
     showSources: options.showSources ?? false,
     showFiles: options.showFiles ?? false,
@@ -1406,6 +1890,7 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
   const toolViews = new Map<string, ToolCallView>();
   let assistantView: AssistantStreamView | null = null;
   let suppressAssistantLeadingSpacer = false;
+  let firstVisiblePartSeen = false;
 
   const resetAssistantView = (suppressLeadingSpacer = false): void => {
     if (suppressLeadingSpacer) {
@@ -1435,7 +1920,12 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
       return existing;
     }
 
-    const view = new ToolCallView(toolCallId, toolName, options.markdownTheme);
+    const view = new ToolCallView(
+      toolCallId,
+      toolName,
+      options.markdownTheme,
+      flags.showRawToolIo
+    );
     toolViews.set(toolCallId, view);
     addChatComponent(options.chatContainer, view);
     return view;
@@ -1448,13 +1938,19 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
     resetAssistantView,
     ensureAssistantView,
     ensureToolView,
+    getToolView: (toolCallId: string) => toolViews.get(toolCallId),
     chatContainer: options.chatContainer,
   };
 
   for await (const rawPart of stream) {
     const part = rawPart as StreamPart;
 
-    handleStreamPart(part, state);
+    if (!firstVisiblePartSeen && isVisibleStreamPart(part, flags)) {
+      firstVisiblePartSeen = true;
+      options.onFirstVisiblePart?.();
+    }
+
+    await handleStreamPart(part, state);
     options.ui.requestRender();
   }
 };

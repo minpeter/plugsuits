@@ -1,7 +1,13 @@
-import SHELL_TOOLS_CONTEXT from "../tools/execute/system-context.txt";
-import EXPLORE_TOOLS_CONTEXT from "../tools/explore/system-context.txt";
-import MODIFY_TOOLS_CONTEXT from "../tools/modify/system-context.txt";
-import PLANNING_TOOLS_CONTEXT from "../tools/planning/system-context.txt";
+import SHELL_EXECUTE_CONTEXT from "../tools/execute/shell-execute.txt";
+import SHELL_INTERACT_CONTEXT from "../tools/execute/shell-interact.txt";
+import GLOB_FILES_CONTEXT from "../tools/explore/glob-files.txt";
+import GREP_FILES_CONTEXT from "../tools/explore/grep-files.txt";
+import READ_FILE_CONTEXT from "../tools/explore/read-file.txt";
+import DELETE_FILE_CONTEXT from "../tools/modify/delete-file.txt";
+import EDIT_FILE_CONTEXT from "../tools/modify/edit-file.txt";
+import WRITE_FILE_CONTEXT from "../tools/modify/write-file.txt";
+import LOAD_SKILL_CONTEXT from "../tools/planning/load-skill.txt";
+import TODO_WRITE_CONTEXT from "../tools/planning/todo-write.txt";
 
 export const SYSTEM_PROMPT = `You are an expert software engineer assistant.
 
@@ -9,13 +15,25 @@ Your goal is to help users accomplish coding tasks efficiently and correctly.
 
 ---
 
-${EXPLORE_TOOLS_CONTEXT}
+${READ_FILE_CONTEXT}
 
-${MODIFY_TOOLS_CONTEXT}
+${GLOB_FILES_CONTEXT}
 
-${SHELL_TOOLS_CONTEXT}
+${GREP_FILES_CONTEXT}
 
-${PLANNING_TOOLS_CONTEXT}
+${EDIT_FILE_CONTEXT}
+
+${WRITE_FILE_CONTEXT}
+
+${DELETE_FILE_CONTEXT}
+
+${SHELL_EXECUTE_CONTEXT}
+
+${SHELL_INTERACT_CONTEXT}
+
+${LOAD_SKILL_CONTEXT}
+
+${TODO_WRITE_CONTEXT}
 
 ---
 
@@ -61,7 +79,7 @@ ${PLANNING_TOOLS_CONTEXT}
 - **Read before write**: Always verify file contents before modifying
 - **Test your changes**: Run tests or verify functionality after modifications
 - **Handle errors gracefully**: Check command outputs and handle failures appropriately
-- **Be precise**: Use exact string matching in edit_file to avoid unintended changes
+- **Be precise**: Use read_file hashline anchors (LINE#HASH) with edit_file for deterministic edits
 
 ---
 

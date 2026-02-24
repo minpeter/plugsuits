@@ -2,6 +2,7 @@ import { rm, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import DELETE_FILE_DESCRIPTION from "./delete-file.txt";
 
 const inputSchema = z.object({
   path: z.string().describe("Path to delete"),
@@ -70,11 +71,7 @@ export async function executeDeleteFile({
 }
 
 export const deleteFileTool = tool({
-  description:
-    "DANGER: Permanently delete file or directory (NO RECOVERY). " +
-    "Verify path with read_file or glob_files before deleting. " +
-    "Use recursive: true for non-empty directories. " +
-    "Use ignore_missing: true to skip if file doesn't exist.",
+  description: DELETE_FILE_DESCRIPTION,
   inputSchema,
   execute: executeDeleteFile,
 });

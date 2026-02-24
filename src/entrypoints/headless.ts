@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { agentManager, DEFAULT_MODEL_ID } from "../agent";
+import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
 import { MessageHistory } from "../context/message-history";
 import { setSessionId } from "../context/session";
-import { env } from "../env";
+import { translateToEnglish } from "../context/translation";
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
   shouldContinueManualToolLoop,
@@ -13,12 +13,17 @@ import {
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
 import {
+  DEFAULT_REASONING_MODE,
+  parseReasoningMode,
+  type ReasoningMode,
+} from "../reasoning-mode";
+import {
   DEFAULT_TOOL_FALLBACK_MODE,
   LEGACY_ENABLED_TOOL_FALLBACK_MODE,
   parseToolFallbackMode,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
-import { cleanup } from "../tools/execute/process-manager";
+import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
 
 interface BaseEvent {
@@ -69,17 +74,17 @@ type TrajectoryEvent =
 
 const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const cleanupTmuxSession = (): void => {
+const cleanupExecutionResources = (): void => {
   cleanup();
 };
 
 const exitWithCleanup = (code: number): never => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
   process.exit(code);
 };
 
 process.once("exit", () => {
-  cleanupTmuxSession();
+  cleanupExecutionResources();
 });
 
 process.once("SIGINT", () => {
@@ -120,80 +125,172 @@ const parseToolFallbackCliOption = (
 ): { consumedArgs: number; mode: ToolFallbackMode } | null => {
   const arg = args[index];
 
-  if (arg === "--tool-fallback-mode") {
+  const parseCandidate = (
+    fallbackMode: ToolFallbackMode
+  ): { consumedArgs: number; mode: ToolFallbackMode } => {
     const candidate = args[index + 1];
     if (!candidate || candidate.startsWith("--")) {
       return {
         consumedArgs: 0,
-        mode: DEFAULT_TOOL_FALLBACK_MODE,
+        mode: fallbackMode,
       };
     }
+
     const parsedMode = parseToolFallbackMode(candidate);
     return {
       consumedArgs: 1,
-      mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
+      mode: parsedMode ?? fallbackMode,
     };
+  };
+
+  if (arg === "--tool-fallback-mode") {
+    return parseCandidate(DEFAULT_TOOL_FALLBACK_MODE);
   }
 
-  if (arg !== "--tool-fallback") {
+  if (arg === "--tool-fallback") {
+    return parseCandidate(LEGACY_ENABLED_TOOL_FALLBACK_MODE);
+  }
+
+  return null;
+};
+
+const parseProviderArg = (
+  providerArg: string | undefined
+): ProviderType | null => {
+  if (providerArg === "anthropic" || providerArg === "friendli") {
+    return providerArg;
+  }
+
+  return null;
+};
+
+const parseTranslateCliOption = (arg: string): boolean | null => {
+  if (arg === "--translate") {
+    return true;
+  }
+  if (arg === "--no-translate") {
+    return false;
+  }
+
+  return null;
+};
+
+const parseReasoningCliOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; mode: ReasoningMode } | null => {
+  const arg = args[index];
+  if (arg === "--think") {
+    return { consumedArgs: 0, mode: "on" };
+  }
+
+  if (arg !== "--reasoning-mode") {
     return null;
   }
 
   const candidate = args[index + 1];
   if (candidate && !candidate.startsWith("--")) {
-    const parsedMode = parseToolFallbackMode(candidate);
+    const parsedMode = parseReasoningMode(candidate);
     return {
       consumedArgs: 1,
-      mode: parsedMode ?? LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+      mode: parsedMode ?? DEFAULT_REASONING_MODE,
     };
   }
 
   return {
     consumedArgs: 0,
-    mode: LEGACY_ENABLED_TOOL_FALLBACK_MODE,
+    mode: DEFAULT_REASONING_MODE,
   };
+};
+
+const parsePromptOrModelOption = (
+  args: string[],
+  index: number
+): { consumedArgs: number; kind: "prompt" | "model"; value: string } | null => {
+  const arg = args[index];
+  const value = args[index + 1] || "";
+
+  if (arg === "-p" || arg === "--prompt") {
+    return { consumedArgs: 1, kind: "prompt", value };
+  }
+
+  if (arg === "-m" || arg === "--model") {
+    return { consumedArgs: 1, kind: "model", value };
+  }
+
+  return null;
 };
 
 const parseArgs = (): {
   prompt: string;
   model?: string;
-  thinking: boolean;
+  provider: ProviderType | null;
+  reasoningMode: ReasoningMode | null;
   toolFallbackMode: ToolFallbackMode;
+  translateUserPrompts: boolean;
 } => {
   const args = process.argv.slice(2);
   let prompt = "";
   let model: string | undefined;
-  let thinking = false;
+  let provider: ProviderType | null = null;
+  let reasoningMode: ReasoningMode | null = null;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
+  let translateUserPrompts = true;
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === "-p" || arg === "--prompt") {
-      prompt = args[i + 1] || "";
-      i++;
-    } else if (arg === "-m" || arg === "--model") {
-      model = args[i + 1] || undefined;
-      i++;
-    } else if (arg === "--think") {
-      thinking = true;
-    } else {
-      const toolFallbackOption = parseToolFallbackCliOption(args, i);
-      if (toolFallbackOption) {
-        toolFallbackMode = toolFallbackOption.mode;
-        i += toolFallbackOption.consumedArgs;
+    const promptOrModelOption = parsePromptOrModelOption(args, i);
+    if (promptOrModelOption) {
+      if (promptOrModelOption.kind === "prompt") {
+        prompt = promptOrModelOption.value;
+      } else {
+        model = promptOrModelOption.value || undefined;
       }
+
+      i += promptOrModelOption.consumedArgs;
+      continue;
+    }
+
+    const reasoningOption = parseReasoningCliOption(args, i);
+    if (reasoningOption) {
+      reasoningMode = reasoningOption.mode;
+      i += reasoningOption.consumedArgs;
+      continue;
+    }
+
+    if (args[i] === "--provider" && i + 1 < args.length) {
+      provider = parseProviderArg(args[i + 1]) ?? provider;
+      i += 1;
+      continue;
+    }
+
+    const translateOption = parseTranslateCliOption(args[i]);
+    if (translateOption !== null) {
+      translateUserPrompts = translateOption;
+      continue;
+    }
+
+    const toolFallbackOption = parseToolFallbackCliOption(args, i);
+    if (toolFallbackOption) {
+      toolFallbackMode = toolFallbackOption.mode;
+      i += toolFallbackOption.consumedArgs;
     }
   }
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--think] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
     );
     process.exit(1);
   }
 
-  return { prompt, model, thinking, toolFallbackMode };
+  return {
+    prompt,
+    model,
+    provider,
+    reasoningMode,
+    toolFallbackMode,
+    translateUserPrompts,
+  };
 };
 
 const extractToolOutput = (
@@ -481,19 +578,37 @@ const processAgentResponse = async (
 };
 
 const run = async (): Promise<void> => {
-  // Initialize required tools (ripgrep, tmux)
   await initializeTools();
 
-  const { prompt, model, thinking, toolFallbackMode } = parseArgs();
+  const {
+    prompt,
+    model,
+    provider,
+    reasoningMode,
+    toolFallbackMode,
+    translateUserPrompts,
+  } = parseArgs();
 
   setSessionId(sessionId);
 
   agentManager.setHeadlessMode(true);
+  if (provider) {
+    agentManager.setProvider(provider);
+  }
   agentManager.setModelId(model || DEFAULT_MODEL_ID);
-  agentManager.setThinkingEnabled(thinking);
+  if (reasoningMode !== null) {
+    agentManager.setReasoningMode(reasoningMode);
+  }
   agentManager.setToolFallbackMode(toolFallbackMode);
+  agentManager.setTranslationEnabled(translateUserPrompts);
 
   const messageHistory = new MessageHistory();
+  const preparedPrompt = agentManager.isTranslationEnabled()
+    ? await translateToEnglish(prompt, agentManager)
+    : {
+        translated: false,
+        text: prompt,
+      };
 
   emitEvent({
     timestamp: new Date().toISOString(),
@@ -502,8 +617,19 @@ const run = async (): Promise<void> => {
     content: prompt,
   });
 
-  messageHistory.addUserMessage(prompt);
+  if (preparedPrompt.error) {
+    emitEvent({
+      timestamp: new Date().toISOString(),
+      type: "error",
+      sessionId,
+      error: `[translation] Failed to translate input: ${preparedPrompt.error}. Using original text.`,
+    });
+  }
 
+  messageHistory.addUserMessage(
+    preparedPrompt.text,
+    preparedPrompt.originalText
+  );
   try {
     await processAgentResponse(messageHistory);
 
@@ -534,7 +660,27 @@ const run = async (): Promise<void> => {
         sessionId,
         content: reminder,
       });
-      messageHistory.addUserMessage(reminder);
+
+      const preparedReminder = agentManager.isTranslationEnabled()
+        ? await translateToEnglish(reminder, agentManager)
+        : {
+            translated: false,
+            text: reminder,
+          };
+
+      if (preparedReminder.error) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          sessionId,
+          error: `[translation] Failed to translate todo reminder: ${preparedReminder.error}. Using original text.`,
+        });
+      }
+
+      messageHistory.addUserMessage(
+        preparedReminder.text,
+        preparedReminder.originalText
+      );
       await processAgentResponse(messageHistory);
     }
   } catch (error) {
@@ -547,7 +693,7 @@ const run = async (): Promise<void> => {
     exitWithCleanup(1);
   }
 
-  cleanupTmuxSession();
+  cleanupExecutionResources();
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   console.error(`[headless] Completed in ${elapsed}s`);
 };

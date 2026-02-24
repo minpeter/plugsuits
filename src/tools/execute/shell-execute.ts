@@ -1,7 +1,11 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { formatBackgroundMessage, formatTimeoutMessage } from "./format-utils";
-import { executeCommand as pmExecuteCommand } from "./process-manager";
+import {
+  formatBackgroundMessage,
+  formatTimeoutMessage,
+} from "../utils/execute/format-utils";
+import { executeCommand as pmExecuteCommand } from "../utils/execute/process-manager";
+import SHELL_EXECUTE_DESCRIPTION from "./shell-execute.txt";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -43,9 +47,7 @@ export async function executeCommand(
 }
 
 export const shellExecuteTool = tool({
-  description:
-    "Execute shell commands (git, npm, build, tests). " +
-    "120s timeout (configurable). Returns exit code and combined stdout/stderr output.",
+  description: SHELL_EXECUTE_DESCRIPTION,
 
   inputSchema: z.object({
     command: z.string().describe("Shell command to execute"),

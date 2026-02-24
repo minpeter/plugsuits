@@ -1,30 +1,48 @@
-import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-import { formatBlock, safeReadFileEnhanced } from "./safety-utils";
+import { formatBlock, safeReadFileEnhanced } from "../utils/safety-utils";
+import READ_FILE_DESCRIPTION from "./read-file.txt";
 
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),
   offset: z
     .number()
+    .int()
+    .min(0)
     .optional()
     .describe(
       "Start line (0-based, default: 0). Use around_line for smarter reading."
     ),
-  limit: z.number().optional().describe("Max lines to read (default: 2000)"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Max lines to read (default: 2000)"),
   around_line: z
     .number()
+    .int()
+    .min(1)
     .optional()
     .describe("Read around this line (1-based). Combines with before/after."),
   before: z
     .number()
+    .int()
+    .min(0)
     .optional()
     .describe("Lines before around_line (default: 5)"),
   after: z
     .number()
+    .int()
+    .min(0)
     .optional()
     .describe("Lines after around_line (default: 10)"),
+  respect_git_ignore: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Respect ignore rules from .gitignore/.ignore/.fdignore"),
 });
 
 export type ReadFileInput = z.input<typeof inputSchema>;
@@ -36,22 +54,26 @@ export async function executeReadFile({
   around_line,
   before,
   after,
+  respect_git_ignore,
 }: ReadFileInput): Promise<string> {
-  const result = await safeReadFileEnhanced(path, {
+  const parsedInput = inputSchema.parse({
+    path,
     offset,
     limit,
     around_line,
     before,
     after,
+    respect_git_ignore,
   });
 
-  let mtime = "";
-  try {
-    const stats = await stat(path);
-    mtime = stats.mtime.toISOString();
-  } catch {
-    mtime = "unknown";
-  }
+  const result = await safeReadFileEnhanced(path, {
+    offset: parsedInput.offset,
+    limit: parsedInput.limit,
+    around_line: parsedInput.around_line,
+    before: parsedInput.before,
+    after: parsedInput.after,
+    respect_git_ignore: parsedInput.respect_git_ignore,
+  });
 
   const fileName = basename(path);
   const rangeStr = `L${result.startLine1}-L${result.endLine1}`;
@@ -60,10 +82,12 @@ export async function executeReadFile({
     "OK - read file",
     `path: ${path}`,
     `bytes: ${result.bytes}`,
-    `last_modified: ${mtime}`,
+    `last_modified: ${result.lastModified}`,
     `lines: ${result.totalLines} (returned: ${result.endLine1 - result.startLine1 + 1})`,
+    `file_hash: ${result.fileHash}`,
     `range: ${rangeStr}`,
     `truncated: ${result.truncated}`,
+    `respect_git_ignore: ${parsedInput.respect_git_ignore}`,
     "",
     formatBlock(`${fileName} ${rangeStr}`, result.numberedContent),
   ];
@@ -72,10 +96,7 @@ export async function executeReadFile({
 }
 
 export const readFileTool = tool({
-  description:
-    "Read file contents with line numbers. " +
-    "ALWAYS read before editing. " +
-    "Use around_line for smart reading (grep_files result → read around match).",
+  description: READ_FILE_DESCRIPTION,
   inputSchema,
   execute: executeReadFile,
 });
