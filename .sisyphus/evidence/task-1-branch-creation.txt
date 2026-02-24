@@ -1,0 +1,13 @@
+Task 1 - Branch Creation Evidence
+Working directory: /Users/minpeter/github.com/minpeter/cea-worktree
+
+Command: git checkout -b feat/monorepo-extraction
+Result: Switched to a new branch 'feat/monorepo-extraction'
+
+Command: git branch --show-current
+Output:
+feat/monorepo-extraction
+
+Command: git status --porcelain
+Output:
+(empty)
