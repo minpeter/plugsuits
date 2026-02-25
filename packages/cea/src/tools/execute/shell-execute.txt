@@ -1,0 +1,27 @@
+### shell_execute
+**Purpose**: Run shell commands with configurable timeout (default: 120s)
+
+**When to use**:
+- Package management: `npm install`, `pip install`, `cargo build`
+- Version control: `git status`, `git commit`, `git push`
+- Build systems: `make`, `npm run build`, `docker build`
+- Running tests: `npm test`, `pytest`, `cargo test`
+- OS-level only: `chmod`, `ln -s`, `chown`
+
+**Timeout guidance**:
+- Quick commands: default 120s
+- Build/test/install: use larger timeout (`300000`-`600000` ms)
+
+**Non-interactive behavior**:
+- Wrapper applies non-interactive flags/env when possible (`CI=true`, `DEBIAN_FRONTEND=noninteractive`, `GIT_TERMINAL_PROMPT=0`)
+
+**Background commands**:
+- Commands ending with `&` run in background
+- Always verify startup with follow-up checks (`sleep`, health check, logs)
+
+**Notes**:
+- Large outputs are truncated automatically
+- Background commands (`&`) should be verified with follow-up checks
+
+**Do not use shell for file ops**:
+- Use dedicated tools for read/write/edit/delete/search/glob
