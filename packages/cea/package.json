@@ -1,5 +1,6 @@
 {
   "name": "@ai-sdk-tool/cea",
+  "private": true,
   "version": "1.0.0",
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
   "type": "module",

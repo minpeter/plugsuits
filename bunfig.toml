@@ -1,2 +1,2 @@
 [test]
-root = "packages/cea/src"
+root = "packages"

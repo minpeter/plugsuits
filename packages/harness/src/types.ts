@@ -48,10 +48,10 @@ export interface LoopContinueContext {
 }
 
 export interface LoopStepInfo {
-  finishReason: AgentStreamResult["finishReason"];
+  finishReason: Awaited<AgentStreamResult["finishReason"]>;
   iteration: number;
   messages: ModelMessage[];
-  response: AgentStreamResult["response"];
+  response: Awaited<AgentStreamResult["response"]>;
 }
 
 export interface LoopHooks {

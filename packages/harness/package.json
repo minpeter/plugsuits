@@ -17,11 +17,11 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ai": "^6.0.94",
-    "zod": "^4.3.6"
+    "ai": "^6.0.94"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

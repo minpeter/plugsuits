@@ -7,7 +7,7 @@
   "scripts": {
     "build": "bun run --cwd packages/harness build && bun run --cwd packages/cea build",
     "dev": "bun run --cwd packages/cea dev",
-    "test": "bun test",
+    "test": "bun test packages/harness/src packages/cea/src",
     "typecheck": "bun run --cwd packages/harness typecheck && bun run --cwd packages/cea typecheck",
     "check": "bun run --cwd packages/cea check",
     "lint": "bun run --cwd packages/cea lint",

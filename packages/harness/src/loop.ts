@@ -51,17 +51,17 @@ export async function runAgentLoop(
       lastFinishReason = finishReason as AgentFinishReason;
 
       await onStepComplete?.({
-        finishReason: stream.finishReason,
+        finishReason: lastFinishReason,
         iteration,
         messages,
-        response: stream.response,
+        response,
       });
+
+      iteration += 1;
 
       if (!shouldContinue(lastFinishReason, context)) {
         break;
       }
-
-      iteration += 1;
     } catch (error) {
       await onError?.(error, context);
       throw error;

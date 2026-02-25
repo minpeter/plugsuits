@@ -38,7 +38,7 @@ const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
 
 type ProviderOptions = AiProviderOptions | undefined;
 
-export type AgentStreamOptions = Omit<HarnessAgentStreamOptions, "messages">;
+export type AgentStreamOptions = Pick<HarnessAgentStreamOptions, "abortSignal">;
 export type AgentStreamResult = HarnessAgentStreamResult;
 
 export type ProviderType = "friendli" | "anthropic";
