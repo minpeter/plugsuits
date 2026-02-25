@@ -520,7 +520,7 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     expect(output).toContain("Write workspace/file.ts");
-    expect((output.match(/Write src\/file\.ts/g) ?? []).length).toBe(1);
+    expect((output.match(/Write workspace\/file\.ts/g) ?? []).length).toBe(1);
   });
 
   it("supports toolCallId and inputTextDelta aliases", async () => {
