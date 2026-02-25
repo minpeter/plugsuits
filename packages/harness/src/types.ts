@@ -8,6 +8,7 @@ import type {
 } from "ai";
 
 type CoreStreamResult = ReturnType<typeof streamText>;
+type StreamTextOptions = Parameters<typeof streamText>[0];
 
 export type { LanguageModel, ModelMessage, Tool, ToolSet };
 
@@ -27,7 +28,9 @@ export interface Agent {
 
 export interface AgentStreamOptions {
   abortSignal?: AbortSignal;
+  maxOutputTokens?: StreamTextOptions["maxOutputTokens"];
   messages: ModelMessage[];
+  providerOptions?: StreamTextOptions["providerOptions"];
   system?: string;
 }
 

@@ -21,6 +21,8 @@ export function createAgent(config: AgentConfig): Agent {
         tools: config.tools,
         system,
         messages: opts.messages,
+        providerOptions: opts.providerOptions,
+        maxOutputTokens: opts.maxOutputTokens,
         stopWhen: stepCountIs(config.maxStepsPerTurn ?? 1),
         abortSignal: opts.abortSignal,
       });
