@@ -1,7 +1,0 @@
-### todo_write
-**Purpose**: Create and update structured task lists
-
-**When to use**:
-- Tasks with 3+ distinct steps
-- Multi-requirement work needing progress tracking
-- Complex refactor/feature sessions

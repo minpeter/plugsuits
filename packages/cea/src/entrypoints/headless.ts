@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
 import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
-import { MessageHistory } from "../context/message-history";
+import { MessageHistory } from "@ai-sdk-tool/harness";
 import { setSessionId } from "../context/session";
 import { translateToEnglish } from "../context/translation";
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
   shouldContinueManualToolLoop,
-} from "../interaction/tool-loop-control";
+} from "@ai-sdk-tool/harness";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,

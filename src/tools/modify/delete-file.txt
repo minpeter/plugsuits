@@ -1,9 +1,0 @@
-### delete_file
-**Purpose**: Permanently delete a file or directory
-
-**When to use**:
-- Removing obsolete files
-- Cleaning temporary artifacts
-- Deleting directories with explicit recursive intent
-
-**DO NOT use shell**: Prefer this over `rm` / `rm -rf`

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import { MessageHistory } from "./message-history";
+import { MessageHistory } from "@ai-sdk-tool/harness";
 import type {
   TranslationAgentManager,
   TranslationModelConfig,

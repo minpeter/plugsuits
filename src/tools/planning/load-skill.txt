@@ -1,6 +1,0 @@
-### load_skill
-**Purpose**: Load detailed skill documentation and optional skill subfiles
-
-**When to use**:
-- Fetching workflow instructions from a named skill
-- Loading referenced files from v2 skill directories

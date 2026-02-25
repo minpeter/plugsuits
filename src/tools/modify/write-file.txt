@@ -1,9 +1,0 @@
-### write_file
-**Purpose**: Create new file or completely overwrite existing file
-
-**When to use**:
-- Creating new files from scratch
-- Replacing most or all contents of a file
-- Writing generated code/configuration
-
-**DO NOT use shell**: Prefer this over `echo >`, `cat <<EOF`, `printf >`
