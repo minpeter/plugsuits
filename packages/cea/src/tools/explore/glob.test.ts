@@ -163,17 +163,17 @@ describe("executeGlob", () => {
 
     it("applies parent .gitignore when searching from subdirectory", async () => {
       const repoDir = mkdtempSync(join(tmpdir(), "glob-parent-gitignore-"));
-      const srcDir = join(repoDir, "src");
+      const workspaceDir = join(repoDir, "workspace");
       try {
         mkdirSync(join(repoDir, ".git"));
-        mkdirSync(srcDir);
-        writeFileSync(join(repoDir, ".gitignore"), "/src/ignored.ts\n");
-        writeFileSync(join(srcDir, "ignored.ts"), "ignored");
-        writeFileSync(join(srcDir, "kept.ts"), "kept");
+        mkdirSync(workspaceDir);
+        writeFileSync(join(repoDir, ".gitignore"), "/workspace/ignored.ts\n");
+        writeFileSync(join(workspaceDir, "ignored.ts"), "ignored");
+        writeFileSync(join(workspaceDir, "kept.ts"), "kept");
 
         const result = await executeGlob({
           pattern: "**/*.ts",
-          path: srcDir,
+          path: workspaceDir,
         });
 
         expect(result).toContain("file_count: 1");

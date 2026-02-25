@@ -37,13 +37,13 @@ const mockedGenerateText = mock((options: Record<string, unknown>) => {
     return { text: "Explain the structure of this project." };
   }
 
-  if (userText === "src/foo.ts 파일을 수정해줘") {
-    return { text: "Please update src/foo.ts." };
+  if (userText === "workspace/foo.ts 파일을 수정해줘") {
+    return { text: "Please update workspace/foo.ts." };
   }
 
-  if (userText === "src/foo.ts 파일에서 `buildPath` 함수만 수정해줘") {
+  if (userText === "workspace/foo.ts 파일에서 `buildPath` 함수만 수정해줘") {
     return {
-      text: "Please only update the `buildPath` function in src/foo.ts.",
+      text: "Please only update the `buildPath` function in workspace/foo.ts.",
     };
   }
 
@@ -139,13 +139,13 @@ describe("translation integration pipeline", () => {
 
   it("keeps non-English input unchanged when translation is disabled", async () => {
     const { history, translatedResult } = await runPipeline(
-      "src/foo.ts 파일을 수정해줘",
+      "workspace/foo.ts 파일을 수정해줘",
       false
     );
 
     expect(translatedResult).toEqual({
       translated: false,
-      text: "src/foo.ts 파일을 수정해줘",
+      text: "workspace/foo.ts 파일을 수정해줘",
     });
     expect(generateTextCallCount).toBe(0);
 
@@ -154,7 +154,7 @@ describe("translation integration pipeline", () => {
     expect(history.toModelMessages()).toEqual([
       {
         role: "user",
-        content: "src/foo.ts 파일을 수정해줘",
+        content: "workspace/foo.ts 파일을 수정해줘",
       },
     ]);
   });
@@ -163,12 +163,12 @@ describe("translation integration pipeline", () => {
     shouldFailTranslation = true;
 
     const { history, translatedResult } = await runPipeline(
-      "src/foo.ts 파일을 수정해줘",
+      "workspace/foo.ts 파일을 수정해줘",
       true
     );
 
     expect(translatedResult.translated).toBe(false);
-    expect(translatedResult.text).toBe("src/foo.ts 파일을 수정해줘");
+    expect(translatedResult.text).toBe("workspace/foo.ts 파일을 수정해줘");
     expect(translatedResult.error).toContain("integration translation failure");
 
     const stored = history.getAll()[0];
@@ -176,19 +176,19 @@ describe("translation integration pipeline", () => {
     expect(history.toModelMessages()).toEqual([
       {
         role: "user",
-        content: "src/foo.ts 파일을 수정해줘",
+        content: "workspace/foo.ts 파일을 수정해줘",
       },
     ]);
   });
 
   it("preserves code references during mixed-content translation", async () => {
     const { translatedResult } = await runPipeline(
-      "src/foo.ts 파일에서 `buildPath` 함수만 수정해줘",
+      "workspace/foo.ts 파일에서 `buildPath` 함수만 수정해줘",
       true
     );
 
     expect(translatedResult.translated).toBe(true);
-    expect(translatedResult.text).toContain("src/foo.ts");
+    expect(translatedResult.text).toContain("workspace/foo.ts");
     expect(translatedResult.text).toContain("`buildPath`");
   });
 });

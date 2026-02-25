@@ -6,12 +6,21 @@ import { dirname, join } from "node:path";
 import { getShell, getShellArgs } from "./shell-detection";
 
 const SHELL_DETECTION_SCRIPT =
-  "import { getShell } from './src/tools/utils/execute/shell-detection'; console.log(getShell());";
+  "import { getShell } from './shell-detection'; console.log(getShell());";
+const SHELL_DETECTION_CWD = join(
+  process.cwd(),
+  "packages",
+  "cea",
+  "src",
+  "tools",
+  "utils",
+  "execute"
+);
 
 function runShellDetectionWithEnv(shellPath: string): string {
   const env = { ...process.env, SHELL: shellPath };
   const result = spawnSync(process.execPath, ["-e", SHELL_DETECTION_SCRIPT], {
-    cwd: process.cwd(),
+    cwd: SHELL_DETECTION_CWD,
     env,
     encoding: "utf8",
   });

@@ -248,15 +248,15 @@ describe("executeReadFile", () => {
 
     it("applies parent .gitignore when reading from subdirectory", async () => {
       const repoDir = mkdtempSync(join(tmpdir(), "read-parent-gitignore-"));
-      const srcDir = join(repoDir, "src");
+      const workspaceDir = join(repoDir, "workspace");
       try {
         mkdirSync(join(repoDir, ".git"));
-        mkdirSync(srcDir);
-        writeFileSync(join(repoDir, ".gitignore"), "/src/blocked.txt\n");
-        writeFileSync(join(srcDir, "blocked.txt"), "blocked");
+        mkdirSync(workspaceDir);
+        writeFileSync(join(repoDir, ".gitignore"), "/workspace/blocked.txt\n");
+        writeFileSync(join(workspaceDir, "blocked.txt"), "blocked");
 
         await expect(
-          executeReadFile({ path: join(srcDir, "blocked.txt") })
+          executeReadFile({ path: join(workspaceDir, "blocked.txt") })
         ).rejects.toThrow("excluded by ignore rules");
       } finally {
         if (existsSync(repoDir)) {
