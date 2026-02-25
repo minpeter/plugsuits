@@ -46,7 +46,7 @@ import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createRenderCommand } from "../commands/render";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { createTranslateCommand } from "../commands/translate";
-import { MessageHistory } from "../context/message-history";
+import { MessageHistory } from "@ai-sdk-tool/harness";
 import { getSessionId, initializeSession } from "../context/session";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
@@ -58,7 +58,7 @@ import { setSpinnerOutputEnabled } from "../interaction/spinner";
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
   shouldContinueManualToolLoop,
-} from "../interaction/tool-loop-control";
+} from "@ai-sdk-tool/harness";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,

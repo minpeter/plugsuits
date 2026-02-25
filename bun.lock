@@ -4,7 +4,15 @@
   "workspaces": {
     "": {
       "name": "code-editing-agent",
+    },
+    "packages/cea": {
+      "name": "@ai-sdk-tool/cea",
+      "version": "1.0.0",
+      "bin": {
+        "code-editing-agent": "./src/index.ts",
+      },
       "dependencies": {
+        "@ai-sdk-tool/harness": "workspace:*",
         "@ai-sdk-tool/parser": "^4.1.1",
         "@ai-sdk/anthropic": "^3.0.46",
         "@ai-sdk/openai-compatible": "^2.0.30",
@@ -27,8 +35,26 @@
         "ultracite": "^7.2.3",
       },
     },
+    "packages/harness": {
+      "name": "@ai-sdk-tool/harness",
+      "version": "0.1.0",
+      "dependencies": {
+        "ai": "^6.0.94",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "typescript": "^5.9.3",
+      },
+      "peerDependencies": {
+        "typescript": "^5.0.0",
+      },
+    },
   },
   "packages": {
+    "@ai-sdk-tool/cea": ["@ai-sdk-tool/cea@workspace:packages/cea"],
+
+    "@ai-sdk-tool/harness": ["@ai-sdk-tool/harness@workspace:packages/harness"],
+
     "@ai-sdk-tool/parser": ["@ai-sdk-tool/parser@4.1.1", "", { "dependencies": { "@ai-sdk/openai": "^3.0.30", "@ai-sdk/provider": "3.0.8", "@ai-sdk/provider-utils": "4.0.15", "dedent": "^1.7.1", "yaml": "^2.8.2" } }, "sha512-MGh6FzrldoNfj9mLcpyFEhHI2V+WLVEOycxY1kRcWQO1z5bzg4HWoutJFXl64apYS6hYJOWsfk8rZfS0KNCSCw=="],
 
     "@ai-sdk/anthropic": ["@ai-sdk/anthropic@3.0.46", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@ai-sdk/provider-utils": "4.0.15" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-zXJPiNHaIiQ6XUqLeSYZ3ZbSzjqt1pNWEUf2hlkXlmmw8IF8KI0ruuGaDwKCExmtuNRf0E4TDxhsc9wRgWTzpw=="],

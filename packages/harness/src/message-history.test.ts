@@ -163,16 +163,16 @@ describe("MessageHistory", () => {
     const history = new MessageHistory();
 
     const message = history.addUserMessage(
-      "Please update src/foo.ts",
-      "src/foo.ts 파일을 수정해줘"
+      "Please update workspace/foo.ts",
+      "workspace/foo.ts 파일을 수정해줘"
     );
 
-    expect(message.modelMessage.content).toBe("Please update src/foo.ts");
-    expect(message.originalContent).toBe("src/foo.ts 파일을 수정해줘");
+    expect(message.modelMessage.content).toBe("Please update workspace/foo.ts");
+    expect(message.originalContent).toBe("workspace/foo.ts 파일을 수정해줘");
     expect(history.toModelMessages()).toEqual([
       {
         role: "user",
-        content: "Please update src/foo.ts",
+        content: "Please update workspace/foo.ts",
       },
     ]);
   });

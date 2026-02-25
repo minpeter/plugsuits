@@ -41,7 +41,6 @@ function trimTrailingNewlines(message: ModelMessage): ModelMessage {
     return message;
   }
 
-  // Create a new array preserving all fields (e.g. providerOptions)
   const newContent = [...content];
   newContent[lastTextIndex] = { ...textPart, text: trimmedText };
 
@@ -93,7 +92,6 @@ export class MessageHistory {
     for (const modelMessage of messages) {
       const processedMessage = trimTrailingNewlines(modelMessage);
 
-      // Serialize Error objects in tool results to prevent schema validation errors
       const sanitizedMessage = this.sanitizeMessage(processedMessage);
 
       const message: Message = {
@@ -108,7 +106,6 @@ export class MessageHistory {
   }
 
   private sanitizeMessage(message: ModelMessage): ModelMessage {
-    // Only process tool messages
     if (message.role !== "tool") {
       return message;
     }
@@ -117,7 +114,6 @@ export class MessageHistory {
       return message;
     }
 
-    // Sanitize each tool result part
     const sanitizedContent = message.content.map((part) => {
       if (part.type !== "tool-result") {
         return part;
@@ -129,7 +125,6 @@ export class MessageHistory {
         [key: string]: unknown;
       };
 
-      // Recursively serialize Error objects in output
       const sanitizedOutput = this.serializeValue(result.output);
 
       if (sanitizedOutput === result.output) {
@@ -142,8 +137,6 @@ export class MessageHistory {
       };
     });
 
-    // Type assertion is safe here because we're only modifying the output field
-    // and maintaining the same structure as the input content array
     return {
       ...message,
       content: sanitizedContent as typeof message.content,
@@ -155,7 +148,6 @@ export class MessageHistory {
       return value;
     }
 
-    // Serialize Error objects
     if (value instanceof Error) {
       return {
         __error: true,
@@ -165,12 +157,10 @@ export class MessageHistory {
       };
     }
 
-    // Handle arrays
     if (Array.isArray(value)) {
       return value.map((item) => this.serializeValue(item));
     }
 
-    // Handle plain objects
     if (typeof value === "object" && value.constructor === Object) {
       const result: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(value)) {
@@ -179,7 +169,6 @@ export class MessageHistory {
       return result;
     }
 
-    // Return primitive values as-is
     return value;
   }
 

@@ -1,21 +1,18 @@
 {
-  "name": "code-editing-agent",
+  "name": "cea-monorepo",
   "version": "1.0.0",
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
-  "type": "module",
-  "main": "dist/index.js",
-  "bin": {
-    "code-editing-agent": "./src/index.ts"
-  },
+  "private": true,
+  "workspaces": ["packages/*"],
   "scripts": {
-    "start": "bun run src/entrypoints/cli.ts",
-    "headless": "bun run src/entrypoints/headless.ts",
-    "build": "tsc",
-    "dev": "bun run --watch src/entrypoints/cli.ts",
-    "check": "ultracite check",
-    "lint": "ultracite fix",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "build": "bun run --cwd packages/harness build && bun run --cwd packages/cea build",
+    "dev": "bun run --cwd packages/cea dev",
+    "test": "bun test packages/harness/src packages/cea/src",
+    "typecheck": "bun run --cwd packages/harness typecheck && bun run --cwd packages/cea typecheck",
+    "check": "bun run --cwd packages/cea check",
+    "lint": "bun run --cwd packages/cea lint",
+    "start": "bun run --cwd packages/cea start",
+    "headless": "bun run --cwd packages/cea headless"
   },
   "keywords": [
     "ai",
@@ -29,27 +26,5 @@
   "packageManager": "bun@1.3.9",
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "@ai-sdk-tool/parser": "^4.1.1",
-    "@ai-sdk/anthropic": "^3.0.46",
-    "@ai-sdk/openai-compatible": "^2.0.30",
-    "@friendliai/ai-provider": "^1.1.4",
-    "@mariozechner/pi-tui": "^0.54.0",
-    "@t3-oss/env-core": "^0.13.10",
-    "ai": "^6.0.94",
-    "glob": "^13.0.6",
-    "ignore": "^7.0.5",
-    "yaml": "^2.8.2",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@ai-sdk/provider": "^3.0.8",
-    "@biomejs/biome": "2.4.0",
-    "@types/bun": "^1.3.9",
-    "@types/node": "^25.3.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "ultracite": "^7.2.3"
   }
 }

@@ -1,8 +1,13 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
+import {
+  createAgent,
+  type AgentStreamOptions as HarnessAgentStreamOptions,
+  type AgentStreamResult as HarnessAgentStreamResult,
+} from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
 import type { ModelMessage } from "ai";
-import { stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
@@ -31,18 +36,10 @@ export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_MAX = 64_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
 
-type CoreStreamResult = ReturnType<typeof streamText>;
 type ProviderOptions = AiProviderOptions | undefined;
 
-export interface AgentStreamOptions {
-  abortSignal?: AbortSignal;
-}
-
-export interface AgentStreamResult {
-  finishReason: CoreStreamResult["finishReason"];
-  fullStream: CoreStreamResult["fullStream"];
-  response: CoreStreamResult["response"];
-}
+export type AgentStreamOptions = Pick<HarnessAgentStreamOptions, "abortSignal">;
+export type AgentStreamResult = HarnessAgentStreamResult;
 
 export type ProviderType = "friendli" | "anthropic";
 
@@ -63,15 +60,6 @@ const anthropic = env.ANTHROPIC_API_KEY
       apiKey: env.ANTHROPIC_API_KEY,
     })
   : null;
-
-interface CreateAgentOptions {
-  enableThinking?: boolean;
-  instructions?: string;
-  provider?: ProviderType;
-  reasoningMode?: ReasoningMode;
-  toolFallbackMode?: ToolFallbackMode;
-  toolRegistry?: ToolRegistry;
-}
 
 const getModel = (modelId: string, provider: ProviderType) => {
   if (provider === "anthropic") {
@@ -217,49 +205,7 @@ const createBaseModel = (
     }),
   });
 
-  return { wrappedModel, providerOptions: options, maxOutputTokens };
-};
-
-const createAgent = (modelId: string, options: CreateAgentOptions = {}) => {
-  const provider = options.provider ?? "friendli";
-  const reasoningMode =
-    options.reasoningMode ??
-    (options.enableThinking ? "on" : DEFAULT_REASONING_MODE);
-  const toolFallbackMode =
-    options.toolFallbackMode ?? DEFAULT_TOOL_FALLBACK_MODE;
-
-  const { wrappedModel, providerOptions, maxOutputTokens } = createBaseModel(
-    modelId,
-    provider,
-    toolFallbackMode,
-    reasoningMode
-  );
-
-  return {
-    stream: ({
-      messages,
-      abortSignal,
-    }: { messages: ModelMessage[] } & AgentStreamOptions) => {
-      const preparedMessages =
-        provider === "friendli"
-          ? applyFriendliInterleavedField(messages, modelId, reasoningMode)
-          : messages;
-
-      return streamText({
-        model: wrappedModel,
-        system: options.instructions ?? SYSTEM_PROMPT,
-        tools: options.toolRegistry ?? defaultToolRegistry,
-        messages: preparedMessages,
-        maxOutputTokens,
-        providerOptions,
-        // stepCountIs(n) replaces the deprecated maxSteps option.
-        // It configures the stream to stop after n tool-call round-trips,
-        // giving the model a single tool invocation cycle before returning.
-        stopWhen: stepCountIs(1),
-        abortSignal,
-      });
-    },
-  };
+  return { model: wrappedModel, providerOptions: options, maxOutputTokens };
 };
 
 const defaultToolRegistry = createTools();
@@ -283,6 +229,15 @@ export class AgentManager {
   private applyBestReasoningModeForCurrentModel(): void {
     this.reasoningMode = selectBestReasoningMode(
       this.getSelectableReasoningModes()
+    );
+  }
+
+  private buildModel(reasoningMode: ReasoningMode = this.reasoningMode) {
+    return createBaseModel(
+      this.modelId,
+      this.provider,
+      this.toolFallbackMode,
+      reasoningMode
     );
   }
 
@@ -381,15 +336,12 @@ export class AgentManager {
 
   getTranslationModelConfig(): TranslationModelConfig {
     const translationReasoningMode = this.getTranslationReasoningMode();
-    const { wrappedModel, providerOptions } = createBaseModel(
-      this.modelId,
-      this.provider,
-      this.toolFallbackMode,
+    const { model, providerOptions } = this.buildModel(
       translationReasoningMode
     );
 
     return {
-      model: wrappedModel,
+      model,
       providerOptions,
       maxOutputTokens: TRANSLATION_MAX_OUTPUT_TOKENS,
     };
@@ -425,14 +377,29 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     messages: ModelMessage[],
     options: AgentStreamOptions = {}
   ): Promise<AgentStreamResult> {
-    const agent = createAgent(this.modelId, {
+    const { model, providerOptions, maxOutputTokens } = this.buildModel();
+    const preparedMessages =
+      this.provider === "friendli"
+        ? applyFriendliInterleavedField(
+            messages,
+            this.modelId,
+            this.reasoningMode
+          )
+        : messages;
+
+    const agent = createAgent({
+      model,
+      tools: this.toolRegistry,
       instructions: await this.getInstructions(),
-      reasoningMode: this.reasoningMode,
-      toolRegistry: this.toolRegistry,
-      toolFallbackMode: this.toolFallbackMode,
-      provider: this.provider,
+      maxStepsPerTurn: 1,
     });
-    return agent.stream({ messages, ...options });
+
+    return agent.stream({
+      messages: preparedMessages,
+      ...options,
+      providerOptions,
+      maxOutputTokens,
+    });
   }
 }
 
