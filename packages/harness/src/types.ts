@@ -28,6 +28,7 @@ export interface Agent {
 export interface AgentStreamOptions {
   abortSignal?: AbortSignal;
   messages: ModelMessage[];
+  system?: string;
 }
 
 export interface AgentStreamResult {
@@ -35,6 +36,8 @@ export interface AgentStreamResult {
   fullStream: CoreStreamResult["fullStream"];
   response: CoreStreamResult["response"];
 }
+
+export type AgentFinishReason = Awaited<AgentStreamResult["finishReason"]>;
 
 export interface LoopContinueContext {
   iteration: number;
@@ -59,7 +62,7 @@ export interface LoopHooks {
     context: LoopContinueContext
   ) => void | Promise<void>;
   shouldContinue?: (
-    finishReason: AgentStreamResult["finishReason"],
+    finishReason: AgentFinishReason,
     context: LoopContinueContext
   ) => boolean;
 }
