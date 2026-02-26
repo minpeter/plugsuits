@@ -1,59 +1,63 @@
-# Code Editing Agent
+<div align="center">
 
-A code-editing agent built with Vercel AI SDK and FriendliAI provider, following the architecture described in [ampcode.com/how-to-build-an-agent](https://ampcode.com/how-to-build-an-agent).
+# plugsuits
 
-## Requirements
+**プラグスーツ**
+
+*Plug and go, native like a suit.*
+
+A barebone AI agent harness built on the [Vercel AI SDK](https://sdk.vercel.ai).
+
+[Getting Started](#quick-start) · [Architecture](#architecture) · [Development](#development)
+
+</div>
+
+---
+
+## What is plugsuits?
+
+In *Neon Genesis Evangelion*, a **plugsuit** is the neural interface between a pilot and their Evangelion — form-fitting, minimal, and essential. Without it, synchronization doesn't happen.
+
+**plugsuits** takes the same approach to AI agents. A lightweight TypeScript harness that connects any LLM to code editing, file operations, and shell execution — with nothing more than what's needed.
+
+No framework overhead. No abstraction tax. Just the interface between model and tools.
+
+## Features
+
+- **Any model, any provider** — Drop in models via Vercel AI SDK's unified provider ecosystem
+- **Hashline edit engine** — Deterministic file editing with hash-verified line anchors and autocorrect
+- **Interactive TUI** — Full terminal UI with streaming, syntax highlighting, and runtime model switching
+- **Headless mode** — JSONL event streaming for CI/CD, benchmarks, and automation
+- **Tool harness** — File read/write/edit, glob, grep, shell execution — batteries included
+- **Repair escalation** — Progressive error recovery for weaker models (validate → auto-repair → lenient fallback)
+- **Monorepo** — Clean separation between the harness core and the agent implementation
+
+## Quick Start
+
+### Prerequisites
 
 - [Bun](https://bun.sh) >= 1.0
-- FriendliAI API token
+- A [FriendliAI](https://friendli.ai) API token (or any Vercel AI SDK-compatible provider)
 
-## Installation
-
-### Quick Start (via bunx)
-
-Run directly without installation:
+### Run directly
 
 ```bash
 export FRIENDLI_TOKEN=your_token_here
-bunx github:minpeter/agent#main
+bunx github:minpeter/plugsuits#main
 ```
 
-### Global Installation
+### Local development
 
 ```bash
-bun install -g github:minpeter/agent
-export FRIENDLI_TOKEN=your_token_here
-code-editing-agent
-```
-
-### Local Development
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/minpeter/code-editing-agent.git
-cd code-editing-agent
-```
-
-2. Install dependencies:
-
-```bash
+git clone https://github.com/minpeter/plugsuits.git
+cd plugsuits
 bun install
-```
-
-3. Set your FriendliAI token:
-
-```bash
-export FRIENDLI_TOKEN=your_token_here
-```
-
-4. Run the agent:
-
-```bash
 bun start
 ```
 
 ## Usage
+
+### Interactive mode
 
 ```
 $ bun start
@@ -61,33 +65,89 @@ $ bun start
 Chat with AI (model: LGAI-EXAONE/K-EXAONE-236B-A23B)
 Use '/help' for commands, 'ctrl-c' to quit
 
-You: what's in package.json?
-tool: read_file({"path":"package.json"})
-AI: The package.json file contains...
-
-You: create a hello.js file that prints "Hello World"
-tool: edit_file({"path":"hello.js","old_str":"","new_str":"console.log('Hello World');"})
-AI: I've created hello.js...
+You: what files are in the src directory?
+tool: read_file({"path":"src"})
+AI: Here's what's in the src directory...
 
 You: /help
 Available commands:
-  /help              - Show this help message
-  /clear             - Clear current conversation
-  /model             - Show and select available AI models
-  /render            - Render conversation as raw prompt text
-  /quit              - Exit the program
-
-You: ^C
+  /help       Show this help message
+  /clear      Clear conversation
+  /model      Switch AI models
+  /reasoning  Toggle reasoning mode
+  /translate  Toggle translation mode
+  /render     Render raw prompt
+  /quit       Exit
 ```
+
+### Headless mode
+
+```bash
+bun run headless -- --prompt "Fix the type error in src/index.ts"
+```
+
+Outputs structured JSONL events (`user`, `tool_call`, `tool_result`, `assistant`, `error`) for programmatic consumption.
 
 ## Architecture
 
-The agent uses the Vercel AI SDK's `streamText` API with `stopWhen: stepCountIs(n)` for step control. This replaces the older `maxSteps` / `continueUntil` pattern—`stepCountIs` provides a clearer, declarative way to limit tool-call round-trips (e.g., `stepCountIs(1)` allows one tool invocation cycle per stream call). The outer conversation loop in the CLI drives multi-turn interaction.
+```
+plugsuits/
+├── packages/
+│   ├── harness/              @ai-sdk-tool/harness
+│   │   └── src/              Core agent loop, message history, tool management
+│   │
+│   └── cea/                  @ai-sdk-tool/cea
+│       ├── src/
+│       │   ├── entrypoints/  CLI (interactive) + headless (JSONL) runtimes
+│       │   ├── tools/
+│       │   │   ├── modify/   edit_file (hashline engine), write_file, delete_file
+│       │   │   ├── explore/  read_file, grep, glob
+│       │   │   └── execute/  shell_execute, shell_interact
+│       │   └── interaction/  TUI renderer, streaming, spinner
+│       └── benchmark/        Harbor terminal-bench adapter
+│
+└── scripts/                  Benchmark and test automation
+```
 
-## Model
+### Packages
 
-Uses `LGAI-EXAONE/K-EXAONE-236B-A23B` via FriendliAI serverless endpoints by default. Use `/model` command to switch models.
+| Package | Description |
+|---------|-------------|
+| [`@ai-sdk-tool/harness`](./packages/harness) | Reusable agent harness — model-agnostic loop, tool management, message history |
+| [`@ai-sdk-tool/cea`](./packages/cea) | Code editing agent — full implementation with TUI, tools, and FriendliAI integration |
+
+## Development
+
+```bash
+bun install          # Install dependencies
+bun start            # Interactive TUI
+bun run headless     # Headless JSONL mode
+bun test             # Run all tests (436 tests)
+bun run typecheck    # Type check (harness + cea)
+bun run check        # Lint — non-mutating
+bun run lint         # Lint — auto-fix
+bun run build        # Build (harness → cea)
+```
+
+## Built With
+
+- [Vercel AI SDK](https://sdk.vercel.ai) — Model provider abstraction and streaming
+- [FriendliAI](https://friendli.ai) — Default model provider
+- [Bun](https://bun.sh) — Runtime and package manager
+- [TypeScript](https://www.typescriptlang.org) — Strict mode throughout
 
 ## License
 
 MIT
+
+---
+
+<div align="center">
+<sub>
+
+The name **plugsuits** was suggested by [Simon Kim](mailto:seojoon.kim@gmail.com) of [Hashed](https://www.hashed.com).<br/>
+*"Plug and go, native like a suit"* — like a plugsuit synchronizing a pilot with their Eva,<br/>
+this harness synchronizes AI models with the tools they need.
+
+</sub>
+</div>
