@@ -1428,8 +1428,17 @@ class ToolCallView extends Container {
       return false;
     }
 
+    const bestInput = this.resolveBestInput();
     const path = this.resolveInputStringField("path") ?? "(unknown)";
+    const fileContent = extractStringField(bestInput, "content");
     const header = buildPrettyHeader("Write", path);
+
+    if (fileContent !== null) {
+      this.setPrettyBlock(header, fileContent, {
+        useBackground: true,
+      });
+      return true;
+    }
 
     if (this.output === undefined) {
       this.setPrettyBlock(header, renderPendingOutput(), {
