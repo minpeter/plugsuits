@@ -3,23 +3,21 @@ import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import {
-  applyHashlineEdits,
-  computeFileHash,
+  applyHashlineEditsWithReport,
+  canonicalizeFileText,
   type HashlineEdit,
-  parseHashlineText,
-  parseLineTag,
-} from "../utils/hashline/hashline";
+  normalizeHashlineEdits,
+  restoreFileText,
+  tryParseLineTag,
+} from "../utils/hashline";
 import EDIT_FILE_DESCRIPTION from "./edit-file.txt";
-
-type HashlineToolOp = "append" | "prepend" | "replace";
-type LineEnding = "\n" | "\r\n";
-
-interface HashlineToolEdit {
-  end?: string;
-  lines?: string[] | string | null;
-  op: HashlineToolOp;
-  pos?: string;
-}
+import { buildEscalationBailMessage } from "./edit-file-diagnostics";
+import { type HashlineToolEdit } from "./edit-file-repair";
+import {
+  assertExpectedFileHash,
+  canCreateFromMissingFile,
+  validateAndRepairEdits,
+} from "./edit-file-validation";
 
 const hashlineToolEditSchema = z
   .object({
@@ -29,15 +27,39 @@ const hashlineToolEditSchema = z
     pos: z
       .string()
       .optional()
-      .describe("Line anchor from read_file (format: LINE#HASH)."),
+      .describe(
+        "Line anchor from read_file (format: {line_number}#{hash_id})."
+      ),
     end: z
       .string()
       .optional()
-      .describe("Range end anchor for replace operations (format: LINE#HASH)."),
+      .describe(
+        "Range end anchor for replace operations (format: {line_number}#{hash_id})."
+      ),
     lines: z
       .union([z.array(z.string()), z.string(), z.null()])
-      .optional()
-      .describe("Replacement/inserted lines. null or [] deletes for replace."),
+      .describe(
+        "Replacement content. string[] for new lines, string for single line, null or [] to delete."
+      ),
+  })
+  .strict();
+
+// Lenient schema: lines optional — fallback when model omits lines
+// Custom validation in validateAndRepairEdits provides better error messages than ZodError
+const lenientEditSchema = z
+  .object({
+    op: z.enum(["replace", "append", "prepend"]),
+    pos: z.string().optional(),
+    end: z.string().optional(),
+    lines: z.union([z.array(z.string()), z.string(), z.null()]).optional(),
+  })
+  .strict();
+
+const lenientInputSchema = z
+  .object({
+    path: z.string(),
+    edits: z.array(lenientEditSchema).min(1),
+    expected_file_hash: z.string().optional(),
   })
   .strict();
 
@@ -55,98 +77,32 @@ const inputSchema = z
   })
   .strict();
 
-export type EditFileInput = z.input<typeof inputSchema>;
+export type EditFileInput = z.input<typeof lenientInputSchema>;
 
-function parseReplaceEdit(edit: HashlineToolEdit): HashlineEdit {
-  const primaryRef = edit.pos ?? edit.end;
-  if (!primaryRef) {
-    throw new Error("replace requires pos or end anchor.");
-  }
+// validateAndRepairEdits, canCreateFromMissingFile, assertExpectedFileHash
+// moved to ./edit-file-validation.ts
 
-  return {
-    op: "replace",
-    pos: parseLineTag(primaryRef),
-    end: edit.end ? parseLineTag(edit.end) : undefined,
-    lines: parseHashlineText(edit.lines),
-  };
-}
 
-function parseAppendPrependEdit(
-  op: "append" | "prepend",
-  edit: HashlineToolEdit
-): HashlineEdit {
-  const ref = op === "append" ? (edit.pos ?? edit.end) : (edit.end ?? edit.pos);
-  return {
-    op,
-    pos: ref ? parseLineTag(ref) : undefined,
-    lines: parseHashlineText(edit.lines),
-  };
-}
-
-function parseHashlineToolEdits(edits: HashlineToolEdit[]): HashlineEdit[] {
-  return edits.map((edit) => {
-    switch (edit.op) {
-      case "replace":
-        return parseReplaceEdit(edit);
-      case "append":
-        return parseAppendPrependEdit("append", edit);
-      case "prepend":
-        return parseAppendPrependEdit("prepend", edit);
-      default:
-        throw new Error("Unsupported edit operation.");
-    }
-  });
-}
-
-function canCreateMissingFileWithHashlineEdits(edits: HashlineEdit[]): boolean {
-  return edits.every((edit) => edit.op !== "replace" && edit.pos === undefined);
-}
-
-function resolvePreferredLineEnding(content: string): LineEnding {
-  return content.includes("\r\n") ? "\r\n" : "\n";
-}
-
-function applyPreferredLineEnding(
-  content: string,
-  lineEnding: LineEnding
-): string {
-  if (lineEnding === "\n") {
-    return content.replace(/\r\n/g, "\n");
-  }
-  return content.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
-}
-
-function assertExpectedFileHash(
-  expectedHash: string | undefined,
-  currentContent: string
-): void {
-  if (!expectedHash) {
-    return;
-  }
-
-  const normalizedExpected = expectedHash.toLowerCase();
-  const currentHash = computeFileHash(currentContent).toLowerCase();
-  if (normalizedExpected !== currentHash) {
-    throw new Error(
-      `File changed since read_file output. expected=${normalizedExpected}, current=${currentHash}`
-    );
-  }
-}
-
-function formatHashlineModeResult(params: {
+function formatResult(params: {
   created: boolean;
+  editCount: number;
+  lineCountDelta: number;
   path: string;
   warningLines?: string[];
 }): string {
   const action = params.created ? "Created" : "Updated";
   const output: string[] = [`${action} ${params.path}`];
-
+  const summaryParts: string[] = [`${params.editCount} edit(s) applied`];
+  if (params.lineCountDelta !== 0) {
+    const sign = params.lineCountDelta > 0 ? "+" : "";
+    summaryParts.push(`${sign}${params.lineCountDelta} line(s)`);
+  }
+  output.push(summaryParts.join(", "));
   if (params.warningLines && params.warningLines.length > 0) {
     output.push("");
     output.push("Warnings:");
     output.push(...params.warningLines);
   }
-
   return output.join("\n");
 }
 
@@ -182,43 +138,104 @@ async function readExistingContent(path: string): Promise<{
 }
 
 export async function executeEditFile(input: EditFileInput): Promise<string> {
-  const parsed = inputSchema.parse(input);
-  const hashlineEdits = parseHashlineToolEdits(parsed.edits);
-
-  const { content: loadedContent, exists } = await readExistingContent(
-    parsed.path
-  );
-  let content = loadedContent;
-
-  if (!exists) {
-    if (!canCreateMissingFileWithHashlineEdits(hashlineEdits)) {
-      throw new Error(`File not found: ${parsed.path}`);
+  let parsed;
+  try {
+    parsed = inputSchema.parse(input);
+  } catch (error) {
+    if (
+      error instanceof z.ZodError &&
+      error.issues.some(
+        (issue) =>
+          issue.path.length >= 2 &&
+          issue.path[issue.path.length - 1] === "lines"
+      )
+    ) {
+      // Fall back to lenient parse — custom validation gives better error messages
+      parsed = lenientInputSchema.parse(input) as z.infer<typeof inputSchema>;
+    } else {
+      throw error;
     }
-    content = "";
   }
 
-  assertExpectedFileHash(parsed.expected_file_hash, content);
-
-  const preferredLineEnding = resolvePreferredLineEnding(content);
-  const hashlineResult = applyHashlineEdits(content, hashlineEdits);
-  const normalizedContent = applyPreferredLineEnding(
-    hashlineResult.lines,
-    preferredLineEnding
+  const { content: rawContent, exists } = await readExistingContent(
+    parsed.path
   );
+  const oldEnvelope = canonicalizeFileText(rawContent);
+  const fileLines = exists ? oldEnvelope.content.split("\n") : [];
 
-  if (normalizedContent === content) {
-    throw new Error(
-      "No changes made. The provided hashline edits resolved to identical content."
+  let repairWarnings: string[];
+  let normalizedEdits: HashlineEdit[];
+  try {
+    const validateResult = validateAndRepairEdits(
+      parsed.edits as HashlineToolEdit[],
+      fileLines,
+      parsed.path
+    );
+    repairWarnings = validateResult.repairWarnings;
+    normalizedEdits = normalizeHashlineEdits(validateResult.edits);
+  } catch (parseError) {
+    if (
+      parseError instanceof Error &&
+      parseError.message.includes("explicit 'lines'")
+    ) {
+      const bailMessage = buildEscalationBailMessage(
+        parsed.edits,
+        parsed.path,
+        fileLines
+      );
+      if (bailMessage) {
+        return bailMessage;
+      }
+    }
+    throw parseError;
+  }
+
+  if (!(exists || canCreateFromMissingFile(normalizedEdits))) {
+    throw new Error(`File not found: ${parsed.path}`);
+  }
+
+  assertExpectedFileHash(parsed.expected_file_hash, rawContent);
+
+  const applyResult = applyHashlineEditsWithReport(
+    oldEnvelope.content,
+    normalizedEdits
+  );
+  const canonicalNewContent = applyResult.content;
+
+  if (canonicalNewContent === oldEnvelope.content) {
+    let diagnostic = `No changes made to ${parsed.path}. The edits produced identical content.`;
+    if (applyResult.noopEdits > 0) {
+      diagnostic += ` No-op edits: ${applyResult.noopEdits}. Re-read the file and provide content that differs from current lines.`;
+    }
+    return `Error: ${diagnostic}`;
+  }
+
+  const writeContent = restoreFileText(canonicalNewContent, oldEnvelope);
+
+  await ensureParentDir(parsed.path);
+  await writeFile(parsed.path, writeContent, "utf-8");
+
+  const originalLineCount = rawContent.split("\n").length;
+  const newLineCount = writeContent.split("\n").length;
+
+  const allWarnings: string[] = [...repairWarnings];
+  if (applyResult.noopEdits > 0) {
+    allWarnings.push(
+      `${applyResult.noopEdits} edit(s) were no-ops because replacement text matched existing content.`
+    );
+  }
+  if (applyResult.deduplicatedEdits > 0) {
+    allWarnings.push(
+      `${applyResult.deduplicatedEdits} duplicate edit(s) were removed.`
     );
   }
 
-  await ensureParentDir(parsed.path);
-  await writeFile(parsed.path, normalizedContent, "utf-8");
-
-  return formatHashlineModeResult({
+  return formatResult({
     created: !exists,
+    editCount: parsed.edits.length,
+    lineCountDelta: newLineCount - originalLineCount,
     path: parsed.path,
-    warningLines: hashlineResult.warnings,
+    warningLines: allWarnings.length > 0 ? allWarnings : undefined,
   });
 }
 

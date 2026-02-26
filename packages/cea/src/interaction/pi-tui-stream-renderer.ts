@@ -66,6 +66,18 @@ const safeStringify = (value: unknown): string => {
   }
 };
 
+const isPlainEmptyObject = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.keys(value).length === 0;
+};
+
 const renderCodeBlock = (language: string, value: unknown): string => {
   const text = safeStringify(value).replace(TRAILING_NEWLINES, "");
   const longestFenceRun = Array.from(
@@ -91,6 +103,9 @@ const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
 const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;
 const TAB_PATTERN = /\t/g;
 const MAX_READ_PREVIEW_LINES = 10;
+const TOOL_PENDING_MESSAGE = "Executing..";
+const TOOL_PENDING_MARKER = "__tool_pending_status__";
+const TOOL_PENDING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
 const HASHLINE_TAG_ONLY_PATTERN = /^(.*\d+#[ZPMQVRWSNKTXJBYH]{2})\s*$/;
 const HASHLINE_PIPE_ONLY_PATTERN = /^\|\s*(.*)$/;
 const HASHLINE_TAG_PIPE_ONLY_PATTERN =
@@ -618,16 +633,12 @@ const renderGrepOutput = (output: string): GrepRenderPayload | null => {
   };
 };
 
-const renderReadFilePendingOutput = (_path: string): string => {
-  return "Reading...";
+const renderPendingOutput = (): string => {
+  return TOOL_PENDING_MARKER;
 };
 
-const renderGlobPendingOutput = (_pattern: string): string => {
-  return "Searching...";
-};
-
-const renderGrepPendingOutput = (_pattern: string): string => {
-  return "Searching...";
+const buildPendingSpinnerText = (frame: string): string => {
+  return `${frame} ${TOOL_PENDING_MESSAGE}`;
 };
 
 const renderToolOutput = (_toolName: string, output: unknown): string => {
@@ -666,6 +677,7 @@ class TruncatedReadBody {
   private cachedText?: string;
   private cachedWidth?: number;
   private readonly background?: (text: string) => string;
+  private backgroundEnabled = true;
   private readonly paddingX: number;
   private text: string;
 
@@ -684,6 +696,14 @@ class TruncatedReadBody {
     this.cachedText = undefined;
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
+  }
+
+  setBackgroundEnabled(enabled: boolean): void {
+    if (this.backgroundEnabled === enabled) {
+      return;
+    }
+    this.backgroundEnabled = enabled;
+    this.invalidate();
   }
 
   invalidate(): void {
@@ -719,7 +739,9 @@ class TruncatedReadBody {
       const visibleLength = visibleWidth(lineWithMargins);
       const paddedLine = `${lineWithMargins}${" ".repeat(Math.max(0, width - visibleLength))}`;
 
-      return this.background ? this.background(paddedLine) : paddedLine;
+      return this.background && this.backgroundEnabled
+        ? this.background(paddedLine)
+        : paddedLine;
     });
 
     this.cachedText = this.text;
@@ -975,12 +997,16 @@ class ToolCallView extends Container {
   private readonly readBlock: Container;
   private readonly readBody: TruncatedReadBody;
   private readonly readHeader: TrimmedMarkdown;
+  private readonly requestRender: () => void;
   private readonly showRawToolIo: boolean;
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
   private output: unknown;
   private outputDenied = false;
+  private pendingSpinnerFrameIndex = 0;
+  private pendingSpinnerInterval: Timer | null = null;
+  private pendingTemplate: string | null = null;
   private parsedInput: unknown;
   private readMode = false;
   private toolName: string;
@@ -989,11 +1015,13 @@ class ToolCallView extends Container {
     callId: string,
     toolName: string,
     markdownTheme: MarkdownTheme,
+    requestRender: () => void,
     showRawToolIo: boolean
   ) {
     super();
     this.callId = callId;
     this.toolName = toolName;
+    this.requestRender = requestRender;
     this.showRawToolIo = showRawToolIo;
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.readHeader = new TrimmedMarkdown("", 1, 0, markdownTheme);
@@ -1006,6 +1034,10 @@ class ToolCallView extends Container {
     this.refresh();
   }
 
+  dispose(): void {
+    this.stopPendingSpinner();
+  }
+
   private setReadMode(enabled: boolean): void {
     if (this.readMode === enabled) {
       return;
@@ -1016,11 +1048,58 @@ class ToolCallView extends Container {
     this.addChild(enabled ? this.readBlock : this.content);
   }
 
+  private stopPendingSpinner(): void {
+    this.pendingTemplate = null;
+    if (!this.pendingSpinnerInterval) {
+      return;
+    }
+    clearInterval(this.pendingSpinnerInterval);
+    this.pendingSpinnerInterval = null;
+  }
+
+  private applyPendingSpinnerFrame(): void {
+    if (!this.pendingTemplate) {
+      return;
+    }
+
+    const frame = TOOL_PENDING_SPINNER_FRAMES[this.pendingSpinnerFrameIndex];
+    this.readBody.setText(
+      this.pendingTemplate.replaceAll(
+        TOOL_PENDING_MARKER,
+        buildPendingSpinnerText(frame)
+      )
+    );
+  }
+
+  private startPendingSpinner(template: string): void {
+    this.pendingTemplate = template;
+    this.pendingSpinnerFrameIndex = 0;
+    this.applyPendingSpinnerFrame();
+
+    if (this.pendingSpinnerInterval) {
+      return;
+    }
+
+    this.pendingSpinnerInterval = setInterval(() => {
+      this.pendingSpinnerFrameIndex =
+        (this.pendingSpinnerFrameIndex + 1) %
+        TOOL_PENDING_SPINNER_FRAMES.length;
+      this.applyPendingSpinnerFrame();
+      this.requestRender();
+    }, 80);
+  }
+
   async appendInputChunk(chunk: string): Promise<void> {
     this.inputBuffer += chunk;
 
-    const { value } = await parsePartialJson(this.inputBuffer);
-    this.parsedInput = value;
+    const { value, state } = await parsePartialJson(this.inputBuffer);
+    const shouldSuppressTransientEmptyObject =
+      state !== "successful-parse" && isPlainEmptyObject(value);
+
+    if (!shouldSuppressTransientEmptyObject) {
+      this.parsedInput = value;
+    }
+
     this.refresh();
   }
 
@@ -1094,9 +1173,21 @@ class ToolCallView extends Container {
     return null;
   }
 
-  private setPrettyBlock(header: string, body: string): void {
+  private setPrettyBlock(
+    header: string,
+    body: string,
+    options?: { isPending?: boolean; useBackground?: boolean }
+  ): void {
     this.setReadMode(true);
+    this.readBody.setBackgroundEnabled(options?.useBackground ?? true);
     this.readHeader.setText(header);
+
+    if (options?.isPending) {
+      this.startPendingSpinner(body);
+      return;
+    }
+
+    this.stopPendingSpinner();
     this.readBody.setText(body);
   }
 
@@ -1124,17 +1215,26 @@ class ToolCallView extends Container {
 
     if (typeof this.output === "string") {
       const renderedReadFile = renderReadFileOutput(this.output);
-      this.setReadMode(true);
       if (renderedReadFile) {
         const pathWithRange = renderedReadFile.range
           ? `${renderedReadFile.path} ${renderedReadFile.range}`
           : renderedReadFile.path;
-        this.readHeader.setText(`**Read** \`${pathWithRange}\``);
-        this.readBody.setText(renderedReadFile.body);
+        this.setPrettyBlock(
+          `**Read** \`${pathWithRange}\``,
+          renderedReadFile.body,
+          {
+            useBackground: true,
+          }
+        );
       } else {
         const fallbackPath = readPath ?? "(unknown)";
-        this.readHeader.setText(`**Read** \`${fallbackPath}\``);
-        this.readBody.setText(safeStringify(this.output));
+        this.setPrettyBlock(
+          `**Read** \`${fallbackPath}\``,
+          safeStringify(this.output),
+          {
+            useBackground: true,
+          }
+        );
       }
       return true;
     }
@@ -1143,9 +1243,10 @@ class ToolCallView extends Container {
       return false;
     }
 
-    this.setReadMode(true);
-    this.readHeader.setText(`**Read** \`${readPath}\``);
-    this.readBody.setText(renderReadFilePendingOutput(readPath));
+    this.setPrettyBlock(`**Read** \`${readPath}\``, renderPendingOutput(), {
+      useBackground: false,
+      isPending: true,
+    });
     return true;
   }
 
@@ -1162,14 +1263,23 @@ class ToolCallView extends Container {
 
     if (typeof this.output === "string") {
       const renderedGlob = renderGlobOutput(this.output);
-      this.setReadMode(true);
       if (renderedGlob) {
-        this.readHeader.setText(`**Glob** \`${renderedGlob.pattern}\``);
-        this.readBody.setText(renderedGlob.body);
+        this.setPrettyBlock(
+          `**Glob** \`${renderedGlob.pattern}\``,
+          renderedGlob.body,
+          {
+            useBackground: true,
+          }
+        );
       } else {
         const fallbackPattern = globPattern ?? "(unknown)";
-        this.readHeader.setText(`**Glob** \`${fallbackPattern}\``);
-        this.readBody.setText(safeStringify(this.output));
+        this.setPrettyBlock(
+          `**Glob** \`${fallbackPattern}\``,
+          safeStringify(this.output),
+          {
+            useBackground: true,
+          }
+        );
       }
       return true;
     }
@@ -1178,9 +1288,10 @@ class ToolCallView extends Container {
       return false;
     }
 
-    this.setReadMode(true);
-    this.readHeader.setText(`**Glob** \`${globPattern}\``);
-    this.readBody.setText(renderGlobPendingOutput(globPattern));
+    this.setPrettyBlock(`**Glob** \`${globPattern}\``, renderPendingOutput(), {
+      useBackground: false,
+      isPending: true,
+    });
     return true;
   }
 
@@ -1197,14 +1308,23 @@ class ToolCallView extends Container {
 
     if (typeof this.output === "string") {
       const renderedGrep = renderGrepOutput(this.output);
-      this.setReadMode(true);
       if (renderedGrep) {
-        this.readHeader.setText(`**Grep** \`${renderedGrep.pattern}\``);
-        this.readBody.setText(renderedGrep.body);
+        this.setPrettyBlock(
+          `**Grep** \`${renderedGrep.pattern}\``,
+          renderedGrep.body,
+          {
+            useBackground: true,
+          }
+        );
       } else {
         const fallbackPattern = grepPattern ?? "(unknown)";
-        this.readHeader.setText(`**Grep** \`${fallbackPattern}\``);
-        this.readBody.setText(safeStringify(this.output));
+        this.setPrettyBlock(
+          `**Grep** \`${fallbackPattern}\``,
+          safeStringify(this.output),
+          {
+            useBackground: true,
+          }
+        );
       }
       return true;
     }
@@ -1213,9 +1333,10 @@ class ToolCallView extends Container {
       return false;
     }
 
-    this.setReadMode(true);
-    this.readHeader.setText(`**Grep** \`${grepPattern}\``);
-    this.readBody.setText(renderGrepPendingOutput(grepPattern));
+    this.setPrettyBlock(`**Grep** \`${grepPattern}\``, renderPendingOutput(), {
+      useBackground: false,
+      isPending: true,
+    });
     return true;
   }
 
@@ -1228,7 +1349,10 @@ class ToolCallView extends Container {
     const header = buildPrettyHeader("Shell", command);
 
     if (this.output === undefined) {
-      this.setPrettyBlock(header, "Running...");
+      this.setPrettyBlock(header, renderPendingOutput(), {
+        isPending: true,
+        useBackground: false,
+      });
       return true;
     }
 
@@ -1272,7 +1396,10 @@ class ToolCallView extends Container {
     const header = buildPrettyHeader("Interact", keystrokes);
 
     if (this.output === undefined) {
-      this.setPrettyBlock(header, "Sending keys...");
+      this.setPrettyBlock(header, renderPendingOutput(), {
+        isPending: true,
+        useBackground: false,
+      });
       return true;
     }
 
@@ -1305,7 +1432,10 @@ class ToolCallView extends Container {
     const header = buildPrettyHeader("Write", path);
 
     if (this.output === undefined) {
-      this.setPrettyBlock(header, "Writing...");
+      this.setPrettyBlock(header, renderPendingOutput(), {
+        isPending: true,
+        useBackground: false,
+      });
       return true;
     }
 
@@ -1334,7 +1464,7 @@ class ToolCallView extends Container {
       if (bodyLines.length > 0) {
         bodyLines.push("");
       }
-      bodyLines.push("Editing...");
+      bodyLines.push(renderPendingOutput());
     } else {
       if (bodyLines.length > 0) {
         bodyLines.push("");
@@ -1349,7 +1479,10 @@ class ToolCallView extends Container {
       bodyLines.push(renderDiffBlock(editPayload.oldStr, editPayload.newStr));
     }
 
-    this.setPrettyBlock(header, bodyLines.join("\n"));
+    this.setPrettyBlock(header, bodyLines.join("\n"), {
+      isPending: this.output === undefined,
+      useBackground: this.output !== undefined,
+    });
     return true;
   }
 
@@ -1362,7 +1495,10 @@ class ToolCallView extends Container {
     const header = buildPrettyHeader("Delete", path);
 
     if (this.output === undefined) {
-      this.setPrettyBlock(header, "Deleting...");
+      this.setPrettyBlock(header, renderPendingOutput(), {
+        isPending: true,
+        useBackground: false,
+      });
       return true;
     }
 
@@ -1381,7 +1517,10 @@ class ToolCallView extends Container {
     const header = buildPrettyHeader("Skill", target);
 
     if (this.output === undefined) {
-      this.setPrettyBlock(header, "Loading skill...");
+      this.setPrettyBlock(header, renderPendingOutput(), {
+        isPending: true,
+        useBackground: false,
+      });
       return true;
     }
 
@@ -1410,7 +1549,10 @@ class ToolCallView extends Container {
     const header = buildPrettyHeader("Todo", headerTarget);
 
     if (this.output === undefined) {
-      this.setPrettyBlock(header, "Updating todo list...");
+      this.setPrettyBlock(header, renderPendingOutput(), {
+        isPending: true,
+        useBackground: false,
+      });
       return true;
     }
 
@@ -1464,8 +1606,28 @@ class ToolCallView extends Container {
     );
   }
 
+  private shouldSuppressRawFallback(): boolean {
+    if (this.showRawToolIo) {
+      return false;
+    }
+
+    return (
+      this.finalInput === undefined &&
+      this.output === undefined &&
+      this.error === undefined &&
+      !this.outputDenied &&
+      this.inputBuffer.length > 0
+    );
+  }
+
   private refresh(): void {
     if (!this.showRawToolIo && this.tryRenderPrettyMode()) {
+      return;
+    }
+
+    this.stopPendingSpinner();
+
+    if (this.shouldSuppressRawFallback()) {
       return;
     }
 
@@ -1924,6 +2086,7 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
       toolCallId,
       toolName,
       options.markdownTheme,
+      () => options.ui.requestRender(),
       flags.showRawToolIo
     );
     toolViews.set(toolCallId, view);
@@ -1942,15 +2105,21 @@ export const renderFullStreamWithPiTui = async <TOOLS extends ToolSet>(
     chatContainer: options.chatContainer,
   };
 
-  for await (const rawPart of stream) {
-    const part = rawPart as StreamPart;
+  try {
+    for await (const rawPart of stream) {
+      const part = rawPart as StreamPart;
 
-    if (!firstVisiblePartSeen && isVisibleStreamPart(part, flags)) {
-      firstVisiblePartSeen = true;
-      options.onFirstVisiblePart?.();
+      if (!firstVisiblePartSeen && isVisibleStreamPart(part, flags)) {
+        firstVisiblePartSeen = true;
+        options.onFirstVisiblePart?.();
+      }
+
+      await handleStreamPart(part, state);
+      options.ui.requestRender();
     }
-
-    await handleStreamPart(part, state);
-    options.ui.requestRender();
+  } finally {
+    for (const view of toolViews.values()) {
+      view.dispose();
+    }
   }
 };

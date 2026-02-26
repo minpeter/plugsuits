@@ -16,6 +16,7 @@ export interface FriendliModelInfo {
   provider: "friendli";
   reasoning: FriendliReasoningModelConfig | null;
   type?: "serverless" | "dedicated";
+  masked?: boolean;
 }
 
 const DEFAULT_FRIENDLI_REASONING: FriendliReasoningModelConfig = {
@@ -48,7 +49,9 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
     reasoning: {
       ...DEFAULT_FRIENDLI_REASONING,
       reasoning_toggle: null,
+      preserved_toggle: null,
     },
+    masked: true,
   },
   {
     id: "zai-org/GLM-5",
@@ -58,6 +61,7 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
     reasoning: {
       ...DEFAULT_FRIENDLI_REASONING,
     },
+    masked: true,
   },
   {
     id: "zai-org/GLM-4.7",

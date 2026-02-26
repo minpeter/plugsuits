@@ -143,7 +143,7 @@ const parseToolFallbackCliOption = (
     };
   };
 
-  if (arg === "--tool-fallback-mode") {
+  if (arg === "--toolcall-mode") {
     return parseCandidate(DEFAULT_TOOL_FALLBACK_MODE);
   }
 
@@ -278,7 +278,7 @@ const parseArgs = (): {
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--toolcall-mode <mode>]"
     );
     process.exit(1);
   }

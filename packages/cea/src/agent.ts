@@ -6,7 +6,7 @@ import {
   type AgentStreamResult as HarnessAgentStreamResult,
 } from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
-import type { ModelMessage } from "ai";
+import { InvalidToolInputError, NoSuchToolError, type ModelMessage } from "ai";
 import { wrapLanguageModel } from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
@@ -210,6 +210,34 @@ const createBaseModel = (
 
 const defaultToolRegistry = createTools();
 
+/**
+ * Repair malformed tool calls from weak models.
+ * Cleans hashline artifacts (e.g. `42#AB|content42#AB`) that models
+ * sometimes embed in JSON arguments.
+ */
+const repairToolCall: Parameters<
+  typeof import("ai").streamText
+>[0]["experimental_repairToolCall"] = async ({ toolCall, error }) => {
+  if (NoSuchToolError.isInstance(error)) return null;
+  if (!InvalidToolInputError.isInstance(error)) return null;
+  try {
+    const raw =
+      typeof toolCall.input === "string"
+        ? toolCall.input
+        : JSON.stringify(toolCall.input);
+    const cleaned = raw
+      .replace(
+        /(\d+#[A-Z]{2})(?:[|=\-][^"{}[\]]*?)\1(?:[|=\-][^"{}[\]]*?)*/g,
+        "$1"
+      )
+      .replace(/(\d+#[A-Z]{2})(?:-\1)+/g, "$1");
+    const parsed = JSON.parse(cleaned);
+    return { ...toolCall, input: JSON.stringify(parsed) };
+  } catch {
+    return null;
+  }
+};
+
 export type ModelType = "serverless" | "dedicated";
 
 export class AgentManager {
@@ -392,6 +420,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       tools: this.toolRegistry,
       instructions: await this.getInstructions(),
       maxStepsPerTurn: 1,
+      experimental_repairToolCall: repairToolCall,
     });
 
     return agent.stream({

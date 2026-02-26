@@ -576,7 +576,6 @@ interface CliUi {
   editor: Editor;
   markdownTheme: MarkdownTheme;
   requestExit: () => void;
-  showCommandLoader: (message: string) => void;
   showLoader: (message: string) => void;
   showModelSelector: (
     models: ModelInfo[],
@@ -590,6 +589,9 @@ interface CliUi {
   showToolFallbackSelector: (
     currentMode: ToolFallbackMode
   ) => Promise<ToolFallbackMode | null>;
+  showTranslateModeSelector: (
+    currentEnabled: boolean
+  ) => Promise<boolean | null>;
   tui: TUI;
   updateHeader: () => void;
   waitForInput: () => Promise<string | null>;
@@ -648,29 +650,12 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   tui.setFocus(editor);
 
   let loader: Loader | null = null;
-  let commandLoaderInterval: Timer | null = null;
-  let commandLoaderText: Text | null = null;
   let inputResolver: ((value: string | null) => void) | null = null;
   let pendingExitConfirmation = false;
   let lastCtrlCPressAt = 0;
   let activeModalCancel: (() => void) | null = null;
 
-  const COMMAND_LOADER_FRAMES = ["-", "\\", "|", "/"] as const;
-
-  const stopCommandLoader = (): void => {
-    if (commandLoaderInterval) {
-      clearInterval(commandLoaderInterval);
-      commandLoaderInterval = null;
-    }
-
-    if (commandLoaderText) {
-      statusContainer.removeChild(commandLoaderText);
-      commandLoaderText = null;
-    }
-  };
-
   const clearStatus = (): void => {
-    stopCommandLoader();
     if (loader) {
       loader.stop();
       statusContainer.removeChild(loader);
@@ -690,27 +675,6 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     );
     statusContainer.addChild(loader);
     loader.start();
-    tui.requestRender();
-  };
-
-  const showCommandLoader = (message: string): void => {
-    clearStatus();
-
-    commandLoaderText = new Text("", 1, 0);
-    statusContainer.addChild(commandLoaderText);
-
-    let frameIndex = 0;
-    const updateFrame = (): void => {
-      const frame = COMMAND_LOADER_FRAMES[frameIndex];
-      frameIndex = (frameIndex + 1) % COMMAND_LOADER_FRAMES.length;
-      commandLoaderText?.setText(
-        `${style(ANSI_CYAN, frame)} ${style(ANSI_DIM, message)}`
-      );
-      tui.requestRender();
-    };
-
-    updateFrame();
-    commandLoaderInterval = setInterval(updateFrame, 80);
     tui.requestRender();
   };
 
@@ -975,6 +939,88 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     });
   };
 
+  const showTranslateModeSelector = async (
+    currentEnabled: boolean
+  ): Promise<boolean | null> => {
+    clearStatus();
+
+    const selectorContainer = new Container();
+    selectorContainer.addChild(
+      new Text(style(ANSI_DIM, "Select translation mode"), 1, 0)
+    );
+    selectorContainer.addChild(new Spacer(1));
+
+    const selectList = new SelectList(
+      [
+        {
+          value: "on",
+          label: buildCurrentIndicatorLabel("on", currentEnabled),
+          description: "Auto-translate non-English prompts",
+        },
+        {
+          value: "off",
+          label: buildCurrentIndicatorLabel("off", !currentEnabled),
+          description: "Use prompts as entered",
+        },
+      ],
+      2,
+      editorTheme.selectList
+    );
+    selectList.setSelectedIndex(currentEnabled ? 0 : 1);
+
+    selectorContainer.addChild(selectList);
+    statusContainer.addChild(selectorContainer);
+    tui.requestRender();
+
+    return await new Promise((resolve) => {
+      let removeSelectorInputListener: () => void = () => undefined;
+      let done = false;
+
+      const cleanup = (): void => {
+        removeSelectorInputListener();
+        statusContainer.removeChild(selectorContainer);
+        tui.requestRender();
+      };
+
+      const finish = (value: boolean | null): void => {
+        if (done) {
+          return;
+        }
+        done = true;
+        setActiveModalCancel(null);
+        cleanup();
+        resolve(value);
+      };
+
+      setActiveModalCancel(() => {
+        finish(null);
+      });
+
+      selectList.onSelect = (item) => {
+        finish(item.value === "on");
+      };
+      selectList.onCancel = () => {
+        finish(null);
+      };
+
+      removeSelectorInputListener = tui.addInputListener((data) => {
+        if (isCtrlCInput(data)) {
+          handleCtrlCPress();
+          finish(null);
+          return { consume: true };
+        }
+
+        if (shouldClearPendingExitConfirmation(data)) {
+          clearPendingExitConfirmation();
+        }
+
+        selectList.handleInput(data);
+        tui.requestRender();
+        return { consume: true };
+      });
+    });
+  };
+
   const showModelSelector = async (
     models: ModelInfo[],
     currentModelId: string,
@@ -1191,11 +1237,11 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     updateHeader,
     waitForInput,
     requestExit,
-    showCommandLoader,
     showLoader,
     showModelSelector,
     showToolFallbackSelector,
     showReasoningModeSelector,
+    showTranslateModeSelector,
     clearStatus,
     dispose,
   };
@@ -1234,7 +1280,7 @@ const parseToolFallbackCliOption = (
 ): { consumedArgs: number; mode: ToolFallbackMode } | null => {
   const arg = args[index];
 
-  if (arg === "--tool-fallback-mode") {
+  if (arg === "--toolcall-mode") {
     const candidate = args[index + 1];
     if (!candidate || candidate.startsWith("--")) {
       return {
@@ -1593,6 +1639,25 @@ const resolveReasoningModeCommandInput = async (
   return `/reasoning-mode ${selected}`;
 };
 
+const resolveTranslateCommandInput = async (
+  ui: CliUi,
+  commandInput: string,
+  parsed: ReturnType<typeof parseCommand>
+): Promise<string | null> => {
+  if (parsed?.name !== "translate" || parsed.args.length > 0) {
+    return commandInput;
+  }
+
+  const selected = await ui.showTranslateModeSelector(
+    agentManager.isTranslationEnabled()
+  );
+  if (selected === null) {
+    return null;
+  }
+
+  return `/translate ${selected ? "on" : "off"}`;
+};
+
 const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   let commandInput = input;
   const initialParsed = parseCommand(commandInput);
@@ -1626,6 +1691,16 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   }
   commandInput = reasoningModeCommandInput;
 
+  const translateCommandInput = await resolveTranslateCommandInput(
+    ui,
+    commandInput,
+    initialParsed
+  );
+  if (!translateCommandInput) {
+    return true;
+  }
+  commandInput = translateCommandInput;
+
   const parsed = parseCommand(commandInput);
   const resolvedCommandName = parsed
     ? resolveRegisteredCommandName(parsed.name)
@@ -1633,10 +1708,11 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
   const isNativeCommand =
     resolvedCommandName === "clear" ||
     resolvedCommandName === "reasoning-mode" ||
-    resolvedCommandName === "tool-fallback";
+    resolvedCommandName === "tool-fallback" ||
+    resolvedCommandName === "translate";
 
   if (!isNativeCommand) {
-    ui.showCommandLoader("Running command...");
+    ui.showLoader("Working...");
   }
 
   const result = await executeCommand(commandInput);

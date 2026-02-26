@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Container, type MarkdownTheme } from "@mariozechner/pi-tui";
 import type { TextStreamPart, ToolSet } from "ai";
-import { computeLineHash } from "../tools/utils/hashline/hashline";
+import { computeLineHash } from "../tools/utils/hashline";
 import {
   type PiTuiStreamRenderOptions,
   renderFullStreamWithPiTui,
@@ -10,6 +10,7 @@ import {
 type TestStreamPart = TextStreamPart<ToolSet>;
 
 const LARGE_BLANK_GAP_REGEX = /\n[ \t]*\n[ \t]*\n[ \t]*\n/;
+const EXECUTING_SPINNER_TEXT_REGEX = /[-\\|/] Executing\.\./;
 const tagGrepLine = (
   path: string,
   lineNumber: number,
@@ -40,6 +41,7 @@ const markdownTheme: MarkdownTheme = {
 interface RenderResult {
   output: string;
   renderCalls: number;
+  snapshots: string[];
 }
 
 interface RenderPartsOptions {
@@ -53,6 +55,7 @@ const renderParts = async (
 ): Promise<RenderResult> => {
   const chatContainer = new Container();
   let renderCalls = 0;
+  const snapshots: string[] = [];
 
   const options: PiTuiStreamRenderOptions = {
     chatContainer,
@@ -61,6 +64,7 @@ const renderParts = async (
     ui: {
       requestRender: () => {
         renderCalls += 1;
+        snapshots.push(chatContainer.render(120).join("\n"));
       },
     },
     showReasoning: true,
@@ -82,7 +86,7 @@ const renderParts = async (
   await renderFullStreamWithPiTui(stream(), options);
   const output = chatContainer.render(120).join("\n");
 
-  return { output, renderCalls };
+  return { output, renderCalls, snapshots };
 };
 
 describe("renderFullStreamWithPiTui", () => {
@@ -249,7 +253,7 @@ describe("renderFullStreamWithPiTui", () => {
         type: "tool-input-delta",
         id: "call_edit",
         delta:
-          '{"path":"workspace/demo.ts","old_str":"const value = 1;","new_str":"const value = 2;"}',
+          '{"path":"src/demo.ts","old_str":"const value = 1;","new_str":"const value = 2;"}',
       },
       { type: "tool-input-end", id: "call_edit" },
       {
@@ -257,7 +261,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_edit",
         toolName: "edit_file",
         input: {
-          path: "workspace/demo.ts",
+          path: "src/demo.ts",
           old_str: "const value = 1;",
           new_str: "const value = 2;",
         },
@@ -272,7 +276,7 @@ describe("renderFullStreamWithPiTui", () => {
   it("renders read_file output as structured markdown", async () => {
     const readOutput = [
       "OK - read file",
-      "path: workspace/demo.ts",
+      "path: src/demo.ts",
       "bytes: 48",
       "last_modified: 2026-01-19T03:33:57.520Z",
       "lines: 5 (returned: 4)",
@@ -293,7 +297,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_read",
         toolName: "read_file",
         input: {
-          path: "workspace/demo.ts",
+          path: "src/demo.ts",
         },
       },
       {
@@ -301,13 +305,13 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_read",
         toolName: "read_file",
         input: {
-          path: "workspace/demo.ts",
+          path: "src/demo.ts",
         },
         output: readOutput,
       },
     ]);
 
-    expect(output).toContain("Read workspace/demo.ts L2-L5");
+    expect(output).toContain("Read src/demo.ts L2-L5");
     expect(output).toContain("2 | ");
     expect(output).toContain("const value = 2;");
     expect(output).toContain("![Image 1](./img.png)");
@@ -324,7 +328,7 @@ describe("renderFullStreamWithPiTui", () => {
     const lineTag = tagReadLine(2, lineContent).split("|")[0];
     const readOutput = [
       "OK - read file",
-      "path: workspace/demo.ts",
+      "path: src/demo.ts",
       "bytes: 48",
       "last_modified: 2026-01-19T03:33:57.520Z",
       "lines: 5 (returned: 1)",
@@ -344,7 +348,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_read_split",
         toolName: "read_file",
         input: {
-          path: "workspace/demo.ts",
+          path: "src/demo.ts",
         },
       },
       {
@@ -352,7 +356,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_read_split",
         toolName: "read_file",
         input: {
-          path: "workspace/demo.ts",
+          path: "src/demo.ts",
         },
         output: readOutput,
       },
@@ -416,7 +420,7 @@ describe("renderFullStreamWithPiTui", () => {
 
     const readOutput = [
       "OK - read file",
-      "path: workspace/long.txt",
+      "path: src/long.txt",
       "bytes: 120",
       "last_modified: 2026-02-23T01:00:00.000Z",
       "lines: 12 (returned: 12)",
@@ -434,7 +438,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_long",
         toolName: "read_file",
         input: {
-          path: "workspace/long.txt",
+          path: "src/long.txt",
         },
       },
       {
@@ -442,13 +446,13 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_long",
         toolName: "read_file",
         input: {
-          path: "workspace/long.txt",
+          path: "src/long.txt",
         },
         output: readOutput,
       },
     ]);
 
-    expect(output).toContain("Read workspace/long.txt L1-L12");
+    expect(output).toContain("Read src/long.txt L1-L12");
     expect(output).toContain("10 | line 10");
     expect(output).not.toContain("11 | line 11");
     expect(output).toContain("... (2 more lines)");
@@ -458,7 +462,7 @@ describe("renderFullStreamWithPiTui", () => {
     const longTail = "X".repeat(180);
     const readOutput = [
       "OK - read file",
-      "path: workspace/wrap.txt",
+      "path: src/wrap.txt",
       "bytes: 999",
       "last_modified: 2026-02-23T01:00:00.000Z",
       "lines: 1 (returned: 1)",
@@ -476,7 +480,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_wrap",
         toolName: "read_file",
         input: {
-          path: "workspace/wrap.txt",
+          path: "src/wrap.txt",
         },
       },
       {
@@ -484,13 +488,13 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_wrap",
         toolName: "read_file",
         input: {
-          path: "workspace/wrap.txt",
+          path: "src/wrap.txt",
         },
         output: readOutput,
       },
     ]);
 
-    expect(output).toContain("Read workspace/wrap.txt L1-L1");
+    expect(output).toContain("Read src/wrap.txt L1-L1");
     expect(output).toContain("1 | prefix");
     expect(output).not.toContain(longTail);
   });
@@ -505,7 +509,7 @@ describe("renderFullStreamWithPiTui", () => {
       {
         type: "tool-input-delta",
         id: "call_1",
-        delta: '{"path":"workspace/file.ts","content":"hello"}',
+        delta: '{"path":"src/file.ts","content":"hello"}',
       },
       { type: "tool-input-end", id: "call_1" },
       {
@@ -513,14 +517,14 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_1",
         toolName: "write_file",
         input: {
-          path: "workspace/file.ts",
+          path: "src/file.ts",
           content: "hello",
         },
       },
     ]);
 
-    expect(output).toContain("Write workspace/file.ts");
-    expect((output.match(/Write workspace\/file\.ts/g) ?? []).length).toBe(1);
+    expect(output).toContain("Write src/file.ts");
+    expect((output.match(/Write src\/file\.ts/g) ?? []).length).toBe(1);
   });
 
   it("supports toolCallId and inputTextDelta aliases", async () => {
@@ -533,7 +537,7 @@ describe("renderFullStreamWithPiTui", () => {
       {
         type: "tool-input-delta",
         toolCallId: "call_3",
-        inputTextDelta: '{"path":"workspace/big.ts","content":"chunk"}',
+        inputTextDelta: '{"path":"src/big.ts","content":"chunk"}',
       } as never,
       {
         type: "tool-input-end",
@@ -544,13 +548,13 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_3",
         toolName: "write_file",
         input: {
-          path: "workspace/big.ts",
+          path: "src/big.ts",
           content: "chunk",
         },
       } as never,
     ]);
 
-    expect(output).toContain("Write workspace/big.ts");
+    expect(output).toContain("Write src/big.ts");
   });
 
   it("streams read_file pretty header from partial tool-input-delta", async () => {
@@ -563,13 +567,85 @@ describe("renderFullStreamWithPiTui", () => {
       {
         type: "tool-input-delta",
         id: "call_stream_read",
-        delta: '{"path":"workspace/streamed.ts"',
+        delta: '{"path":"src/streamed.ts"',
       },
     ]);
 
-    expect(output).toContain("Read workspace/streamed.ts");
-    expect(output).toContain("Reading...");
+    expect(output).toContain("Read src/streamed.ts");
+    expect(output).toContain("Executing..");
+    expect(EXECUTING_SPINNER_TEXT_REGEX.test(output)).toBe(true);
+    expect(output).not.toContain("\x1b[100m");
     expect(output).not.toContain("Tool read_file");
+  });
+
+  it("suppresses transient empty-object raw flicker during streamed tool input", async () => {
+    const { output, snapshots } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_stream_flicker",
+        toolName: "read_file",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_stream_flicker",
+        delta: '{"p',
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_stream_flicker",
+        delta: 'ath":"src/no-flicker.ts"',
+      },
+    ]);
+
+    expect(output).toContain("Read src/no-flicker.ts");
+    expect(output).toContain("Executing..");
+    expect(output).not.toContain("Tool read_file");
+    expect(snapshots.some((frame) => frame.includes("{}"))).toBe(false);
+  });
+
+  it("preserves requestRender this-context for pending spinner updates", async () => {
+    const chatContainer = new Container();
+    const renderTracker = {
+      renderCalls: 0,
+      doRender() {
+        this.renderCalls += 1;
+      },
+      requestRender() {
+        this.doRender();
+      },
+    };
+
+    async function* stream(): AsyncIterable<TestStreamPart> {
+      yield {
+        type: "tool-input-start",
+        id: "call_bound_request_render",
+        toolName: "read_file",
+      };
+      yield {
+        type: "tool-input-delta",
+        id: "call_bound_request_render",
+        delta: '{"path":"src/bound-context.ts"',
+      };
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    }
+
+    await renderFullStreamWithPiTui(stream(), {
+      chatContainer,
+      markdownTheme,
+      ui: renderTracker,
+      showReasoning: true,
+      showSteps: false,
+      showFinishReason: false,
+      showToolResults: true,
+      showRawToolIo: false,
+      showSources: false,
+      showFiles: false,
+    });
+
+    const output = chatContainer.render(120).join("\n");
+    expect(output).toContain("Read src/bound-context.ts");
+    expect(output).toContain("Executing..");
+    expect(renderTracker.renderCalls).toBeGreaterThan(2);
   });
 
   it("streams shell_execute pretty header from partial tool-input-delta", async () => {
@@ -587,7 +663,8 @@ describe("renderFullStreamWithPiTui", () => {
     ]);
 
     expect(output).toContain("Shell echo streamed");
-    expect(output).toContain("Running...");
+    expect(output).toContain("Executing..");
+    expect(EXECUTING_SPINNER_TEXT_REGEX.test(output)).toBe(true);
     expect(output).not.toContain("Tool shell_execute");
   });
 
@@ -596,7 +673,7 @@ describe("renderFullStreamWithPiTui", () => {
       {
         type: "tool-input-delta",
         id: "call_late_name",
-        delta: '{"path":"workspace/late-name.ts"}',
+        delta: '{"path":"src/late-name.ts"}',
       } as never,
       {
         type: "tool-input-start",
@@ -605,8 +682,8 @@ describe("renderFullStreamWithPiTui", () => {
       },
     ]);
 
-    expect(output).toContain("Read workspace/late-name.ts");
-    expect(output).toContain("Reading...");
+    expect(output).toContain("Read src/late-name.ts");
+    expect(output).toContain("Executing..");
     expect(output).not.toContain("Tool tool");
   });
 
@@ -628,14 +705,14 @@ describe("renderFullStreamWithPiTui", () => {
         {
           type: "tool-input-delta",
           id: "call_unknown_raw",
-          delta: '{"path":"workspace/raw-mode.ts"}',
+          delta: '{"path":"src/raw-mode.ts"}',
         } as never,
       ],
       { showRawToolIo: true }
     );
 
     expect(output).toContain("Tool tool");
-    expect(output).toContain("workspace/raw-mode.ts");
+    expect(output).toContain("src/raw-mode.ts");
   });
 
   it("keeps reasoning visible after tool blocks in stream order", async () => {
@@ -770,7 +847,7 @@ describe("renderFullStreamWithPiTui", () => {
   it("renders glob_files output as structured markdown", async () => {
     const globOutput = [
       "OK - glob",
-      'pattern: "workspace/**/*.ts"',
+      'pattern: "src/**/*.ts"',
       "path: /project",
       "respect_git_ignore: true",
       "file_count: 12",
@@ -799,7 +876,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_glob",
         toolName: "glob_files",
         input: {
-          pattern: "workspace/**/*.ts",
+          pattern: "src/**/*.ts",
         },
       },
       {
@@ -807,13 +884,13 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_glob",
         toolName: "glob_files",
         input: {
-          pattern: "workspace/**/*.ts",
+          pattern: "src/**/*.ts",
         },
         output: globOutput,
       },
     ]);
 
-    expect(output).toContain("Glob workspace/**/*.ts");
+    expect(output).toContain("Glob src/**/*.ts");
     expect(output).toContain("/project/file1.ts");
     expect(output).toContain("... (2 more lines)");
     expect(output).not.toContain("Tool glob_files");
@@ -864,7 +941,7 @@ describe("renderFullStreamWithPiTui", () => {
   it("shows truncated marker for glob files when model truncates", async () => {
     const globOutput = [
       "OK - glob",
-      'pattern: "workspace/**/*.ts"',
+      'pattern: "src/**/*.ts"',
       "path: /project",
       "respect_git_ignore: true",
       "file_count: 12",
@@ -893,7 +970,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_glob_truncated",
         toolName: "glob_files",
         input: {
-          pattern: "workspace/**/*.ts",
+          pattern: "src/**/*.ts",
         },
       },
       {
@@ -901,7 +978,7 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_glob_truncated",
         toolName: "glob_files",
         input: {
-          pattern: "workspace/**/*.ts",
+          pattern: "src/**/*.ts",
         },
         output: globOutput,
       },
@@ -1065,10 +1142,10 @@ describe("renderFullStreamWithPiTui", () => {
       {
         toolCallId: "call_read_raw",
         toolName: "read_file",
-        input: { path: "workspace/demo.ts" },
+        input: { path: "src/demo.ts" },
         output: [
           "OK - read file",
-          "path: workspace/demo.ts",
+          "path: src/demo.ts",
           "bytes: 12",
           "last_modified: 2026-02-23T01:00:00.000Z",
           "lines: 1 (returned: 1)",
@@ -1079,15 +1156,15 @@ describe("renderFullStreamWithPiTui", () => {
           "   1 | const x = 1;",
           "======== end ========",
         ].join("\n"),
-        prettyHeading: "Read workspace/demo.ts",
+        prettyHeading: "Read src/demo.ts",
       },
       {
         toolCallId: "call_glob_raw",
         toolName: "glob_files",
-        input: { pattern: "workspace/**/*.ts" },
+        input: { pattern: "src/**/*.ts" },
         output: [
           "OK - glob",
-          'pattern: "workspace/**/*.ts"',
+          'pattern: "src/**/*.ts"',
           "path: /project",
           "respect_git_ignore: true",
           "file_count: 1",
@@ -1098,7 +1175,7 @@ describe("renderFullStreamWithPiTui", () => {
           "/project/file1.ts",
           "======== end ========",
         ].join("\n"),
-        prettyHeading: "Glob workspace/**/*.ts",
+        prettyHeading: "Glob src/**/*.ts",
       },
       {
         toolCallId: "call_grep_raw",
@@ -1201,30 +1278,30 @@ describe("renderFullStreamWithPiTui", () => {
         toolCallId: "call_write_pretty",
         toolName: "write_file",
         input: {
-          path: "workspace/new.ts",
+          path: "src/new.ts",
           content: "const x = 1;",
         },
         output: "OK - created new.ts\nbytes: 12, lines: 1",
-        expectedHeading: "Write workspace/new.ts",
+        expectedHeading: "Write src/new.ts",
       },
       {
         toolCallId: "call_edit_pretty",
         toolName: "edit_file",
         input: {
-          path: "workspace/demo.ts",
+          path: "src/demo.ts",
           edits: [{ op: "replace", pos: "2#AB", lines: ["const x = 2;"] }],
         },
-        output: "Updated workspace/demo.ts",
-        expectedHeading: "Edit workspace/demo.ts",
+        output: "Updated src/demo.ts",
+        expectedHeading: "Edit src/demo.ts",
       },
       {
         toolCallId: "call_delete_pretty",
         toolName: "delete_file",
         input: {
-          path: "workspace/old.ts",
+          path: "src/old.ts",
         },
-        output: "OK - deleted file: old.ts\npath: workspace/old.ts",
-        expectedHeading: "Delete workspace/old.ts",
+        output: "OK - deleted file: old.ts\npath: src/old.ts",
+        expectedHeading: "Delete src/old.ts",
       },
       {
         toolCallId: "call_skill_pretty",

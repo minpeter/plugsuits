@@ -1,10 +1,10 @@
 ### read_file
-**Purpose**: Read file contents with hashline anchors (`LINE#HASH`)
+**Purpose**: Read file contents with hashline anchors (`{line_number}#{hash_id}`)
 
 **When to use**:
 - ALWAYS read a file before editing it
 - Inspecting data files to confirm real structure
-- Capturing `LINE#HASH` and `file_hash` for `edit_file`
+- Capturing `{line_number}#{hash_id}` and `file_hash` for `edit_file`
 
 **Parameters**:
 - `path` (required): file path

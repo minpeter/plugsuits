@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -11,10 +18,13 @@ import { join } from "node:path";
 import { executeGrep } from "../explore/grep";
 import { executeReadFile } from "../explore/read-file";
 import { executeEditFile } from "./edit-file";
+import { repairMalformedEdit } from "./edit-file-repair";
+import { resetMissingLinesFailures } from "./edit-file-diagnostics";
 
 const FILE_HASH_REGEX = /^file_hash:\s+([0-9a-f]{8})$/m;
 const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
   new RegExp(`${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
+const HASHLINE_LINE_PREFIX_REGEX = /^\d+#/;
 
 function extractFileHash(readOutput: string): string {
   const matched = readOutput.match(FILE_HASH_REGEX);
@@ -45,7 +55,7 @@ describe("edit_file (hashline-only)", () => {
     }
   });
 
-  it("replaces target line using LINE#HASH anchor", async () => {
+  it("replaces target line using {line_number}#{hash_id} anchor", async () => {
     const testFile = join(tempDir, "hashline-replace.txt");
     writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
 
@@ -65,7 +75,8 @@ describe("edit_file (hashline-only)", () => {
       ],
     });
 
-    expect(result).toBe(`Updated ${testFile}`);
+    expect(result).toContain(`Updated ${testFile}`);
+    expect(result).toContain("1 edit(s) applied");
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
   });
 
@@ -193,7 +204,8 @@ describe("edit_file (hashline-only)", () => {
       ],
     });
 
-    expect(result).toBe(`Created ${testFile}`);
+    expect(result).toContain(`Created ${testFile}`);
+    expect(result).toContain("1 edit(s) applied");
     expect(readFileSync(testFile, "utf-8")).toBe("created-via-hashline");
   });
 
@@ -216,6 +228,26 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 2);
 
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: lineRef,
+          lines: ["b"],
+        },
+      ],
+    });
+    expect(result).toContain("No changes made");
+  });
+
+  it("rejects replace when lines are omitted", async () => {
+    const testFile = join(tempDir, "hashline-replace-missing-lines.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+
     await expect(
       executeEditFile({
         path: testFile,
@@ -223,10 +255,848 @@ describe("edit_file (hashline-only)", () => {
           {
             op: "replace",
             pos: lineRef,
-            lines: ["b"],
           },
         ],
       })
-    ).rejects.toThrow("No changes made");
+    ).rejects.toThrow("explicit 'lines' field");
+
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\n");
+  });
+
+  it("silently deletes lines via replace with null", async () => {
+    const testFile = join(tempDir, "hashline-deletion.txt");
+    writeFileSync(testFile, "heading\nbody\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 1);
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: lineRef,
+          lines: null,
+        },
+      ],
+    });
+    expect(readFileSync(testFile, "utf-8")).toBe("body\n");
+    // No deletion warning — lines: null is intentional deletion
+    expect(result).not.toContain("Deleted");
+  });
+
+  it("appends after blank line without warnings", async () => {
+    const testFile = join(tempDir, "hashline-blank-anchor.txt");
+    writeFileSync(testFile, "hello\n\nworld\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const blankLineRef = extractLineRef(readOutput, 2);
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "append",
+          pos: blankLineRef,
+          lines: ["inserted"],
+        },
+      ],
+    });
+    expect(readFileSync(testFile, "utf-8")).toBe("hello\n\ninserted\nworld\n");
+    expect(result).not.toContain("Warnings:");
+  });
+
+  it("falls back to end anchor when replace pos is invalid", async () => {
+    const testFile = join(tempDir, "hashline-replace-end-fallback.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: "invalid-anchor",
+          end: lineRef,
+          lines: ["BRAVO"],
+        },
+      ],
+    });
+
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
+  });
+
+  it("falls back to end anchor when append pos is invalid", async () => {
+    const testFile = join(tempDir, "hashline-append-end-fallback.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "append",
+          pos: "invalid-anchor",
+          end: lineRef,
+          lines: ["after-bravo"],
+        },
+      ],
+    });
+
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\nafter-bravo\n");
+  });
+
+  it("falls back to pos anchor when prepend end is invalid", async () => {
+    const testFile = join(tempDir, "hashline-prepend-pos-fallback.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "prepend",
+          pos: lineRef,
+          end: "invalid-anchor",
+          lines: ["before-bravo"],
+        },
+      ],
+    });
+
+    expect(readFileSync(testFile, "utf-8")).toBe(
+      "alpha\nbefore-bravo\nbravo\n"
+    );
+  });
+
+  it("accepts long hash anchors by truncating to 2 chars", async () => {
+    const testFile = join(tempDir, "hashline-long-hash-anchor.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+    const longLineRef = `${lineRef}ZZ`;
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: longLineRef,
+          lines: ["BRAVO"],
+        },
+      ],
+    });
+
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\n");
+  });
+
+  it("rejects multiline pos payload copied from hashline output", async () => {
+    const testFile = join(tempDir, "hashline-multiline-pos.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line1 = extractLineRef(readOutput, 1);
+    const line2 = extractLineRef(readOutput, 2);
+    const line3 = extractLineRef(readOutput, 3);
+    const multilinePos = [
+      `${line1}|alpha`,
+      `${line2}|bravo`,
+      `${line3}|charlie`,
+    ].join("\n");
+
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: multilinePos,
+          },
+        ],
+      })
+    ).rejects.toThrow("single-line");
+
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\n");
+  });
+
+  it("preserves CRLF endings after edit", async () => {
+    const testFile = join(tempDir, "hashline-crlf.txt");
+    writeFileSync(testFile, "foo\r\nbar\r\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 1);
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: lineRef,
+          lines: ["FOO"],
+        },
+      ],
+    });
+
+    expect(readFileSync(testFile, "utf-8")).toBe("FOO\r\nbar\r\n");
+  });
+
+  it("preserves UTF-8 BOM with CRLF endings", async () => {
+    const testFile = join(tempDir, "hashline-bom-crlf.txt");
+    writeFileSync(testFile, "\uFEFFfoo\r\nbar\r\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 1);
+
+    await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: lineRef,
+          lines: ["FOO"],
+        },
+      ],
+    });
+
+    expect(readFileSync(testFile, "utf-8")).toBe("\uFEFFFOO\r\nbar\r\n");
+  });
+
+  it("rejects non-numeric prefix in pos with diagnostic error", async () => {
+    const testFile = join(tempDir, "hashline-line-prefix.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 1);
+    const hash = lineRef.split("#")[1];
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: `LINE#${hash}`, lines: ["replaced"] }],
+      })
+    ).rejects.toThrow("not a line number");
+  });
+
+  it("suggests correct line number when hash matches a file line", async () => {
+    const testFile = join(tempDir, "hashline-suggest.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 1);
+    const hash = lineRef.split("#")[1];
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: `LINE#${hash}`, lines: ["replaced"] }],
+      })
+    ).rejects.toThrow("Did you mean");
+  });
+
+  it("includes line count in multiline pos rejection", async () => {
+    const testFile = join(tempDir, "hashline-multiline-count.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const lines = readOutput
+      .split("\n")
+      .filter((l: string) => HASHLINE_LINE_PREFIX_REGEX.test(l));
+    const multilinePos = lines.join("\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: multilinePos, lines: ["x"] }],
+      })
+    ).rejects.toThrow("lines");
+  });
+
+  it("accepts anchor with diff marker prefix via normalization", async () => {
+    const testFile = join(tempDir, "hashline-normalize-prefix.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 1);
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [{ op: "replace", pos: `>>> ${lineRef}`, lines: ["ALPHA"] }],
+    });
+    expect(result).toContain("1 edit(s) applied");
+    expect(readFileSync(testFile, "utf-8")).toBe("ALPHA\nbravo\n");
+  });
+
+  it("rejects append with invalid-only anchor with diagnostic", async () => {
+    const testFile = join(tempDir, "hashline-append-invalid.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "append", pos: "LINE#XX", lines: ["inserted"] }],
+      })
+    ).rejects.toThrow("not a line number");
+  });
+
+  // ── diagnoseMissingLines pattern-specific errors ──────────────
+
+  it("Pattern A: pos with |content suffix and no lines → anchor mismatch after content extraction", async () => {
+    const testFile = join(tempDir, "diag-pattern-a.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: "1#ZZ|alpha" }],
+      })
+    ).rejects.toThrow("changed since last read");
+  });
+
+  it("Pattern B: pos with Python dict syntax auto-repairs and succeeds", async () => {
+    const testFile = join(tempDir, "diag-pattern-b.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const lineRef = extractLineRef(readOutput, 2);
+    const malformedPos = `${lineRef}', 'lines': ['replaced text']}`;
+
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [{ op: "replace", pos: malformedPos }],
+    });
+
+    expect(
+      result.includes("Warnings:") || result.includes("Auto-repaired")
+    ).toBe(true);
+    expect(readFileSync(testFile, "utf-8")).toBe(
+      "alpha\nreplaced text\ncharlie\n"
+    );
+  });
+
+  it("Pattern C: pos with =separator content and no lines → anchor mismatch after content extraction", async () => {
+    const testFile = join(tempDir, "diag-pattern-c.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: "1#ZZ=some content here" }],
+      })
+    ).rejects.toThrow("changed since last read");
+  });
+
+  it("Pattern D: pos with XML markup and no lines → explicit lines diagnostic", async () => {
+    const testFile = join(tempDir, "diag-pattern-d.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: "1#ZZ']}</parameter><parameter>",
+          },
+        ],
+      })
+    ).rejects.toThrow("explicit 'lines'");
+  });
+
+  it("Pattern B auto-repair: replace with Python dict pos succeeds", async () => {
+    const testFile = join(tempDir, "diag-pattern-b-auto-repair-success.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const line2Anchor = extractLineRef(readOutput, 2);
+
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [
+        {
+          op: "replace",
+          pos: `${line2Anchor}', 'lines': ['REPLACED']}`,
+        },
+      ],
+    });
+
+    expect(
+      result.includes("Warnings:") || result.includes("Auto-repaired")
+    ).toBe(true);
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nREPLACED\ncharlie\n");
+  });
+
+  it("Pattern A: repaired anchor with |content suffix → content extracted as lines and applied", async () => {
+    const testFile = join(tempDir, "diag-pattern-a-repaired-content.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+    const readOutput = await executeReadFile({ path: testFile });
+    const line2Anchor = extractLineRef(readOutput, 2);
+
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [{ op: "replace", pos: `${line2Anchor}|old bravo content` }],
+    });
+
+    // Content 'old bravo content' extracted from pos as lines replacement
+    expect(result).toContain("Warnings:");
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nold bravo content\ncharlie\n");
+  });
+
+  it("Clean anchor with no lines → mentions the anchor in diagnostic", async () => {
+    const testFile = join(tempDir, "diag-clean-anchor.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: "1#ZZ" }],
+      })
+    ).rejects.toThrow("'lines'");
+  });
+
+  it("No pos with no lines → generic missing lines error", async () => {
+    const testFile = join(tempDir, "diag-no-pos.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace" }],
+      })
+    ).rejects.toThrow("explicit 'lines'");
+  });
+
+  it("Long pos content is truncated in error message", async () => {
+    const testFile = join(tempDir, "diag-long-pos.txt");
+    writeFileSync(testFile, "alpha\nbravo\n");
+    const longPos = `not-an-anchor-${"x".repeat(200)}`;
+    await expect(
+      executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: longPos }],
+      })
+    ).rejects.toThrow("...");
+  });
+});
+
+describe("repairMalformedEdit", () => {
+  it("A: extracts clean anchor and content as lines from pos with |content suffix", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "2#HR|old content",
+    });
+
+    expect(result.edit.pos).toBe("2#HR");
+    expect(result.edit.lines).toEqual(["old content"]);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("A: preserves existing lines when pos has |content", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "2#HR|old",
+      lines: ["new"],
+    });
+
+    expect(result.edit.pos).toBe("2#HR");
+    expect(result.edit.lines).toEqual(["new"]);
+  });
+
+  it("C: extracts anchor and content from pos with =separator", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "2#HR=some content",
+    });
+
+    expect(result.edit.pos).toBe("2#HR");
+    expect(result.edit.lines).toEqual(["some content"]);
+  });
+
+  it("D: extracts anchor from pos with XML markup", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#YH']}</parameter><parameter>",
+    });
+
+    expect(result.edit.pos).toBe("3#YH");
+    expect(result.edit.lines).toBeUndefined();
+  });
+
+  it("B: extracts anchor + single-element lines from Python dict", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#YH', 'lines': ['new text']}",
+    });
+
+    expect(result.edit.pos).toBe("3#YH");
+    expect(result.edit.lines).toEqual(["new text"]);
+  });
+
+  it("B: extracts multi-element array from embedded lines", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#YH', 'lines': ['line1', 'line2']}",
+    });
+
+    expect(result.edit.lines).toEqual(["line1", "line2"]);
+  });
+
+  it("B: extracts null from embedded lines (deletion)", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#YH', 'lines': null}",
+    });
+
+    expect(result.edit.lines).toBeNull();
+  });
+
+  it("F: extracts anchor and lines from query-string", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "2#SR&lines: ['new']",
+    });
+
+    expect(result.edit.pos).toBe("2#SR");
+    expect(result.edit.lines).toEqual(["new"]);
+  });
+
+  it("E: returns unchanged when pos is clean and lines undefined", () => {
+    const edit = { op: "replace" as const, pos: "2#KB" };
+    const result = repairMalformedEdit(edit);
+
+    expect(result.edit).toEqual(edit);
+    expect(result.warnings.length).toBe(0);
+  });
+
+  it("no-op when pos is undefined", () => {
+    const edit = { op: "replace" as const };
+    const result = repairMalformedEdit(edit);
+
+    expect(result.edit).toEqual(edit);
+    expect(result.warnings.length).toBe(0);
+  });
+
+  it("no-op when pos has no recognizable anchor", () => {
+    const edit = { op: "replace" as const, pos: "garbage text" };
+    const result = repairMalformedEdit(edit);
+
+    expect(result.edit).toEqual(edit);
+    expect(result.warnings.length).toBe(0);
+  });
+
+  it("skips multiline pos", () => {
+    const edit = {
+      op: "replace" as const,
+      pos: "1#HR|alpha\n2#KB|bravo",
+    };
+    const result = repairMalformedEdit(edit);
+
+    expect(result.edit).toEqual(edit);
+    expect(result.warnings.length).toBe(0);
+  });
+
+  it("extracts clean anchor from end with |content suffix", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "1#HR",
+      end: "3#YH|charlie",
+      lines: ["x"],
+    });
+
+    expect(result.edit.end).toBe("3#YH");
+  });
+
+  it("does NOT extract lines from end field", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "1#HR",
+      end: "3#YH', 'lines': ['x']}",
+      lines: ["y"],
+    });
+
+    expect(result.edit.end).toBe("3#YH");
+    expect(result.edit.lines).toEqual(["y"]);
+  });
+
+  it("works with append op", () => {
+    const result = repairMalformedEdit({ op: "append", pos: "2#HR|content" });
+
+    expect(result.edit.pos).toBe("2#HR");
+  });
+
+  it("works with prepend op", () => {
+    const result = repairMalformedEdit({ op: "prepend", pos: "2#HR=content" });
+
+    expect(result.edit.pos).toBe("2#HR");
+  });
+
+  it("A: skips multiline pos with content (too risky to repair)", () => {
+    const edit = {
+      op: "replace" as const,
+      pos: "2#HR|line one\nline two",
+    };
+    const result = repairMalformedEdit(edit);
+
+    expect(result.edit).toEqual(edit);
+    expect(result.warnings.length).toBe(0);
+  });
+
+  it("A: does NOT extract content from pos with XML-like garbage", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#YH|</parameter>",
+    });
+
+    expect(result.edit.pos).toBe("3#YH");
+    expect(result.edit.lines).toBeUndefined();
+  });
+
+  it("A: does NOT extract content from pos with JSON closing brackets", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#YH|'}]}",
+    });
+
+    expect(result.edit.pos).toBe("3#YH");
+    expect(result.edit.lines).toBeUndefined();
+  });
+
+  it("A: extracts real code content like comments", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "1#KM|// Greeting function",
+    });
+
+    expect(result.edit.pos).toBe("1#KM");
+    expect(result.edit.lines).toEqual(["// Greeting function"]);
+  });
+
+  it("A: extracts code content with = separator", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "5#XY=const x = 42;",
+    });
+
+    expect(result.edit.pos).toBe("5#XY");
+    expect(result.edit.lines).toEqual(["const x = 42;"]);
+  });
+
+});
+
+describe("repeated failure escalation", () => {
+  let tempDir: string;
+
+  beforeAll(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "edit-file-escalation-test-"));
+  });
+
+  afterAll(() => {
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  beforeEach(() => {
+    resetMissingLinesFailures();
+  });
+
+  async function captureMissingLinesError(
+    testFile: string,
+    anchor: string
+  ): Promise<Error> {
+    try {
+      await executeEditFile({
+        path: testFile,
+        edits: [{ op: "replace", pos: anchor }],
+      });
+      throw new Error("Expected executeEditFile to reject");
+    } catch (error) {
+      if (error instanceof Error) {
+        return error;
+      }
+      throw error;
+    }
+  }
+
+  it("first missing-lines failure returns standard diagnostic", async () => {
+    const testFile = join(tempDir, "escalation-first-failure.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line2Anchor = extractLineRef(readOutput, 2);
+    const error = await captureMissingLinesError(testFile, line2Anchor);
+
+    expect(error.message).toContain("explicit 'lines'");
+    expect(error.message).not.toContain("contains");
+  });
+
+  it("third identical failure escalates with line content", async () => {
+    const testFile = join(tempDir, "escalation-third-failure.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line2Anchor = extractLineRef(readOutput, 2);
+
+    await captureMissingLinesError(testFile, line2Anchor);
+    await captureMissingLinesError(testFile, line2Anchor);
+    const thirdError = await captureMissingLinesError(testFile, line2Anchor);
+
+    expect(thirdError.message).toContain("explicit 'lines'");
+    expect(thirdError.message).toContain("contains 'bravo'");
+  });
+
+  it("different anchor resets to standard diagnostic", async () => {
+    const testFile = join(tempDir, "escalation-different-anchor.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line1Anchor = extractLineRef(readOutput, 1);
+    const line2Anchor = extractLineRef(readOutput, 2);
+
+    await captureMissingLinesError(testFile, line2Anchor);
+    await captureMissingLinesError(testFile, line2Anchor);
+    await captureMissingLinesError(testFile, line2Anchor);
+    const error = await captureMissingLinesError(testFile, line1Anchor);
+
+    expect(error.message).toContain("explicit 'lines'");
+    expect(error.message).not.toContain("contains");
+  });
+});
+
+describe("repairMalformedEdit — end extraction from pos", () => {
+  it("B: extracts end anchor from embedded key-value in pos", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#QH', 'end': '4#KR', 'lines': ['RESOLVED']",
+    });
+
+    expect(result.edit.pos).toBe("3#QH");
+    expect(result.edit.end).toBe("4#KR");
+    expect(result.edit.lines).toEqual(["RESOLVED"]);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("B: extracts end from embedded content, preserves existing end", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#QH', 'end': '4#KR'",
+      end: "5#AB",
+      lines: ["x"],
+    });
+
+    // Existing end should NOT be overridden
+    expect(result.edit.pos).toBe("3#QH");
+    expect(result.edit.end).toBe("5#AB");
+  });
+
+  it("B: extracts end but no lines when lines already provided", () => {
+    const result = repairMalformedEdit({
+      op: "replace",
+      pos: "3#QH', 'end': '4#KR', 'lines': ['embedded']",
+      lines: ["explicit"],
+    });
+
+    expect(result.edit.pos).toBe("3#QH");
+    expect(result.edit.end).toBe("4#KR");
+    expect(result.edit.lines).toEqual(["explicit"]);
+  });
+});
+
+describe("soft-reject after repeated failures", () => {
+  let tempDir: string;
+
+  beforeAll(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "edit-file-soft-reject-test-"));
+  });
+
+  afterAll(() => {
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  beforeEach(() => {
+    resetMissingLinesFailures();
+  });
+
+  it("returns soft-reject string after 6+ identical missing-lines failures", async () => {
+    const testFile = join(tempDir, "soft-reject.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line2Anchor = extractLineRef(readOutput, 2);
+
+    // First 5 failures should throw errors
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        executeEditFile({
+          path: testFile,
+          edits: [{ op: "replace", pos: line2Anchor }],
+        })
+      ).rejects.toThrow("explicit 'lines'");
+    }
+
+    // 6th+ failure should return a string (soft-reject) instead of throwing
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [{ op: "replace", pos: line2Anchor }],
+    });
+
+    expect(typeof result).toBe("string");
+    expect(result).toContain("NOT APPLIED");
+    expect(result).toContain(line2Anchor);
+    expect(result).toContain("bravo");
+
+    // File should NOT have been changed
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\n");
+  });
+
+  it("soft-reject suggests write_file as alternative", async () => {
+    const testFile = join(tempDir, "soft-reject-alt.txt");
+    writeFileSync(testFile, "line1\nline2\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line1Anchor = extractLineRef(readOutput, 1);
+
+    // Trigger 6 failures
+    for (let i = 0; i < 6; i++) {
+      try {
+        await executeEditFile({
+          path: testFile,
+          edits: [{ op: "replace", pos: line1Anchor }],
+        });
+      } catch {
+        // expected for first 5
+      }
+    }
+
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [{ op: "replace", pos: line1Anchor }],
+    });
+
+    expect(result).toContain("write_file");
+  });
+
+  it("triggers soft-reject via file-level threshold when alternating anchors", async () => {
+    const testFile = join(tempDir, "soft-reject-file-bail.txt");
+    writeFileSync(testFile, "alpha\nbravo\ncharlie\ndelta\n");
+
+    const readOutput = await executeReadFile({ path: testFile });
+    const line1Anchor = extractLineRef(readOutput, 1);
+    const line2Anchor = extractLineRef(readOutput, 2);
+    const line3Anchor = extractLineRef(readOutput, 3);
+
+    // Alternate between anchors so no single anchor hits ESCALATION_BAIL_THRESHOLD (6)
+    // but total file failures exceed FILE_BAIL_THRESHOLD (10)
+    const anchors = [line1Anchor, line2Anchor, line3Anchor];
+    for (let i = 0; i < 9; i++) {
+      try {
+        await executeEditFile({
+          path: testFile,
+          edits: [{ op: "replace", pos: anchors[i % anchors.length] }],
+        });
+      } catch {
+        // expected errors
+      }
+    }
+
+    // 10th file-level failure should trigger soft-reject
+    const result = await executeEditFile({
+      path: testFile,
+      edits: [{ op: "replace", pos: anchors[0] }],
+    });
+
+    expect(typeof result).toBe("string");
+    expect(result).toContain("NOT APPLIED");
+    expect(result).toContain("write_file");
+
+    // File should NOT have been changed
+    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\ndelta\n");
   });
 });

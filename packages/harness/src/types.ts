@@ -15,6 +15,7 @@ export type { LanguageModel, ModelMessage, Tool, ToolSet };
 export type AgentInstructions = string | (() => Promise<string>);
 
 export interface AgentConfig {
+  experimental_repairToolCall?: StreamTextOptions["experimental_repairToolCall"];
   instructions?: AgentInstructions;
   maxStepsPerTurn?: number;
   model: LanguageModel;

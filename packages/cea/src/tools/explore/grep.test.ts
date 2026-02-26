@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeLineHash } from "../utils/hashline/hashline";
+import { computeLineHash } from "../utils/hashline";
 import { executeGrep } from "./grep";
 
 const HASHLINE_ALPHABET = "[ZPMQVRWSNKTXJBYH]{2}";

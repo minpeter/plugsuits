@@ -24,7 +24,7 @@ function getAnthropicModels(): ModelInfo[] {
 export function getAvailableModels(): ModelInfo[] {
   const anthropicModels = getAnthropicModels();
 
-  return [...anthropicModels, ...FRIENDLI_MODELS];
+  return [...anthropicModels, ...FRIENDLI_MODELS.filter((m) => !m.masked)];
 }
 
 export function findModelBySelection(

@@ -25,6 +25,7 @@ export function createAgent(config: AgentConfig): Agent {
         maxOutputTokens: opts.maxOutputTokens,
         stopWhen: stepCountIs(config.maxStepsPerTurn ?? 1),
         abortSignal: opts.abortSignal,
+        experimental_repairToolCall: config.experimental_repairToolCall,
       });
 
       return {

@@ -79,7 +79,7 @@ ${TODO_WRITE_CONTEXT}
 - **Read before write**: Always verify file contents before modifying
 - **Test your changes**: Run tests or verify functionality after modifications
 - **Handle errors gracefully**: Check command outputs and handle failures appropriately
-- **Be precise**: Use read_file hashline anchors (LINE#HASH) with edit_file for deterministic edits
+- **Be precise**: Use read_file hashline anchors ({line_number}#{hash_id}) with edit_file for deterministic edits
 
 ---
 

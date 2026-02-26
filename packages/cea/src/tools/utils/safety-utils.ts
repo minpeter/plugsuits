@@ -5,7 +5,7 @@ import ignore from "ignore";
 import {
   computeFileHash,
   formatHashlineNumberedLines,
-} from "./hashline/hashline";
+} from "./hashline";
 
 const FILE_READ_POLICY = {
   maxFileSizeBytes: 1024 * 1024, // 1MB
