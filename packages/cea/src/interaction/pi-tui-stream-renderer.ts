@@ -103,6 +103,8 @@ const READ_FILE_MARKDOWN_FENCE_PATTERN = /^(?:`{3,}|~{3,}).*$/;
 const SURROUNDED_BY_DOUBLE_QUOTES_PATTERN = /^"(.*)"$/;
 const TAB_PATTERN = /\t/g;
 const MAX_READ_PREVIEW_LINES = 10;
+const MAX_WRITE_FILE_PREVIEW_LINES = 200;
+const MAX_WRITE_FILE_PREVIEW_CHARS = 100_000;
 const TOOL_PENDING_MESSAGE = "Executing..";
 const TOOL_PENDING_MARKER = "__tool_pending_status__";
 const TOOL_PENDING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
@@ -163,7 +165,8 @@ const extractBooleanField = (input: unknown, field: string): boolean | null => {
 
 const buildTextPreviewLines = (
   text: string,
-  emptyText = "(empty)"
+  emptyText = "(empty)",
+  maxPreviewLines = MAX_READ_PREVIEW_LINES
 ): string[] => {
   const normalized = text.replaceAll("\r\n", "\n").trimEnd();
   if (normalized.length === 0) {
@@ -171,9 +174,9 @@ const buildTextPreviewLines = (
   }
 
   const allLines = normalized.split("\n");
-  const omittedLines = Math.max(0, allLines.length - MAX_READ_PREVIEW_LINES);
+  const omittedLines = Math.max(0, allLines.length - maxPreviewLines);
   const visibleLines =
-    omittedLines > 0 ? allLines.slice(0, MAX_READ_PREVIEW_LINES) : allLines;
+    omittedLines > 0 ? allLines.slice(0, maxPreviewLines) : allLines;
 
   const preview = [...visibleLines];
   if (omittedLines > 0) {
@@ -1429,12 +1432,25 @@ class ToolCallView extends Container {
     }
 
     const bestInput = this.resolveBestInput();
-    const path = this.resolveInputStringField("path") ?? "(unknown)";
+    const path = extractStringField(bestInput, "path") ?? "(unknown)";
     const fileContent = extractStringField(bestInput, "content");
     const header = buildPrettyHeader("Write", path);
 
-    if (fileContent !== null) {
-      this.setPrettyBlock(header, fileContent, {
+    const hasVisibleFileContent =
+      fileContent !== null && fileContent.trim().length > 0;
+
+    if (hasVisibleFileContent) {
+      const boundedContent =
+        fileContent.length > MAX_WRITE_FILE_PREVIEW_CHARS
+          ? fileContent.slice(0, MAX_WRITE_FILE_PREVIEW_CHARS)
+          : fileContent;
+      const previewBody = buildTextPreviewLines(
+        boundedContent,
+        "(empty)",
+        MAX_WRITE_FILE_PREVIEW_LINES
+      ).join("\n");
+
+      this.setPrettyBlock(header, previewBody, {
         useBackground: true,
       });
       return true;
