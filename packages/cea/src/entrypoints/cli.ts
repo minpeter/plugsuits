@@ -1855,7 +1855,7 @@ const cleanupExecutionResources = (): void => {
 };
 
 const exitWithCleanup = (code: number): never => {
-  cleanupExecutionResources();
+  cleanup(true);
   process.exit(code);
 };
 
