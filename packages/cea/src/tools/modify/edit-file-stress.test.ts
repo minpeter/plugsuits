@@ -47,7 +47,7 @@ describe("edit_file stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["literal replaced"] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "alpha\nliteral replaced\nomega\n"
     );
@@ -64,7 +64,7 @@ describe("edit_file stress patterns", () => {
         { op: "replace", pos: line3, lines: ["L3"] },
         { op: "replace", pos: line4, lines: ["L4"] },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe("l1\nL2\nL3\nL4\nl5\n");
   });
 
@@ -77,7 +77,7 @@ describe("edit_file stress patterns", () => {
       edits: [
         { op: "replace", pos: line1, end: line5, lines: ["new-a", "new-b"] },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe("new-a\nnew-b\n");
   });
 
@@ -91,7 +91,7 @@ describe("edit_file stress patterns", () => {
         { op: "replace", pos: line1, lines: ["FIRST"] },
         { op: "replace", pos: line4, lines: ["FOURTH"] },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "FIRST\nsecond\nthird\nFOURTH\n"
     );
@@ -107,7 +107,7 @@ describe("edit_file stress patterns", () => {
         { op: "replace", pos: line1, lines: ["TOP"] },
         { op: "append", pos: line3, lines: ["tail"] },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe("TOP\nmiddle\nbottom\ntail\n");
   });
 
@@ -124,7 +124,7 @@ describe("edit_file stress patterns", () => {
           lines: ["price = $99.99 (50% off) [limited*]"],
         },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "offer\nprice = $99.99 (50% off) [limited*]\nend\n"
     );
@@ -143,7 +143,7 @@ describe("edit_file stress patterns", () => {
           lines: ["part-1", "part-2", "part-3", "part-4"],
         },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "header\npart-1\npart-2\npart-3\npart-4\nfooter\n"
     );
@@ -160,7 +160,7 @@ describe("edit_file stress patterns", () => {
         { op: "replace", pos: line3, lines: ["THREE"] },
         { op: "append", pos: line5, lines: ["six"] },
       ],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "zero\none\ntwo\nTHREE\nfour\nfive\nsix\n"
     );
@@ -173,7 +173,7 @@ describe("edit_file stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["✅ done — 완료"] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "alpha\n✅ done — 완료\nomega\n"
     );
@@ -191,7 +191,7 @@ describe("edit_file stress patterns", () => {
       edits: [
         { op: "replace", pos: line4, end: line7, lines: ["new-4", "new-5"] },
       ],
-    });
+    }, { rootDir: tempDir });
     const actualLines = readFileSync(testFile, "utf-8").trimEnd().split("\n");
     expect(actualLines.slice(0, 3)).toEqual(["line-1", "line-2", "line-3"]);
     expect(actualLines.slice(3, 5)).toEqual(["new-4", "new-5"]);

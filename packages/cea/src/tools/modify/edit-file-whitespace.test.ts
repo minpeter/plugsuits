@@ -50,7 +50,7 @@ describe("edit_file whitespace stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["updated indented line"] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "start\n    updated indented line\nend\n"
     );
@@ -63,7 +63,7 @@ describe("edit_file whitespace stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["filled"] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe("before\n    filled\nafter\n");
   });
 
@@ -74,7 +74,7 @@ describe("edit_file whitespace stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["return 42;"] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe("start\n\treturn 42;\nend\n");
   });
 
@@ -85,7 +85,7 @@ describe("edit_file whitespace stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "append", pos: line1, lines: ["", "new content", ""] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "anchor\n\nnew content\n\ntail\n"
     );
@@ -98,7 +98,7 @@ describe("edit_file whitespace stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["hello   "] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe("x\nhello   \n");
   });
 
@@ -109,7 +109,7 @@ describe("edit_file whitespace stress patterns", () => {
     await executeEditFile({
       path: testFile,
       edits: [{ op: "replace", pos: line2, lines: ["updated();"] }],
-    });
+    }, { rootDir: tempDir });
     expect(readFileSync(testFile, "utf-8")).toBe(
       "\tif (ok) {\n    updated();\n\t    mixed();\n}\n"
     );
