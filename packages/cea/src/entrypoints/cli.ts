@@ -1220,6 +1220,11 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       resolve(null);
     }
 
+    // Release module-level refs to allow GC after UI teardown
+    activeStreamController = null;
+    streamInterruptRequested = false;
+    dismissActiveModal();
+
     removeInputListener();
     process.off("SIGINT", onSigInt);
     process.stdout.off("resize", onTerminalResize);
