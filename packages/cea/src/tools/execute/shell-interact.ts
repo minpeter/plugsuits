@@ -105,9 +105,11 @@ export interface InteractResult {
   success: boolean;
 }
 
+const DEFAULT_SHELL_EXECUTE_TIMEOUT_SEC = 120;
+
 const CTRL_C_GUIDANCE = [
   "No retained terminal context exists. Each shell_execute command runs independently.",
-  "To interrupt a long-running command, wait for its timeout (default: 120s) or use shell_execute to kill the process by PID:",
+  `To interrupt a long-running command, wait for its timeout (default: ${DEFAULT_SHELL_EXECUTE_TIMEOUT_SEC}s) or use shell_execute to kill the process by PID:`,
   '  shell_execute({ command: "kill -SIGINT <PID>" })',
 ].join("\n");
 

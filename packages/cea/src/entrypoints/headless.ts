@@ -6,21 +6,23 @@ import {
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
 import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
-import { setSessionId } from "../context/session";
+import {
+  parseProviderArg,
+  parseReasoningCliOption,
+  parseToolFallbackCliOption,
+  parseTranslateCliOption,
+} from "../cli-args";
+import { initializeSession } from "../context/session";
 import { translateToEnglish } from "../context/translation";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
 import {
-  DEFAULT_REASONING_MODE,
-  parseReasoningMode,
   type ReasoningMode,
 } from "../reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
-  LEGACY_ENABLED_TOOL_FALLBACK_MODE,
-  parseToolFallbackMode,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
 import { cleanup } from "../tools/utils/execute/process-manager";
@@ -72,7 +74,7 @@ type TrajectoryEvent =
   | ToolResultEvent
   | ErrorEvent;
 
-const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const sessionId = initializeSession();
 
 const cleanupExecutionResources = (): void => {
   cleanup();
@@ -117,90 +119,6 @@ const startTime = Date.now();
 
 const emitEvent = (event: TrajectoryEvent): void => {
   console.log(JSON.stringify(event));
-};
-
-const parseToolFallbackCliOption = (
-  args: string[],
-  index: number
-): { consumedArgs: number; mode: ToolFallbackMode } | null => {
-  const arg = args[index];
-
-  const parseCandidate = (
-    fallbackMode: ToolFallbackMode
-  ): { consumedArgs: number; mode: ToolFallbackMode } => {
-    const candidate = args[index + 1];
-    if (!candidate || candidate.startsWith("--")) {
-      return {
-        consumedArgs: 0,
-        mode: fallbackMode,
-      };
-    }
-
-    const parsedMode = parseToolFallbackMode(candidate);
-    return {
-      consumedArgs: 1,
-      mode: parsedMode ?? fallbackMode,
-    };
-  };
-
-  if (arg === "--toolcall-mode") {
-    return parseCandidate(DEFAULT_TOOL_FALLBACK_MODE);
-  }
-
-  if (arg === "--tool-fallback") {
-    return parseCandidate(LEGACY_ENABLED_TOOL_FALLBACK_MODE);
-  }
-
-  return null;
-};
-
-const parseProviderArg = (
-  providerArg: string | undefined
-): ProviderType | null => {
-  if (providerArg === "anthropic" || providerArg === "friendli") {
-    return providerArg;
-  }
-
-  return null;
-};
-
-const parseTranslateCliOption = (arg: string): boolean | null => {
-  if (arg === "--translate") {
-    return true;
-  }
-  if (arg === "--no-translate") {
-    return false;
-  }
-
-  return null;
-};
-
-const parseReasoningCliOption = (
-  args: string[],
-  index: number
-): { consumedArgs: number; mode: ReasoningMode } | null => {
-  const arg = args[index];
-  if (arg === "--think") {
-    return { consumedArgs: 0, mode: "on" };
-  }
-
-  if (arg !== "--reasoning-mode") {
-    return null;
-  }
-
-  const candidate = args[index + 1];
-  if (candidate && !candidate.startsWith("--")) {
-    const parsedMode = parseReasoningMode(candidate);
-    return {
-      consumedArgs: 1,
-      mode: parsedMode ?? DEFAULT_REASONING_MODE,
-    };
-  }
-
-  return {
-    consumedArgs: 0,
-    mode: DEFAULT_REASONING_MODE,
-  };
 };
 
 const parsePromptOrModelOption = (
@@ -588,8 +506,6 @@ const run = async (): Promise<void> => {
     toolFallbackMode,
     translateUserPrompts,
   } = parseArgs();
-
-  setSessionId(sessionId);
 
   agentManager.setHeadlessMode(true);
   if (provider) {

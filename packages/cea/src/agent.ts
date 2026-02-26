@@ -262,6 +262,18 @@ export class AgentManager {
     this.applyBestReasoningModeForCurrentModel();
   }
 
+  resetForTesting(): void {
+    this.modelId = DEFAULT_MODEL_ID;
+    this.modelType = "serverless";
+    this.provider = "friendli";
+    this.headlessMode = false;
+    this.reasoningMode = DEFAULT_REASONING_MODE;
+    this.toolRegistry = defaultToolRegistry;
+    this.toolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
+    this.translationEnabled = true;
+    this.applyBestReasoningModeForCurrentModel();
+  }
+
   private applyBestReasoningModeForCurrentModel(): void {
     this.reasoningMode = selectBestReasoningMode(
       this.getSelectableReasoningModes()

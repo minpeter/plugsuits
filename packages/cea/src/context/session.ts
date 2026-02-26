@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 let currentSessionId: string | null = null;
 
 export function initializeSession(): string {
-  currentSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  currentSessionId = `session-${randomUUID()}`;
   return currentSessionId;
 }
 
@@ -10,10 +11,6 @@ export function getSessionId(): string {
     throw new Error("Session not initialized. Call initializeSession() first.");
   }
   return currentSessionId;
-}
-
-export function setSessionId(sessionId: string): void {
-  currentSessionId = sessionId;
 }
 
 export function hasActiveSession(): boolean {

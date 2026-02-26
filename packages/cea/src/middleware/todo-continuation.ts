@@ -41,6 +41,10 @@ export async function getIncompleteTodos(): Promise<TodoItem[]> {
     return [];
   }
 
+  if (!Array.isArray(data.todos)) {
+    return [];
+  }
+
   return data.todos.filter(
     (t) => t.status !== "completed" && t.status !== "cancelled"
   );

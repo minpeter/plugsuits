@@ -1,19 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { agentManager } from "../agent";
 import { createTranslateCommand } from "./translate";
 
 describe("translate command", () => {
   const command = createTranslateCommand();
-  let originalState: boolean;
 
-  beforeEach(() => {
-    originalState = agentManager.isTranslationEnabled();
-    agentManager.setTranslationEnabled(false);
-  });
-
-  afterEach(() => {
-    agentManager.setTranslationEnabled(originalState);
-  });
+  beforeEach(() => { agentManager.resetForTesting(); });
 
   it("reports current translation state when called without args", async () => {
     agentManager.setTranslationEnabled(true);
