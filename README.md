@@ -142,12 +142,12 @@ MIT
 
 ---
 
-<div align="center">
-<sub>
-
-The name **plugsuits** was suggested by [Simon Kim](mailto:seojoon.kim@gmail.com) of [Hashed](https://www.hashed.com).<br/>
-*"Plug and go, native like a suit"* — like a plugsuit synchronizing a pilot with their Eva,<br/>
-this harness synchronizes AI models with the tools they need.
-
-</sub>
-</div>
+<p align="center">
+  <sub>
+    The name <b>plugsuits</b> was suggested by <a href="mailto:seojoon.kim@gmail.com">Simon Kim</a> of <a href="https://www.hashed.com">Hashed</a>.
+    <br/>
+    <i>"Plug and go, native like a suit"</i> — like a plugsuit synchronizing a pilot with their Eva,
+    <br/>
+    this harness synchronizes AI models with the tools they need.
+  </sub>
+</p>
