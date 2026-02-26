@@ -2,10 +2,7 @@ import type { Dirent } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ignore from "ignore";
-import {
-  computeFileHash,
-  formatHashlineNumberedLines,
-} from "./hashline";
+import { computeFileHash, formatHashlineNumberedLines } from "./hashline";
 
 const FILE_READ_POLICY = {
   maxFileSizeBytes: 1024 * 1024, // 1MB

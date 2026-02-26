@@ -1,11 +1,17 @@
+const CONTINUATION_TOKEN_REGEX =
+  /(?:&&|\|\||\?\?|\?|:|=|,|\+|-|\*|\/|\.|\()\s*$/u;
+const MERGE_OPERATOR_REGEX = /[|&?]/;
+const SEMICOLON_SPLIT_REGEX = /;\s+/;
+
 export function stripTrailingContinuationTokens(text: string): string {
-  return text.replace(/(?:&&|\|\||\?\?|\?|:|=|,|\+|-|\*|\/|\.|\()\s*$/u, "");
+  return text.replace(CONTINUATION_TOKEN_REGEX, "");
 }
 
 export function stripMergeOperatorChars(text: string): string {
-  return text.replace(/[|&?]/g, "");
+  return text.replace(MERGE_OPERATOR_REGEX, "");
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: merge expansion algorithm
 export function maybeExpandSingleLineMerge(
   originalLines: string[],
   replacementLines: string[]
@@ -46,7 +52,7 @@ export function maybeExpandSingleLineMerge(
         let strippedPos = 0;
         let originalPos = 0;
         while (strippedPos < fuzzyIdx && originalPos < segment.length) {
-          if (!/[|&?]/.test(segment[originalPos])) {
+          if (!MERGE_OPERATOR_REGEX.test(segment[originalPos])) {
             strippedPos += 1;
           }
           originalPos += 1;
@@ -56,8 +62,11 @@ export function maybeExpandSingleLineMerge(
         // until partStripped.length non-operator characters are consumed
         let consumed = 0;
         let realLen = 0;
-        while (consumed < partStripped.length && (originalPos + realLen) < segment.length) {
-          if (!/[|&?]/.test(segment[originalPos + realLen])) {
+        while (
+          consumed < partStripped.length &&
+          originalPos + realLen < segment.length
+        ) {
+          if (!MERGE_OPERATOR_REGEX.test(segment[originalPos + realLen])) {
             consumed += 1;
           }
           realLen += 1;
@@ -92,7 +101,7 @@ export function maybeExpandSingleLineMerge(
   }
 
   const semicolonSplit = merged
-    .split(/;\s+/)
+    .split(SEMICOLON_SPLIT_REGEX)
     .map((line, idx, arr) => {
       if (idx < arr.length - 1 && !line.endsWith(";")) {
         return `${line};`;

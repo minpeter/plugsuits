@@ -12,11 +12,11 @@ export interface FriendliReasoningModelConfig {
 
 export interface FriendliModelInfo {
   id: string;
+  masked?: boolean;
   name?: string;
   provider: "friendli";
   reasoning: FriendliReasoningModelConfig | null;
   type?: "serverless" | "dedicated";
-  masked?: boolean;
 }
 
 const DEFAULT_FRIENDLI_REASONING: FriendliReasoningModelConfig = {

@@ -1,5 +1,6 @@
 // === Source-matching re-exports (1:1 from oh-my-opencode) ===
 
+// biome-ignore lint/performance/noBarrelFile: intentional barrel file for hashline module public API
 export {
   HASHLINE_DICT,
   HASHLINE_OUTPUT_PATTERN,

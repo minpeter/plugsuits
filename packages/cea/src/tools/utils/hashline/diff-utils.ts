@@ -6,7 +6,7 @@ export function toHashlineContent(content: string): string {
     return content;
   }
   const lines = content.split("\n");
-  const lastLine = lines[lines.length - 1];
+  const lastLine = lines.at(-1);
   const hasTrailingNewline = lastLine === "";
   const contentLines = hasTrailingNewline ? lines.slice(0, -1) : lines;
   const hashlined = contentLines.map((line, i) => {
@@ -15,7 +15,7 @@ export function toHashlineContent(content: string): string {
     return `${lineNum}#${hash}|${line}`;
   });
   return hasTrailingNewline
-    ? hashlined.join("\n") + "\n"
+    ? `${hashlined.join("\n")}\n`
     : hashlined.join("\n");
 }
 

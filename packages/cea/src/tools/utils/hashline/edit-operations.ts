@@ -21,6 +21,7 @@ export interface HashlineApplyReport {
   noopEdits: number;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: core edit application logic
 export function applyHashlineEditsWithReport(
   content: string,
   edits: HashlineEdit[]
@@ -99,6 +100,9 @@ export function applyHashlineEditsWithReport(
           break;
         }
         lines = next;
+        break;
+      }
+      default: {
         break;
       }
     }

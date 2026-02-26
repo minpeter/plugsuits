@@ -18,8 +18,8 @@ import { join } from "node:path";
 import { executeGrep } from "../explore/grep";
 import { executeReadFile } from "../explore/read-file";
 import { executeEditFile } from "./edit-file";
-import { repairMalformedEdit } from "./edit-file-repair";
 import { resetMissingLinesFailures } from "./edit-file-diagnostics";
+import { repairMalformedEdit } from "./edit-file-repair";
 
 const FILE_HASH_REGEX = /^file_hash:\s+([0-9a-f]{8})$/m;
 const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
@@ -626,7 +626,9 @@ describe("edit_file (hashline-only)", () => {
 
     // Content 'old bravo content' extracted from pos as lines replacement
     expect(result).toContain("Warnings:");
-    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nold bravo content\ncharlie\n");
+    expect(readFileSync(testFile, "utf-8")).toBe(
+      "alpha\nold bravo content\ncharlie\n"
+    );
   });
 
   it("Clean anchor with no lines → mentions the anchor in diagnostic", async () => {
@@ -865,7 +867,6 @@ describe("repairMalformedEdit", () => {
     expect(result.edit.pos).toBe("5#XY");
     expect(result.edit.lines).toEqual(["const x = 42;"]);
   });
-
 });
 
 describe("repeated failure escalation", () => {
@@ -1097,6 +1098,8 @@ describe("soft-reject after repeated failures", () => {
     expect(result).toContain("write_file");
 
     // File should NOT have been changed
-    expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\ndelta\n");
+    expect(readFileSync(testFile, "utf-8")).toBe(
+      "alpha\nbravo\ncharlie\ndelta\n"
+    );
   });
 });

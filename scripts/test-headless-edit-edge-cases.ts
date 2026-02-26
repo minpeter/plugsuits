@@ -912,6 +912,8 @@ async function runTestCase(
   const headlessScript = resolve(
     import.meta.dir,
     "..",
+    "packages",
+    "cea",
     "src",
     "entrypoints",
     "headless.ts"

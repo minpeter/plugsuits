@@ -1,9 +1,17 @@
 const SINGLE_LINE_SPLIT_REGEX = /\r?\n/;
 const ANCHOR_PREFIX_REGEX = /^\s*(\d+\s*#\s*[ZPMQVRWSNKTXJBYH]{2})/i;
-const KEY_VALUE_IN_POS_REGEX = /['"]lines['"\s]*:/;
-const XML_MARKUP_IN_POS_REGEX = /<\/?parameter/;
 const EMBEDDED_END_REGEX =
   /['"']?end['"']?\s*[:=]\s*['"']?(\d+\s*#\s*[ZPMQVRWSNKTXJBYH]{2})['"']?/i;
+const NULL_VALUE_REGEX = /^null\s*[})]?\s*$/;
+const ARRAY_VALUE_REGEX = /^\[([^\]]*)\]/;
+const COMMA_SPLIT_REGEX = /,\s*/;
+const QUOTE_STRIP_REGEX = /^['"]|['"]$/g;
+const STRING_VALUE_REGEX = /^['"](.*)['"]/;
+const KV_LINES_REGEX = /['"]?lines['"]?\s*[:=]\s*(.+?)\s*[})]?\s*$/;
+const QS_LINES_REGEX = /[&?]\s*lines\s*[:=]\s*(.+?)\s*$/;
+const HASH_NORMALIZE_REGEX = /\s*#\s*/;
+const LEADING_SEPARATOR_REGEX = /^[|=%:,;]\s*/;
+const GARBAGE_CONTENT_REGEX = /^['"]?[\]})>]|<\/|<\w+>|^\s*}/;
 
 export interface HashlineToolEdit {
   end?: string;
@@ -35,25 +43,25 @@ export function assertSingleLineAnchor(
 function tryParseEmbeddedValue(raw: string): string[] | null | undefined {
   const trimmed = raw.trim();
 
-  if (/^null\s*[})]?\s*$/.test(trimmed)) {
+  if (NULL_VALUE_REGEX.test(trimmed)) {
     return null;
   }
 
-  const arrayMatch = trimmed.match(/^\[([^\]]*)\]/);
+  const arrayMatch = trimmed.match(ARRAY_VALUE_REGEX);
   if (arrayMatch) {
     const inner = arrayMatch[1].trim();
     if (inner.length === 0) {
       return [];
     }
-    const elements = inner.split(/,\s*/).map((el) => {
+    const elements = inner.split(COMMA_SPLIT_REGEX).map((el) => {
       const s = el.trim();
-      const unquoted = s.replace(/^['"]|['"]$/g, "");
+      const unquoted = s.replace(QUOTE_STRIP_REGEX, "");
       return unquoted;
     });
     return elements;
   }
 
-  const stringMatch = trimmed.match(/^['"](.*)['"]/);
+  const stringMatch = trimmed.match(STRING_VALUE_REGEX);
   if (stringMatch) {
     return [stringMatch[1]];
   }
@@ -64,14 +72,12 @@ function tryParseEmbeddedValue(raw: string): string[] | null | undefined {
 function tryExtractEmbeddedLines(
   posAfterAnchor: string
 ): string[] | null | undefined {
-  const kvMatch = posAfterAnchor.match(
-    /['"]?lines['"]?\s*[:=]\s*(.+?)\s*[})]?\s*$/
-  );
+  const kvMatch = posAfterAnchor.match(KV_LINES_REGEX);
   if (kvMatch) {
     return tryParseEmbeddedValue(kvMatch[1]);
   }
 
-  const qsMatch = posAfterAnchor.match(/[&?]\s*lines\s*[:=]\s*(.+?)\s*$/);
+  const qsMatch = posAfterAnchor.match(QS_LINES_REGEX);
   if (qsMatch) {
     return tryParseEmbeddedValue(qsMatch[1]);
   }
@@ -84,7 +90,7 @@ function tryExtractEmbeddedEnd(rest: string): string | undefined {
   if (!endMatch) {
     return undefined;
   }
-  return endMatch[1].replace(/\s*#\s*/, "#");
+  return endMatch[1].replace(HASH_NORMALIZE_REGEX, "#");
 }
 
 function repairAnchorField(
@@ -100,7 +106,7 @@ function repairAnchorField(
   if (!anchorMatch) {
     return null;
   }
-  const cleanAnchor = anchorMatch[1].replace(/\s*#\s*/, "#");
+  const cleanAnchor = anchorMatch[1].replace(HASH_NORMALIZE_REGEX, "#");
   const rest = raw.slice(anchorMatch[0].length);
   if (rest.trim().length === 0) {
     return null;
@@ -129,10 +135,10 @@ export function repairMalformedEdit(edit: HashlineToolEdit): RepairResult {
           "Auto-repaired lines: extracted embedded content from pos field."
         );
       } else {
-        const plainContent = posRepair.rest.replace(/^[|=%:,;]\s*/, "").trim();
-        const looksLikeGarbage = /^['"]?[\]})>]|<\/|<\w+>|^\s*}/.test(
-          plainContent
-        );
+        const plainContent = posRepair.rest
+          .replace(LEADING_SEPARATOR_REGEX, "")
+          .trim();
+        const looksLikeGarbage = GARBAGE_CONTENT_REGEX.test(plainContent);
         if (plainContent.length > 0 && !looksLikeGarbage) {
           repairedLines = plainContent.split("\n");
           warnings.push(

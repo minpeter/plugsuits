@@ -1,6 +1,7 @@
 const HASHLINE_PREFIX_RE =
   /^\s*(?:>>>|>>)?\s*\d+\s*#\s*[ZPMQVRWSNKTXJBYH]{2}\|/;
 const DIFF_PLUS_RE = /^[+](?![+])/;
+const LEADING_WHITESPACE_REGEX = /^\s*/;
 
 function equalsIgnoringWhitespace(a: string, b: string): boolean {
   if (a === b) {
@@ -13,7 +14,7 @@ function leadingWhitespace(text: string): string {
   if (!text) {
     return "";
   }
-  const match = text.match(/^\s*/);
+  const match = text.match(LEADING_WHITESPACE_REGEX);
   return match ? match[0] : "";
 }
 
@@ -105,7 +106,11 @@ export function stripInsertBeforeEcho(
   if (newLines.length <= 1) {
     return newLines;
   }
-  if (equalsIgnoringWhitespace(newLines[newLines.length - 1], anchorLine)) {
+  const lastLine = newLines.at(-1);
+  if (
+    lastLine !== undefined &&
+    equalsIgnoringWhitespace(lastLine, anchorLine)
+  ) {
     return newLines.slice(0, -1);
   }
   return newLines;
@@ -120,9 +125,11 @@ export function stripInsertBoundaryEcho(
   if (out.length > 0 && equalsIgnoringWhitespace(out[0], afterLine)) {
     out = out.slice(1);
   }
+  const lastLine = out.at(-1);
   if (
     out.length > 0 &&
-    equalsIgnoringWhitespace(out[out.length - 1], beforeLine)
+    lastLine !== undefined &&
+    equalsIgnoringWhitespace(lastLine, beforeLine)
   ) {
     out = out.slice(0, -1);
   }
@@ -147,10 +154,12 @@ export function stripRangeBoundaryEcho(
   }
 
   const afterIdx = endLine;
+  const lastLine = out.at(-1);
   if (
     afterIdx < lines.length &&
     out.length > 0 &&
-    equalsIgnoringWhitespace(out[out.length - 1], lines[afterIdx])
+    lastLine !== undefined &&
+    equalsIgnoringWhitespace(lastLine, lines[afterIdx])
   ) {
     out = out.slice(0, -1);
   }

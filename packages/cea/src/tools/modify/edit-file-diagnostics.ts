@@ -4,6 +4,7 @@ const ANCHOR_HASH_EXTRACT_REGEX = /#([ZPMQVRWSNKTXJBYH]{2})/i;
 const NUMERIC_LINE_PREFIX_REGEX = /^\d+$/;
 const HASHLINE_ALPHABET_PREFIX_REGEX = /^[ZPMQVRWSNKTXJBYH]{2}$/i;
 const ANCHOR_PREFIX_REGEX = /^\s*(\d+\s*#\s*[ZPMQVRWSNKTXJBYH]{2})/i;
+const HASH_SPACE_REGEX = /\s*#\s*/;
 const KEY_VALUE_IN_POS_REGEX = /['"]lines['"\s]*:/;
 const XML_MARKUP_IN_POS_REGEX = /<\/?parameter/;
 const POS_DISPLAY_MAX_LENGTH = 80;
@@ -117,7 +118,7 @@ export function diagnoseMissingLines(pos: string | undefined): string {
 
   const anchorMatch = pos.match(ANCHOR_PREFIX_REGEX);
   if (anchorMatch) {
-    const anchorText = anchorMatch[1].replace(/\s*#\s*/, "#");
+    const anchorText = anchorMatch[1].replace(HASH_SPACE_REGEX, "#");
     const rest = pos.slice(anchorMatch[0].length);
     if (rest.trim().length > 0) {
       return `${base} pos contains content after anchor '${anchorText}' — move replacement text to 'lines'.`;
@@ -171,7 +172,9 @@ export function buildEscalationBailMessage(
   const failingEdit =
     edits.find((e) => {
       const pos = e.pos?.trim();
-      return pos && getMissingLinesFailureCount(pos) >= ESCALATION_BAIL_THRESHOLD;
+      return (
+        pos && getMissingLinesFailureCount(pos) >= ESCALATION_BAIL_THRESHOLD
+      );
     }) ?? edits.find((e) => e.pos?.trim());
   const anchor = failingEdit?.pos?.trim() ?? "";
   const parsedTag = tryParseLineTag(anchor);
@@ -191,7 +194,10 @@ export function buildEscalationBailMessage(
   ];
 
   if (lineContent !== undefined && lineContent !== null) {
-    parts.push("", `Line ${parsedTag?.line} currently contains: "${lineContent}"`);
+    parts.push(
+      "",
+      `Line ${parsedTag?.line} currently contains: "${lineContent}"`
+    );
   }
 
   parts.push(

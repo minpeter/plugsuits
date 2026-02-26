@@ -2,6 +2,11 @@
 
 import { stripVTControlCharacters } from "node:util";
 import {
+  MANUAL_TOOL_LOOP_MAX_STEPS,
+  MessageHistory,
+  shouldContinueManualToolLoop,
+} from "@ai-sdk-tool/harness";
+import {
   type AutocompleteItem,
   type AutocompleteProvider,
   CombinedAutocompleteProvider,
@@ -46,7 +51,6 @@ import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createRenderCommand } from "../commands/render";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { createTranslateCommand } from "../commands/translate";
-import { MessageHistory } from "@ai-sdk-tool/harness";
 import { getSessionId, initializeSession } from "../context/session";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
@@ -55,10 +59,6 @@ import { isNonEnglish, translateToEnglish } from "../context/translation";
 import { env } from "../env";
 import { renderFullStreamWithPiTui } from "../interaction/pi-tui-stream-renderer";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
-import {
-  MANUAL_TOOL_LOOP_MAX_STEPS,
-  shouldContinueManualToolLoop,
-} from "@ai-sdk-tool/harness";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,

@@ -1,5 +1,7 @@
 import { maybeExpandSingleLineMerge } from "./merge-expansion";
 
+const LEADING_WS_REGEX = /^\s*/;
+
 function normalizeTokens(text: string): string {
   return text.replace(/\s+/g, "");
 }
@@ -8,6 +10,7 @@ function stripAllWhitespace(text: string): string {
   return normalizeTokens(text);
 }
 
+// biome-ignore lint/performance/noBarrelFile: intentional re-export for module API surface
 export {
   maybeExpandSingleLineMerge,
   stripMergeOperatorChars,
@@ -18,10 +21,11 @@ function leadingWhitespace(text: string): string {
   if (!text) {
     return "";
   }
-  const match = text.match(/^\s*/);
+  const match = text.match(LEADING_WS_REGEX);
   return match ? match[0] : "";
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: line-wrapping restoration algorithm
 export function restoreOldWrappedLines(
   originalLines: string[],
   replacementLines: string[]

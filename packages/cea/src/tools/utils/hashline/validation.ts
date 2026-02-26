@@ -14,13 +14,19 @@ interface HashMismatch {
 const MISMATCH_CONTEXT = 2;
 
 const LINE_REF_EXTRACT_PATTERN = /([0-9]+#[ZPMQVRWSNKTXJBYH]{2})/;
+const DIFF_PREFIX_REGEX = /^(?:>>>|[+-])\s*/;
+const HASH_SPACE_REGEX = /\s*#\s*/;
+const PIPE_SUFFIX_REGEX = /\|.*$/;
+const DIGITS_ONLY_REGEX = /^\d+$/;
+const HASH_ID_REGEX = /^[ZPMQVRWSNKTXJBYH]{2}$/;
+const TRAILING_HASH_REGEX = /#([ZPMQVRWSNKTXJBYH]{2})$/;
 
 function normalizeLineRef(ref: string): string {
   const originalTrimmed = ref.trim();
   let trimmed = originalTrimmed;
-  trimmed = trimmed.replace(/^(?:>>>|[+-])\s*/, "");
-  trimmed = trimmed.replace(/\s*#\s*/, "#");
-  trimmed = trimmed.replace(/\|.*$/, "");
+  trimmed = trimmed.replace(DIFF_PREFIX_REGEX, "");
+  trimmed = trimmed.replace(HASH_SPACE_REGEX, "#");
+  trimmed = trimmed.replace(PIPE_SUFFIX_REGEX, "");
   trimmed = trimmed.trim();
 
   if (HASHLINE_REF_PATTERN.test(trimmed)) {
@@ -49,7 +55,7 @@ export function parseLineRef(ref: string): LineRef {
   if (hashIdx > 0) {
     const prefix = normalized.slice(0, hashIdx);
     const suffix = normalized.slice(hashIdx + 1);
-    if (!/^\d+$/.test(prefix) && /^[ZPMQVRWSNKTXJBYH]{2}$/.test(suffix)) {
+    if (!DIGITS_ONLY_REGEX.test(prefix) && HASH_ID_REGEX.test(suffix)) {
       throw new Error(
         `Invalid line reference: "${ref}". "${prefix}" is not a line number. ` +
           "Use the actual line number from the read output."
@@ -81,10 +87,7 @@ export function validateLineRef(lines: string[], ref: string): void {
 export class HashlineMismatchError extends Error {
   readonly remaps: ReadonlyMap<string, string>;
 
-  constructor(
-    private readonly mismatches: HashMismatch[],
-    private readonly fileLines: string[]
-  ) {
+  constructor(mismatches: HashMismatch[], fileLines: string[]) {
     super(HashlineMismatchError.formatMessage(mismatches, fileLines));
     this.name = "HashlineMismatchError";
     const remaps = new Map<string, string>();
@@ -149,7 +152,7 @@ export class HashlineMismatchError extends Error {
 }
 
 function suggestLineForHash(ref: string, lines: string[]): string | null {
-  const hashMatch = ref.trim().match(/#([ZPMQVRWSNKTXJBYH]{2})$/);
+  const hashMatch = ref.trim().match(TRAILING_HASH_REGEX);
   if (!hashMatch) {
     return null;
   }

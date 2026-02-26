@@ -6,8 +6,12 @@ import {
   type AgentStreamResult as HarnessAgentStreamResult,
 } from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
-import { InvalidToolInputError, NoSuchToolError, type ModelMessage } from "ai";
-import { wrapLanguageModel } from "ai";
+import {
+  InvalidToolInputError,
+  type ModelMessage,
+  NoSuchToolError,
+  wrapLanguageModel,
+} from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
@@ -217,9 +221,13 @@ const defaultToolRegistry = createTools();
  */
 const repairToolCall: Parameters<
   typeof import("ai").streamText
->[0]["experimental_repairToolCall"] = async ({ toolCall, error }) => {
-  if (NoSuchToolError.isInstance(error)) return null;
-  if (!InvalidToolInputError.isInstance(error)) return null;
+>[0]["experimental_repairToolCall"] = ({ toolCall, error }) => {
+  if (NoSuchToolError.isInstance(error)) {
+    return Promise.resolve(null);
+  }
+  if (!InvalidToolInputError.isInstance(error)) {
+    return Promise.resolve(null);
+  }
   try {
     const raw =
       typeof toolCall.input === "string"
@@ -227,14 +235,14 @@ const repairToolCall: Parameters<
         : JSON.stringify(toolCall.input);
     const cleaned = raw
       .replace(
-        /(\d+#[A-Z]{2})(?:[|=\-][^"{}[\]]*?)\1(?:[|=\-][^"{}[\]]*?)*/g,
+        /(\d+#[A-Z]{2})(?:[|=-][^"{}[\]]*?)\1(?:[|=-][^"{}[\]]*?)*/g,
         "$1"
       )
       .replace(/(\d+#[A-Z]{2})(?:-\1)+/g, "$1");
     const parsed = JSON.parse(cleaned);
-    return { ...toolCall, input: JSON.stringify(parsed) };
+    return Promise.resolve({ ...toolCall, input: JSON.stringify(parsed) });
   } catch {
-    return null;
+    return Promise.resolve(null);
   }
 };
 

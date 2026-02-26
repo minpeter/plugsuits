@@ -8,11 +8,10 @@ import {
   type HashlineEdit,
   normalizeHashlineEdits,
   restoreFileText,
-  tryParseLineTag,
 } from "../utils/hashline";
 import EDIT_FILE_DESCRIPTION from "./edit-file.txt";
 import { buildEscalationBailMessage } from "./edit-file-diagnostics";
-import { type HashlineToolEdit } from "./edit-file-repair";
+import type { HashlineToolEdit } from "./edit-file-repair";
 import {
   assertExpectedFileHash,
   canCreateFromMissingFile,
@@ -82,7 +81,6 @@ export type EditFileInput = z.input<typeof lenientInputSchema>;
 // validateAndRepairEdits, canCreateFromMissingFile, assertExpectedFileHash
 // moved to ./edit-file-validation.ts
 
-
 function formatResult(params: {
   created: boolean;
   editCount: number;
@@ -137,17 +135,16 @@ async function readExistingContent(path: string): Promise<{
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex validation logic
 export async function executeEditFile(input: EditFileInput): Promise<string> {
-  let parsed;
+  let parsed: z.infer<typeof inputSchema>;
   try {
     parsed = inputSchema.parse(input);
   } catch (error) {
     if (
       error instanceof z.ZodError &&
       error.issues.some(
-        (issue) =>
-          issue.path.length >= 2 &&
-          issue.path[issue.path.length - 1] === "lines"
+        (issue) => issue.path.length >= 2 && issue.path.at(-1) === "lines"
       )
     ) {
       // Fall back to lenient parse — custom validation gives better error messages

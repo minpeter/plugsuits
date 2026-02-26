@@ -100,7 +100,7 @@ const runTest = async (): Promise<boolean> => {
   info(`Test file initialized with ${STORY_CONTENT.split("\n").length} lines`);
 
   // Step 2: Run headless mode
-  const headlessScript = resolve(import.meta.dir, "..", "src", "entrypoints", "headless.ts");
+  const headlessScript = resolve(import.meta.dir, "..", "packages", "cea", "src", "entrypoints", "headless.ts");
   const headlessArgs = [
     "run",
     headlessScript,
