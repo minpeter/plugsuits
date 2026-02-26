@@ -17,7 +17,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ai": "^6.0.94"
+    "ai": "^6.0.101"
   },
   "peerDependencies": {
     "typescript": "^5.0.0",
