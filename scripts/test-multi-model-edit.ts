@@ -241,21 +241,22 @@ const main = async () => {
   // Overall
   const totalModels = allResults.length;
   const perfectModels = allResults.filter(
-    (r) => r.totalPassed === r.totalTests
+    (r) => !r.error && r.totalPassed === r.totalTests
   ).length;
   console.log(
     `${BOLD}Models with 100%: ${perfectModels}/${totalModels}${RESET}`
   );
 
-  const overallPassed = allResults.reduce((sum, r) => sum + r.totalPassed, 0);
-  const overallTotal = allResults.reduce((sum, r) => sum + r.totalTests, 0);
+  const validResults = allResults.filter((r) => !r.error);
+  const overallPassed = validResults.reduce((sum, r) => sum + r.totalPassed, 0);
+  const overallTotal = validResults.reduce((sum, r) => sum + r.totalTests, 0);
   console.log(
-    `${BOLD}Overall: ${overallPassed}/${overallTotal} (${Math.round((overallPassed / overallTotal) * 100)}%)${RESET}`
+    `${BOLD}Overall: ${overallPassed}/${overallTotal} (${overallTotal > 0 ? Math.round((overallPassed / overallTotal) * 100) : 0}%)${RESET}`
   );
 
   console.log();
 
-  if (perfectModels === totalModels) {
+  if (perfectModels === totalModels && totalModels > 0) {
     console.log(`${BOLD}${GREEN}🎉 ALL MODELS PASSED ALL TESTS!${RESET}\n`);
     process.exit(0);
   } else {

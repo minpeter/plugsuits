@@ -1,6 +1,7 @@
 const CONTINUATION_TOKEN_REGEX =
   /(?:&&|\|\||\?\?|\?|:|=|,|\+|-|\*|\/|\.|\()\s*$/u;
 const MERGE_OPERATOR_REGEX = /[|&?]/;
+const MERGE_OPERATOR_REGEX_GLOBAL = /[|&?]/g;
 const SEMICOLON_SPLIT_REGEX = /;\s+/;
 
 export function stripTrailingContinuationTokens(text: string): string {
@@ -8,7 +9,7 @@ export function stripTrailingContinuationTokens(text: string): string {
 }
 
 export function stripMergeOperatorChars(text: string): string {
-  return text.replace(MERGE_OPERATOR_REGEX, "");
+  return text.replace(MERGE_OPERATOR_REGEX_GLOBAL, "");
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: merge expansion algorithm
