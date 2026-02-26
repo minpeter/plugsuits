@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./assets/banner.jpg" alt="plugsuits" width="100%" />
+
 # plugsuits
 
 **プラグスーツ**
