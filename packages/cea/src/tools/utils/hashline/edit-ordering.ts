@@ -6,7 +6,7 @@ export function getEditLineNumber(edit: HashlineEdit): number {
     case "replace":
       return parseLineRef(edit.end ?? edit.pos).line;
     case "append":
-      return edit.pos ? parseLineRef(edit.pos).line : Number.NEGATIVE_INFINITY;
+      return edit.pos ? parseLineRef(edit.pos).line : Number.POSITIVE_INFINITY;
     case "prepend":
       return edit.pos ? parseLineRef(edit.pos).line : Number.NEGATIVE_INFINITY;
     default:

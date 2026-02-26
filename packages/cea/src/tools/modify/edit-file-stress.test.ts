@@ -12,7 +12,7 @@ import { executeReadFile } from "../explore/read-file";
 import { executeEditFile } from "./edit-file";
 
 const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
-  new RegExp(`${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
+  new RegExp(`\\b${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
 
 function extractLineRef(readOutput: string, lineNumber: number): string {
   const matched = readOutput.match(LINE_REF_REGEX_TEMPLATE(lineNumber));

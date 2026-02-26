@@ -52,7 +52,17 @@ export function maybeExpandSingleLineMerge(
           originalPos += 1;
         }
         idx = offset + originalPos;
-        matchedLen = part.length;
+        // Compute actual consumed length in original string by walking through
+        // until partStripped.length non-operator characters are consumed
+        let consumed = 0;
+        let realLen = 0;
+        while (consumed < partStripped.length && (originalPos + realLen) < segment.length) {
+          if (!/[|&?]/.test(segment[originalPos + realLen])) {
+            consumed += 1;
+          }
+          realLen += 1;
+        }
+        matchedLen = realLen;
       }
     }
     if (idx === -1) {

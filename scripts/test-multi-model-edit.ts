@@ -151,7 +151,7 @@ async function runModel(model: {
         modelShort: model.short,
         tests: [],
         totalPassed: 0,
-        totalTests: 21,
+        totalTests: 0,
         durationMs: Date.now() - startTime,
         error: `Timed out after ${perModelTimeoutSec}s`,
       });
@@ -179,7 +179,7 @@ async function runModel(model: {
         modelShort: model.short,
         tests: [],
         totalPassed: 0,
-        totalTests: 21,
+        totalTests: 0,
         durationMs: Date.now() - startTime,
         error: err.message,
       });

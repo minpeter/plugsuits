@@ -165,7 +165,7 @@ export function parseHashlineText(
     return [];
   }
   if (Array.isArray(input)) {
-    return input;
+    return stripLinePrefixes(input);
   }
   return toNewLines(input);
 }

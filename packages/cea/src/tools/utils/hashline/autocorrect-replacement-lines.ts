@@ -92,8 +92,18 @@ export function restoreOldWrappedLines(
   }
 
   uniqueCandidates.sort((a, b) => b.start - a.start);
-  const correctedLines = [...replacementLines];
+  // Filter overlapping candidates — walk sorted list and skip any whose range overlaps
+  const accepted: typeof uniqueCandidates = [];
+  let nextAvailable = Number.POSITIVE_INFINITY;
   for (const candidate of uniqueCandidates) {
+    const candidateEnd = candidate.start + candidate.len;
+    if (candidateEnd <= nextAvailable) {
+      accepted.push(candidate);
+      nextAvailable = candidate.start;
+    }
+  }
+  const correctedLines = [...replacementLines];
+  for (const candidate of accepted) {
     correctedLines.splice(
       candidate.start,
       candidate.len,

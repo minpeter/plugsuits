@@ -68,7 +68,9 @@ export function validateAndRepairEdits(
       if (!parsedPos && parsedEnd) {
         repairedEdit = { ...repairedEdit, pos: undefined };
         repairWarnings.push(
-          `Ignored invalid pos "${edit.pos}"; falling back to end anchor.`
+          edit.pos === undefined
+            ? `Moved end anchor to pos (pos was not provided).`
+            : `Ignored invalid pos "${edit.pos}"; falling back to end anchor.`
         );
       } else if (parsedPos && !parsedEnd && repairedEdit.end) {
         repairedEdit = { ...repairedEdit, end: undefined };

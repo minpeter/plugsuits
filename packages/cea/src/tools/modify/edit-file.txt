@@ -9,7 +9,7 @@ Applies precise file edits using `LINE#ID` tags from `read_file` output.
 **Input**: `{ path, edits[], expected_file_hash? }`
 
 **Operations**:
-Every edit has `op`, `pos`, and `lines`. Range replaces also have `end`.
+Every edit has `op` and `lines`. Most edits also have `pos`; range replaces add `end`.
 Both `pos` and `end` use `"N#ID"` format (e.g. `"23#XY"`).
 
 `pos` — the anchor line:
@@ -40,7 +40,7 @@ Both `pos` and `end` use `"N#ID"` format (e.g. `"23#XY"`).
 - Anchor to structural lines (function signatures, braces), not blank lines.
 - Blank-line hashes are position-dependent and change after edits.
 - Prefer insertion at structure boundaries over rewriting neighbors.
-- Each edit: `{ op, pos, lines }`. No extra keys. `lines` is always required.
+- Allowed keys per edit: `op`, `pos`, `end`, `lines` — nothing else. `lines` is always required.
 
 **Recovery**:
 - Tag mismatch (`>>>`): retry using fresh tags from the error snippet.

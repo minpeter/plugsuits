@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
- * Comprehensive headless edit_file stress test: 21 operation types
+ * Comprehensive headless edit_file stress test: 25 edge cases
  *
- * Tests: 5 basic ops + 10 creative cases + 6 whitespace cases
+ * Tests: 5 basic ops + 14 creative cases + 6 whitespace cases
  * Each runs via headless mode with its own demo file + prompt.
  *
  * Usage:
- *   bun run scripts/test-headless-edit-ops.ts [-m <model>] [--provider <provider>]
+ *   bun run scripts/test-headless-edit-edge-cases.ts [-m <model>] [--provider <provider>]
  */
 
 import { spawn } from "node:child_process";
@@ -927,7 +927,7 @@ async function runTestCase(
 
   const startTime = Date.now();
 
-  const output = await new Promise<string>((resolve, reject) => {
+  const output = await new Promise<string>((res, reject) => {
     const proc = spawn("bun", headlessArgs, {
       cwd: testDir,
       env: { ...process.env, BUN_INSTALL: process.env.BUN_INSTALL },
@@ -957,7 +957,7 @@ async function runTestCase(
       if (code !== 0) {
         reject(new Error(`Exit code ${code}\n${stderr.slice(-500)}`));
       } else {
-        resolve(stdout);
+        res(stdout);
       }
     });
     proc.on("error", (err) => {

@@ -55,7 +55,7 @@ export function applyHashlineEditsWithReport(
   const refs = collectLineRefs(sortedEdits);
   validateLineRefs(lines, refs);
 
-  const overlapError = detectOverlappingRanges(sortedEdits);
+  const overlapError = detectOverlappingRanges(dedupeResult.edits);
   if (overlapError) {
     throw new Error(overlapError);
   }

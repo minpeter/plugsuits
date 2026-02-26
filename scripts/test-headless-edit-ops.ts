@@ -624,7 +624,7 @@ async function runTestCase(
 
   const startTime = Date.now();
 
-  const output = await new Promise<string>((resolve, reject) => {
+  const output = await new Promise<string>((res, reject) => {
     const proc = spawn("bun", headlessArgs, {
       cwd: testDir,
       env: { ...process.env, BUN_INSTALL: process.env.BUN_INSTALL },
@@ -654,7 +654,7 @@ async function runTestCase(
       if (code !== 0) {
         reject(new Error(`Exit code ${code}\n${stderr.slice(-500)}`));
       } else {
-        resolve(stdout);
+        res(stdout);
       }
     });
     proc.on("error", (err) => {

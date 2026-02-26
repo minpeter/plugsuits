@@ -2,7 +2,7 @@ import { computeLineHash, tryParseLineTag } from "../utils/hashline";
 
 const ANCHOR_HASH_EXTRACT_REGEX = /#([ZPMQVRWSNKTXJBYH]{2})/i;
 const NUMERIC_LINE_PREFIX_REGEX = /^\d+$/;
-const HASHLINE_ALPHABET_PREFIX_REGEX = /^[ZPMQVRWSNKTXJBYH]{2}/i;
+const HASHLINE_ALPHABET_PREFIX_REGEX = /^[ZPMQVRWSNKTXJBYH]{2}$/i;
 const ANCHOR_PREFIX_REGEX = /^\s*(\d+\s*#\s*[ZPMQVRWSNKTXJBYH]{2})/i;
 const KEY_VALUE_IN_POS_REGEX = /['"]lines['"\s]*:/;
 const XML_MARKUP_IN_POS_REGEX = /<\/?parameter/;

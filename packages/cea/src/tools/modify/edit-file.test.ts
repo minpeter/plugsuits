@@ -23,7 +23,7 @@ import { resetMissingLinesFailures } from "./edit-file-diagnostics";
 
 const FILE_HASH_REGEX = /^file_hash:\s+([0-9a-f]{8})$/m;
 const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
-  new RegExp(`${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
+  new RegExp(`\\b${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
 const HASHLINE_LINE_PREFIX_REGEX = /^\d+#/;
 
 function extractFileHash(readOutput: string): string {

@@ -141,7 +141,7 @@ const runTest = async (): Promise<boolean> => {
         process.stderr.write(DIM + text + RESET);
       });
 
-      // 5 minute timeout for model response
+      // 10 minute timeout for model response
       const timeout = setTimeout(
         () => {
           proc.kill("SIGTERM");
@@ -221,17 +221,20 @@ const runTest = async (): Promise<boolean> => {
     );
     const editErrors = editResults.filter((e) => e.error);
     const editSuccesses = editResults.filter((e) => !e.error);
+    const GUARD_PATTERNS = [
+      "explicit 'lines' field",
+      "must be a single-line",
+      "contains newline",
+      "lines \u2014",
+      "not a line number",
+      "not a valid {line_number}#{hash_id}",
+      "missing # separator",
+      "content after anchor",
+      "key-value syntax",
+      "XML markup",
+    ];
     const guardErrors = editErrors.filter((e) =>
-      e.error?.includes("explicit 'lines' field") ||
-      e.error?.includes("must be a single-line") ||
-      e.error?.includes("contains newline") ||
-      e.error?.includes("lines \u2014") ||
-      e.error?.includes("not a line number") ||
-      e.error?.includes("not a valid {line_number}#{hash_id}") ||
-      e.error?.includes("missing # separator") ||
-      e.error?.includes("content after anchor") ||
-      e.error?.includes("key-value syntax") ||
-      e.error?.includes("XML markup")
+      GUARD_PATTERNS.some((pattern) => e.error?.includes(pattern))
     );
 
     if (editSuccesses.length > 0) {
@@ -279,17 +282,7 @@ const runTest = async (): Promise<boolean> => {
     }
 
     const unexpectedErrors = editErrors.filter(
-      (e) =>
-        !e.error?.includes("explicit 'lines' field") &&
-        !e.error?.includes("must be a single-line") &&
-        !e.error?.includes("contains newline") &&
-        !e.error?.includes("lines \u2014") &&
-        !e.error?.includes("not a line number") &&
-        !e.error?.includes("not a valid {line_number}#{hash_id}") &&
-        !e.error?.includes("missing # separator") &&
-        !e.error?.includes("content after anchor") &&
-        !e.error?.includes("key-value syntax") &&
-        !e.error?.includes("XML markup")
+      (e) => !GUARD_PATTERNS.some((pattern) => e.error?.includes(pattern))
     );
     if (unexpectedErrors.length > 0) {
       warn(`${unexpectedErrors.length} unexpected edit_file error(s):`);
