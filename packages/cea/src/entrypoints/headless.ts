@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
-import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
-import { MessageHistory } from "@ai-sdk-tool/harness";
-import { setSessionId } from "../context/session";
-import { translateToEnglish } from "../context/translation";
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
+  MessageHistory,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
+import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
+import { setSessionId } from "../context/session";
+import { translateToEnglish } from "../context/translation";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
@@ -143,7 +143,7 @@ const parseToolFallbackCliOption = (
     };
   };
 
-  if (arg === "--tool-fallback-mode") {
+  if (arg === "--toolcall-mode") {
     return parseCandidate(DEFAULT_TOOL_FALLBACK_MODE);
   }
 
@@ -278,7 +278,7 @@ const parseArgs = (): {
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--tool-fallback-mode <mode>]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--toolcall-mode <mode>]"
     );
     process.exit(1);
   }

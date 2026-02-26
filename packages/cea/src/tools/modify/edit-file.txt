@@ -1,36 +1,73 @@
-### edit_file
-**Purpose**: Hashline-native surgical edits with deterministic anchors
+Applies precise file edits using `LINE#ID` tags from `read_file` output.
 
-**When to use**:
-- Modifying existing files (changing functions, fixing bugs)
-- Applying anchored edits using `LINE#HASH` refs from `read_file`
-- Inserting/replacing/deleting exact ranges without ambiguous matching
+**Workflow**:
+1. Call `read_file` to get fresh `{line_number}#{hash_id}|TEXT` anchors.
+2. Pick the smallest operation per change site.
+3. Call `edit_file` once per file with all operations.
+4. Re-read the file before issuing another edit on the same path.
 
-**Key features**:
-- Hashline ops via `edits[]`: `replace`, `append`, `prepend`
-- `expected_file_hash` stale check prevents edits on changed files
+**Input**: `{ path, edits[], expected_file_hash? }`
 
-**Input contract**:
-- `path` (required): target file path
-- `edits` (required, min 1): list of hashline operations
-- `expected_file_hash` (optional): file hash from latest `read_file`
+**Operations**:
+Every edit has `op` and `lines`. Most edits also have `pos`; range replaces add `end`.
+Both `pos` and `end` use `"N#ID"` format (e.g. `"23#XY"`).
 
-**Operation rules**:
-- `replace`: requires `pos` or `end` anchor (`LINE#HASH`)
-- `append` / `prepend`: optional anchor; without anchor, insert at file boundary
-- `lines: []` or `lines: null` on `replace` can be used for line deletion
+`pos` — the anchor line:
+- `replace`: the line to replace (or start of range)
+- `prepend`: insert new lines before this line
+- `append`: insert new lines after this line
 
-**Failure handling**:
-- Stale anchor/hash errors mean file changed; run `read_file` again and retry with fresh refs
-- No-op edits are rejected to prevent silent failures
+`end` — range replace only. The last line of the range (inclusive).
 
-**DO NOT use shell commands**: Use this instead of `sed`, `awk`, or `perl -i`
+`lines` — the replacement content (REQUIRED for every edit):
+- `["line1", "line2"]` — replace with these lines
+- `"line1"` — shorthand for single line
+- `null` or `[]` — delete the line(s) entirely
 
-**Example**:
+**Line or range replace/delete**:
+- `{ op: "replace", pos: "N#ID", lines: ["new content"] }` — replace one line
+- `{ op: "replace", pos: "N#ID", end: "M#ID", lines: ["new"] }` — replace range
+- `{ op: "replace", pos: "N#ID", lines: null }` — delete one line
+- `{ op: "replace", pos: "N#ID", end: "M#ID", lines: null }` — delete range
+
+**Insert new lines**:
+- `{ op: "prepend", pos: "N#ID", lines: ["before"] }` — insert before line
+- `{ op: "append", pos: "N#ID", lines: ["after"] }` — insert after line
+- `{ op: "append", lines: ["at end"] }` — insert at end of file (no pos)
+- `{ op: "prepend", lines: ["at start"] }` — insert at start of file (no pos)
+
+**Rules**:
+- Anchor to structural lines (function signatures, braces), not blank lines.
+- Blank-line hashes are position-dependent and change after edits.
+- Prefer insertion at structure boundaries over rewriting neighbors.
+- Allowed keys per edit: `op`, `pos`, `end`, `lines` — nothing else. `lines` is always required.
+
+**Recovery**:
+- Tag mismatch (`>>>`): retry using fresh tags from the error snippet.
+- No-op (`identical`): re-read target lines and adjust the edit.
+
+**Examples**:
 ```
 edit_file({
   path: "config.ts",
-  edits: [{ op: "replace", pos: "12#AB", lines: ["port: 8080"] }],
-  expected_file_hash: "0a1b2c3d"
+  edits: [{ op: "replace", pos: "12#AB", lines: ["port: 8080,"] }]
+})
+
+edit_file({
+  path: "routes.ts",
+  edits: [
+    { op: "prepend", pos: "41#MQ", lines: ["  // new route"] },
+    { op: "append", pos: "41#MQ", lines: ["  app.get('/health', handler);"] }
+  ]
+})
+
+edit_file({
+  path: "log.ts",
+  edits: [{ op: "replace", pos: "3#QH", end: "5#KR", lines: ["// consolidated"] }]
+})
+
+edit_file({
+  path: "old.ts",
+  edits: [{ op: "replace", pos: "7#TX", lines: null }]
 })
 ```

@@ -6,8 +6,12 @@ import {
   type AgentStreamResult as HarnessAgentStreamResult,
 } from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
-import type { ModelMessage } from "ai";
-import { wrapLanguageModel } from "ai";
+import {
+  InvalidToolInputError,
+  type ModelMessage,
+  NoSuchToolError,
+  wrapLanguageModel,
+} from "ai";
 import { getEnvironmentContext } from "./context/environment-context";
 import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
@@ -210,6 +214,38 @@ const createBaseModel = (
 
 const defaultToolRegistry = createTools();
 
+/**
+ * Repair malformed tool calls from weak models.
+ * Cleans hashline artifacts (e.g. `42#AB|content42#AB`) that models
+ * sometimes embed in JSON arguments.
+ */
+const repairToolCall: Parameters<
+  typeof import("ai").streamText
+>[0]["experimental_repairToolCall"] = ({ toolCall, error }) => {
+  if (NoSuchToolError.isInstance(error)) {
+    return Promise.resolve(null);
+  }
+  if (!InvalidToolInputError.isInstance(error)) {
+    return Promise.resolve(null);
+  }
+  try {
+    const raw =
+      typeof toolCall.input === "string"
+        ? toolCall.input
+        : JSON.stringify(toolCall.input);
+    const cleaned = raw
+      .replace(
+        /(\d+#[A-Z]{2})(?:[|=-][^"{}[\]]*?)\1(?:[|=-][^"{}[\]]*?)*/g,
+        "$1"
+      )
+      .replace(/(\d+#[A-Z]{2})(?:-\1)+/g, "$1");
+    const parsed = JSON.parse(cleaned);
+    return Promise.resolve({ ...toolCall, input: JSON.stringify(parsed) });
+  } catch {
+    return Promise.resolve(null);
+  }
+};
+
 export type ModelType = "serverless" | "dedicated";
 
 export class AgentManager {
@@ -392,6 +428,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       tools: this.toolRegistry,
       instructions: await this.getInstructions(),
       maxStepsPerTurn: 1,
+      experimental_repairToolCall: repairToolCall,
     });
 
     return agent.stream({

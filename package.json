@@ -12,7 +12,9 @@
     "check": "bun run --cwd packages/cea check",
     "lint": "bun run --cwd packages/cea lint",
     "start": "bun run --cwd packages/cea start",
-    "headless": "bun run --cwd packages/cea headless"
+    "headless": "bun run --cwd packages/cea headless",
+    "test:headless-edit": "bun run scripts/test-headless-edit-ops.ts",
+    "test:headless-edit-edge": "bun run scripts/test-headless-edit-edge-cases.ts"
   },
   "keywords": [
     "ai",
