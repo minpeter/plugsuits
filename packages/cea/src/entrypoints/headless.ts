@@ -5,7 +5,7 @@ import {
   MessageHistory,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
-import { agentManager, DEFAULT_MODEL_ID, type ProviderType } from "../agent";
+import { agentManager, type ProviderType } from "../agent";
 import {
   parseProviderArg,
   parseReasoningCliOption,
@@ -27,6 +27,7 @@ import {
 } from "../tool-fallback-mode";
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
+import { applyHeadlessAgentConfig } from "./headless-agent-config";
 
 interface BaseEvent {
   sessionId: string;
@@ -81,7 +82,7 @@ const cleanupExecutionResources = (): void => {
 };
 
 const exitWithCleanup = (code: number): never => {
-  cleanupExecutionResources();
+  cleanup(true);
   process.exit(code);
 };
 
@@ -478,6 +479,10 @@ const processAgentResponse = async (
       });
     }
 
+    // Release map contents eagerly so tool-argument strings can be GC'd before next iteration
+    pendingToolCalls.clear();
+    completedToolCallIds.clear();
+
     if (!shouldContinueManualToolLoop(finishReason)) {
       return;
     }
@@ -507,16 +512,13 @@ const run = async (): Promise<void> => {
     translateUserPrompts,
   } = parseArgs();
 
-  agentManager.setHeadlessMode(true);
-  if (provider) {
-    agentManager.setProvider(provider);
-  }
-  agentManager.setModelId(model || DEFAULT_MODEL_ID);
-  if (reasoningMode !== null) {
-    agentManager.setReasoningMode(reasoningMode);
-  }
-  agentManager.setToolFallbackMode(toolFallbackMode);
-  agentManager.setTranslationEnabled(translateUserPrompts);
+  applyHeadlessAgentConfig(agentManager, {
+    model,
+    provider,
+    reasoningMode,
+    toolFallbackMode,
+    translateUserPrompts,
+  });
 
   const messageHistory = new MessageHistory();
   const preparedPrompt = agentManager.isTranslationEnabled()
