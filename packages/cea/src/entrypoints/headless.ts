@@ -561,6 +561,10 @@ const processAgentResponse = async (
       });
     }
 
+    // Release map contents eagerly so tool-argument strings can be GC'd before next iteration
+    pendingToolCalls.clear();
+    completedToolCallIds.clear();
+
     if (!shouldContinueManualToolLoop(finishReason)) {
       return;
     }
