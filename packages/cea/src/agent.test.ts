@@ -1,23 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { agentManager, selectTranslationReasoningMode } from "./agent";
 
 describe("AgentManager translation state", () => {
+  beforeEach(() => { agentManager.resetForTesting(); });
   it("enables translation by default", () => {
     expect(agentManager.isTranslationEnabled()).toBe(true);
   });
 
   it("toggles translation state on and off", () => {
-    const originalState = agentManager.isTranslationEnabled();
+    agentManager.setTranslationEnabled(false);
+    expect(agentManager.isTranslationEnabled()).toBe(false);
 
-    try {
-      agentManager.setTranslationEnabled(false);
-      expect(agentManager.isTranslationEnabled()).toBe(false);
-
-      agentManager.setTranslationEnabled(true);
-      expect(agentManager.isTranslationEnabled()).toBe(true);
-    } finally {
-      agentManager.setTranslationEnabled(originalState);
-    }
+    agentManager.setTranslationEnabled(true);
+    expect(agentManager.isTranslationEnabled()).toBe(true);
   });
 });
 
@@ -34,21 +29,7 @@ describe("selectTranslationReasoningMode", () => {
 });
 
 describe("AgentManager translation reasoning selection", () => {
-  let originalProvider: ReturnType<typeof agentManager.getProvider>;
-  let originalModelId: ReturnType<typeof agentManager.getModelId>;
-  let originalReasoningMode: ReturnType<typeof agentManager.getReasoningMode>;
-
-  beforeEach(() => {
-    originalProvider = agentManager.getProvider();
-    originalModelId = agentManager.getModelId();
-    originalReasoningMode = agentManager.getReasoningMode();
-  });
-
-  afterEach(() => {
-    agentManager.setProvider(originalProvider);
-    agentManager.setModelId(originalModelId);
-    agentManager.setReasoningMode(originalReasoningMode);
-  });
+  beforeEach(() => { agentManager.resetForTesting(); });
 
   it("uses off for translation when off is selectable", () => {
     agentManager.setProvider("friendli");

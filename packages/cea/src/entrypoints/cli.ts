@@ -31,6 +31,12 @@ import {
 import type { ProviderType } from "../agent";
 import { agentManager } from "../agent";
 import {
+  parseProviderArg,
+  parseReasoningCliOption,
+  parseToolFallbackCliOption,
+  parseTranslateCliOption,
+} from "../cli-args";
+import {
   executeCommand,
   getCommands,
   isCommand,
@@ -70,7 +76,6 @@ import {
 } from "../reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
-  LEGACY_ENABLED_TOOL_FALLBACK_MODE,
   parseToolFallbackMode,
   TOOL_FALLBACK_MODES,
   type ToolFallbackMode,
@@ -1268,94 +1273,6 @@ registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
 registerCommand(createTranslateCommand());
-
-const parseProviderArg = (
-  providerArg: string | undefined
-): ProviderType | null => {
-  if (providerArg === "anthropic" || providerArg === "friendli") {
-    return providerArg;
-  }
-
-  return null;
-};
-
-const parseToolFallbackCliOption = (
-  args: string[],
-  index: number
-): { consumedArgs: number; mode: ToolFallbackMode } | null => {
-  const arg = args[index];
-
-  if (arg === "--toolcall-mode") {
-    const candidate = args[index + 1];
-    if (!candidate || candidate.startsWith("--")) {
-      return {
-        consumedArgs: 0,
-        mode: DEFAULT_TOOL_FALLBACK_MODE,
-      };
-    }
-    const parsedMode = parseToolFallbackMode(candidate);
-    return {
-      consumedArgs: 1,
-      mode: parsedMode ?? DEFAULT_TOOL_FALLBACK_MODE,
-    };
-  }
-
-  if (arg !== "--tool-fallback") {
-    return null;
-  }
-
-  const candidate = args[index + 1];
-  if (candidate && !candidate.startsWith("--")) {
-    const parsedMode = parseToolFallbackMode(candidate);
-    return {
-      consumedArgs: 1,
-      mode: parsedMode ?? LEGACY_ENABLED_TOOL_FALLBACK_MODE,
-    };
-  }
-
-  return {
-    consumedArgs: 0,
-    mode: LEGACY_ENABLED_TOOL_FALLBACK_MODE,
-  };
-};
-
-const parseReasoningCliOption = (
-  args: string[],
-  index: number
-): { consumedArgs: number; mode: ReasoningMode } | null => {
-  const arg = args[index];
-  if (arg === "--think") {
-    return { consumedArgs: 0, mode: "on" };
-  }
-
-  if (arg !== "--reasoning-mode") {
-    return null;
-  }
-
-  const candidate = args[index + 1];
-  if (candidate && !candidate.startsWith("--")) {
-    const parsedMode = parseReasoningMode(candidate);
-    return {
-      consumedArgs: 1,
-      mode: parsedMode ?? DEFAULT_REASONING_MODE,
-    };
-  }
-
-  return {
-    consumedArgs: 0,
-    mode: DEFAULT_REASONING_MODE,
-  };
-};
-
-const parseTranslateCliOption = (arg: string): boolean | null => {
-  if (arg === "--translate") {
-    return true;
-  }
-  if (arg === "--no-translate") {
-    return false;
-  }
-  return null;
-};
 
 const parseCliArgs = (): {
   reasoningMode: ReasoningMode | null;
