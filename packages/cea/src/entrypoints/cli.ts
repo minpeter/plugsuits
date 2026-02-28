@@ -105,6 +105,9 @@ let cachedSkills: SkillInfo[] = [];
 let shouldExit = false;
 let activeStreamController: AbortController | null = null;
 let streamInterruptRequested = false;
+let activeUiForSignals: { requestExit: () => void } | null = null;
+let requestedProcessExitCode: number | null = null;
+let signalShutdownRequested = false;
 
 const cancelActiveStream = (): boolean => {
   if (!activeStreamController || activeStreamController.signal.aborted) {
@@ -577,7 +580,7 @@ const createAliasAwareAutocompleteProvider = (
 interface CliUi {
   chatContainer: Container;
   clearStatus: () => void;
-  dispose: () => void;
+  dispose: () => Promise<void>;
   editor: Editor;
   markdownTheme: MarkdownTheme;
   requestExit: () => void;
@@ -604,7 +607,8 @@ interface CliUi {
 
 const createCliUi = (skills: SkillInfo[]): CliUi => {
   const markdownTheme = createMarkdownTheme();
-  const tui = new TUI(new ProcessTerminal());
+  const terminal = new ProcessTerminal();
+  const tui = new TUI(terminal);
   tui.setClearOnShrink(true);
   const headerContainer = new Container();
   const chatContainer = new Container();
@@ -730,11 +734,11 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   const handleCtrlCPress = (): void => {
     const now = Date.now();
 
-    // Double press within window: force exit immediately (upstream pattern)
+    // Double press within window: request graceful shutdown immediately.
     if (now - lastCtrlCPressAt < CTRL_C_EXIT_WINDOW_MS) {
       lastCtrlCPressAt = 0;
       dismissActiveModal();
-      exitWithCleanup(0);
+      requestExit();
       return;
     }
 
@@ -1162,13 +1166,13 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     pendingExitConfirmation = false;
     shouldExit = true;
     lastCtrlCPressAt = 0;
+    cancelActiveStream();
+    clearStatus();
     dismissActiveModal();
     if (inputResolver) {
       const resolve = inputResolver;
       inputResolver = null;
       resolve(null);
-    } else {
-      exitWithCleanup(0);
     }
   };
 
@@ -1216,7 +1220,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     });
   };
 
-  const dispose = (): void => {
+  const dispose = async (): Promise<void> => {
     clearStatus();
 
     if (inputResolver) {
@@ -1233,7 +1237,12 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     removeInputListener();
     process.off("SIGINT", onSigInt);
     process.stdout.off("resize", onTerminalResize);
-    tui.stop();
+
+    try {
+      await terminal.drainInput();
+    } finally {
+      tui.stop();
+    }
   };
 
   updateHeader();
@@ -1752,6 +1761,7 @@ const run = async (): Promise<void> => {
   setupAgent();
 
   const ui = createCliUi(cachedSkills);
+  activeUiForSignals = ui;
 
   try {
     while (!shouldExit) {
@@ -1766,9 +1776,14 @@ const run = async (): Promise<void> => {
       }
     }
   } finally {
-    ui.dispose();
+    activeUiForSignals = null;
+    await ui.dispose();
     cleanupExecutionResources();
     setSpinnerOutputEnabled(true);
+  }
+
+  if (requestedProcessExitCode !== null) {
+    process.exit(requestedProcessExitCode);
   }
 };
 
@@ -1781,20 +1796,37 @@ const exitWithCleanup = (code: number): never => {
   process.exit(code);
 };
 
+const requestSignalShutdown = (code: number): void => {
+  requestedProcessExitCode = code;
+  shouldExit = true;
+
+  if (signalShutdownRequested) {
+    return;
+  }
+  signalShutdownRequested = true;
+
+  if (activeUiForSignals) {
+    activeUiForSignals.requestExit();
+    return;
+  }
+
+  exitWithCleanup(code);
+};
+
 process.once("exit", () => {
   cleanupExecutionResources();
 });
 
 process.once("SIGTERM", () => {
-  exitWithCleanup(143);
+  requestSignalShutdown(143);
 });
 
 process.once("SIGHUP", () => {
-  exitWithCleanup(129);
+  requestSignalShutdown(129);
 });
 
 process.once("SIGQUIT", () => {
-  exitWithCleanup(131);
+  requestSignalShutdown(131);
 });
 
 process.once("uncaughtException", (error: unknown) => {
