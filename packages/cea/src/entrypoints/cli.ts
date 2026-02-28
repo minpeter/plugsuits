@@ -1797,13 +1797,13 @@ const exitWithCleanup = (code: number): never => {
 };
 
 const requestSignalShutdown = (code: number): void => {
-  requestedProcessExitCode = code;
-  shouldExit = true;
-
   if (signalShutdownRequested) {
     return;
   }
   signalShutdownRequested = true;
+
+  requestedProcessExitCode = code;
+  shouldExit = true;
 
   if (activeUiForSignals) {
     activeUiForSignals.requestExit();
