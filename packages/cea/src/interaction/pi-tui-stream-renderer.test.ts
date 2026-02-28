@@ -610,6 +610,69 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).not.toContain("... (");
   });
 
+  it("falls back to write result metadata for empty write_file content", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_write_empty",
+        toolName: "write_file",
+        input: {
+          path: "src/empty.ts",
+          content: "",
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_write_empty",
+        toolName: "write_file",
+        input: {
+          path: "src/empty.ts",
+          content: "",
+        },
+        output: "OK - created empty.ts\nbytes: 0, lines: 1",
+      },
+    ]);
+
+    expect(output).toContain("Write src/empty.ts");
+    expect(output).toContain("OK - created empty.ts");
+  });
+
+  it("truncates very large write_file previews to keep rendering bounded", async () => {
+    const contentLines = Array.from(
+      { length: 210 },
+      (_, index) => `line ${index + 1}`
+    );
+    const streamedContent = contentLines.join("\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-call",
+        toolCallId: "call_write_huge",
+        toolName: "write_file",
+        input: {
+          path: "src/huge.ts",
+          content: streamedContent,
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_write_huge",
+        toolName: "write_file",
+        input: {
+          path: "src/huge.ts",
+          content: streamedContent,
+        },
+        output: "OK - created huge.ts\nbytes: 2048, lines: 210",
+      },
+    ]);
+
+    expect(output).toContain("Write src/huge.ts");
+    expect(output).toContain("line 1");
+    expect(output).toContain("line 200");
+    expect(output).toContain("... (10 more lines)");
+    expect(output).not.toContain("line 210");
+  });
+
   it("streams read_file pretty header from partial tool-input-delta", async () => {
     const { output } = await renderParts([
       {
