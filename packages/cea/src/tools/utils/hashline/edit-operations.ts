@@ -15,6 +15,15 @@ import {
 import type { HashlineEdit } from "./types";
 import { validateLineRefs } from "./validation";
 
+/** Compare two string arrays element-by-element. O(n) with early exit. */
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export interface HashlineApplyReport {
   content: string;
   deduplicatedEdits: number;
@@ -69,7 +78,7 @@ export function applyHashlineEditsWithReport(
               skipValidation: true,
             })
           : applySetLine(lines, edit.pos, edit.lines, { skipValidation: true });
-        if (next.join("\n") === lines.join("\n")) {
+        if (arraysEqual(next, lines)) {
           noopEdits += 1;
           break;
         }
@@ -82,7 +91,7 @@ export function applyHashlineEditsWithReport(
               skipValidation: true,
             })
           : applyAppend(lines, edit.lines);
-        if (next.join("\n") === lines.join("\n")) {
+        if (arraysEqual(next, lines)) {
           noopEdits += 1;
           break;
         }
@@ -95,7 +104,7 @@ export function applyHashlineEditsWithReport(
               skipValidation: true,
             })
           : applyPrepend(lines, edit.lines);
-        if (next.join("\n") === lines.join("\n")) {
+        if (arraysEqual(next, lines)) {
           noopEdits += 1;
           break;
         }

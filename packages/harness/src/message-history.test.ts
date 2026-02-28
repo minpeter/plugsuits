@@ -192,3 +192,117 @@ describe("MessageHistory", () => {
     ]);
   });
 });
+
+describe("MessageHistory enforceLimit", () => {
+  it("trims oldest messages (except first) when exceeding maxMessages", () => {
+    const history = new MessageHistory({ maxMessages: 3 });
+    history.addUserMessage("first");
+    history.addUserMessage("second");
+    history.addUserMessage("third");
+    history.addUserMessage("fourth");
+
+    const msgs = history.toModelMessages();
+    expect(msgs).toHaveLength(3);
+    // First message (initial context) is preserved
+    expect(msgs[0]).toEqual({ role: "user", content: "first" });
+    // Second message was trimmed, third and fourth survive
+    expect(msgs[1]).toEqual({ role: "user", content: "third" });
+    expect(msgs[2]).toEqual({ role: "user", content: "fourth" });
+  });
+
+  it("preserves first message when addModelMessages causes overflow", () => {
+    const history = new MessageHistory({ maxMessages: 3 });
+    history.addUserMessage("system prompt");
+    history.addUserMessage("user msg");
+
+    history.addModelMessages([
+      { role: "assistant", content: "reply 1" },
+      { role: "assistant", content: "reply 2" },
+    ]);
+
+    const msgs = history.toModelMessages();
+    expect(msgs).toHaveLength(3);
+    expect(msgs[0]).toEqual({ role: "user", content: "system prompt" });
+    expect(msgs[1]).toEqual({ role: "assistant", content: "reply 1" });
+    expect(msgs[2]).toEqual({ role: "assistant", content: "reply 2" });
+  });
+
+  it("does not trim when at exactly maxMessages", () => {
+    const history = new MessageHistory({ maxMessages: 2 });
+    history.addUserMessage("one");
+    history.addUserMessage("two");
+
+    expect(history.toModelMessages()).toHaveLength(2);
+    expect(history.toModelMessages()[0]).toEqual({ role: "user", content: "one" });
+    expect(history.toModelMessages()[1]).toEqual({ role: "user", content: "two" });
+  });
+
+  it("handles maxMessages = 1 by keeping only the last message", () => {
+    const history = new MessageHistory({ maxMessages: 1 });
+    history.addUserMessage("first");
+    history.addUserMessage("second");
+
+    const msgs = history.toModelMessages();
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toEqual({ role: "user", content: "second" });
+  });
+
+  it("throws RangeError for maxMessages = 0", () => {
+    expect(() => new MessageHistory({ maxMessages: 0 })).toThrow(RangeError);
+  });
+
+  it("throws RangeError for negative maxMessages", () => {
+    expect(() => new MessageHistory({ maxMessages: -5 })).toThrow(RangeError);
+  });
+
+  it("defaults to 1000 when no options provided", () => {
+    const history = new MessageHistory();
+    // Add messages below default limit — nothing should be trimmed
+    for (let i = 0; i < 10; i++) {
+      history.addUserMessage(`msg ${i}`);
+    }
+    expect(history.toModelMessages()).toHaveLength(10);
+  });
+
+  it("handles large batch addModelMessages that exceeds limit", () => {
+    const history = new MessageHistory({ maxMessages: 5 });
+    history.addUserMessage("initial");
+
+    const batch: Array<{ role: "assistant"; content: string }> = [];
+    for (let i = 0; i < 10; i++) {
+      batch.push({ role: "assistant", content: `batch ${i}` });
+    }
+    history.addModelMessages(batch);
+
+    const msgs = history.toModelMessages();
+    expect(msgs).toHaveLength(5);
+    // First message preserved
+    expect(msgs[0]).toEqual({ role: "user", content: "initial" });
+    // Only the last 4 batch messages survive
+    expect(msgs[1]).toEqual({ role: "assistant", content: "batch 6" });
+    expect(msgs[4]).toEqual({ role: "assistant", content: "batch 9" });
+  });
+
+  it("getAll returns correct count after trimming", () => {
+    const history = new MessageHistory({ maxMessages: 2 });
+    history.addUserMessage("a");
+    history.addUserMessage("b");
+    history.addUserMessage("c");
+
+    expect(history.getAll()).toHaveLength(2);
+    expect(history.getAll()[0].modelMessage.content).toBe("a");
+    expect(history.getAll()[1].modelMessage.content).toBe("c");
+  });
+
+  it("throws RangeError for NaN maxMessages", () => {
+    expect(() => new MessageHistory({ maxMessages: NaN })).toThrow(RangeError);
+  });
+
+  it("throws RangeError for non-integer maxMessages", () => {
+    expect(() => new MessageHistory({ maxMessages: 2.5 })).toThrow(RangeError);
+  });
+
+  it("throws RangeError for Infinity maxMessages", () => {
+    expect(() => new MessageHistory({ maxMessages: Infinity })).toThrow(RangeError);
+  });
+});

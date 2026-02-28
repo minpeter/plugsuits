@@ -9,7 +9,10 @@ import { formatBlock } from "../utils/safety-utils";
 import GREP_FILES_DESCRIPTION from "./grep-files.txt";
 
 const MAX_MATCHES = 20_000;
-
+/** Maximum bytes to buffer from ripgrep stdout before killing the process. */
+const MAX_STDOUT_BUFFER_BYTES = 10 * 1024 * 1024; // 10 MB
+/** Maximum bytes to buffer from ripgrep stderr. */
+const MAX_STDERR_BUFFER_BYTES = 64 * 1024; // 64 KB
 interface GrepResult {
   matchCount: number;
   matches: string;
@@ -60,19 +63,38 @@ async function runRipgrep(args: string[], cwd: string): Promise<GrepResult> {
 
     let stdout = "";
     let stderr = "";
+    let bufferExceeded = false;
 
     rg.stdout.on("data", (data: Buffer) => {
+      if (bufferExceeded) {
+        return;
+      }
       stdout += data.toString();
+      if (Buffer.byteLength(stdout, "utf-8") > MAX_STDOUT_BUFFER_BYTES) {
+        bufferExceeded = true;
+        rg.kill();
+      }
     });
 
     rg.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
+      if (Buffer.byteLength(stderr, "utf-8") < MAX_STDERR_BUFFER_BYTES) {
+        stderr += data.toString();
+      }
     });
 
     rg.on("close", (code) => {
-      if (code === 0 || code === 1) {
-        const lines = stdout.split("\n").filter((line) => line.length > 0);
-        const truncated = lines.length > MAX_MATCHES;
+      if (bufferExceeded || code === 0 || code === 1) {
+        // When buffer was exceeded, truncate the string to a reasonable
+        // prefix before splitting to avoid doubling peak memory.
+        const lastNewline = stdout.lastIndexOf("\n", MAX_STDOUT_BUFFER_BYTES);
+        const raw = bufferExceeded
+          ? stdout.slice(
+              0,
+              lastNewline > 0 ? lastNewline : MAX_STDOUT_BUFFER_BYTES
+            )
+          : stdout;
+        const lines = raw.split("\n").filter((line) => line.length > 0);
+        const truncated = bufferExceeded || lines.length > MAX_MATCHES;
         const result = truncated
           ? lines.slice(0, MAX_MATCHES).join("\n")
           : stdout.trim();

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import {
   normalizeHashlineEdits,
   restoreFileText,
 } from "../utils/hashline";
+import { assertWriteSafety, safeAtomicWriteFile } from "../utils/safety-utils";
 import EDIT_FILE_DESCRIPTION from "./edit-file.txt";
 import { buildEscalationBailMessage } from "./edit-file-diagnostics";
 import type { HashlineToolEdit } from "./edit-file-repair";
@@ -78,6 +79,11 @@ const inputSchema = z
 
 export type EditFileInput = z.input<typeof lenientInputSchema>;
 
+export interface EditFileOptions {
+  /** Override project root for safety checks (defaults to process.cwd()). */
+  rootDir?: string;
+}
+
 // validateAndRepairEdits, canCreateFromMissingFile, assertExpectedFileHash
 // moved to ./edit-file-validation.ts
 
@@ -136,7 +142,7 @@ async function readExistingContent(path: string): Promise<{
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex validation logic
-export async function executeEditFile(input: EditFileInput): Promise<string> {
+export async function executeEditFile(input: EditFileInput, options?: EditFileOptions): Promise<string> {
   let parsed: z.infer<typeof inputSchema>;
   try {
     parsed = inputSchema.parse(input);
@@ -154,8 +160,11 @@ export async function executeEditFile(input: EditFileInput): Promise<string> {
     }
   }
 
+  // C-1 + C-2: Path traversal and symlink safety checks
+  const safePath = await assertWriteSafety(parsed.path, options?.rootDir);
+
   const { content: rawContent, exists } = await readExistingContent(
-    parsed.path
+    safePath
   );
   const oldEnvelope = canonicalizeFileText(rawContent);
   const fileLines = exists ? oldEnvelope.content.split("\n") : [];
@@ -209,8 +218,8 @@ export async function executeEditFile(input: EditFileInput): Promise<string> {
 
   const writeContent = restoreFileText(canonicalNewContent, oldEnvelope);
 
-  await ensureParentDir(parsed.path);
-  await writeFile(parsed.path, writeContent, "utf-8");
+  await ensureParentDir(safePath);
+  await safeAtomicWriteFile(safePath, writeContent);
 
   const originalLineCount = rawContent.split("\n").length;
   const newLineCount = writeContent.split("\n").length;
@@ -239,5 +248,5 @@ export async function executeEditFile(input: EditFileInput): Promise<string> {
 export const editFileTool = tool({
   description: EDIT_FILE_DESCRIPTION,
   inputSchema,
-  execute: executeEditFile,
+  execute: (input) => executeEditFile(input),
 });

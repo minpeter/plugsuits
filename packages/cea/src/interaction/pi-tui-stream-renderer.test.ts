@@ -557,6 +557,59 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).toContain("Write src/big.ts");
   });
 
+  it("streams full write_file content without preview truncation", async () => {
+    const contentLines = Array.from(
+      { length: 12 },
+      (_, index) => `line ${index + 1}`
+    );
+    const streamedContent = contentLines.join("\n");
+    const escapedContent = contentLines.join("\\n");
+
+    const { output } = await renderParts([
+      {
+        type: "tool-input-start",
+        id: "call_write_stream_full",
+        toolName: "write_file",
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_write_stream_full",
+        delta: `{"path":"src/full-stream.ts","content":"${escapedContent}`,
+      },
+      {
+        type: "tool-input-delta",
+        id: "call_write_stream_full",
+        delta: '"}',
+      },
+      { type: "tool-input-end", id: "call_write_stream_full" },
+      {
+        type: "tool-call",
+        toolCallId: "call_write_stream_full",
+        toolName: "write_file",
+        input: {
+          path: "src/full-stream.ts",
+          content: streamedContent,
+        },
+      },
+      {
+        type: "tool-result",
+        toolCallId: "call_write_stream_full",
+        toolName: "write_file",
+        input: {
+          path: "src/full-stream.ts",
+          content: streamedContent,
+        },
+        output: "OK - created full-stream.ts\nbytes: 84, lines: 12",
+      },
+    ]);
+
+    expect(output).toContain("Write src/full-stream.ts");
+    expect(output).toContain("line 1");
+    expect(output).toContain("line 12");
+    expect(output).not.toContain("OK - created full-stream.ts");
+    expect(output).not.toContain("... (");
+  });
+
   it("streams read_file pretty header from partial tool-input-delta", async () => {
     const { output } = await renderParts([
       {
