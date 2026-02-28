@@ -8,7 +8,7 @@
     "build": "bun run --cwd packages/harness build && bun run --cwd packages/cea build",
     "dev": "bun run --cwd packages/cea dev",
     "test": "bun test packages/harness/src packages/cea/src",
-    "typecheck": "bun run --cwd packages/harness typecheck && bun run --cwd packages/cea typecheck",
+    "typecheck": "tsc --emitDeclarationOnly -p packages/harness && tsc --noEmit -p packages/cea",
     "check": "bun run --cwd packages/cea check",
     "lint": "bun run --cwd packages/cea lint",
     "start": "bun run --cwd packages/cea start",

@@ -1,4 +1,4 @@
-import type { ModelMessage, TextPart } from "ai";
+import type { ModelMessage, TextPart, ToolResultPart } from "ai";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -193,27 +193,24 @@ export class MessageHistory {
         return part;
       }
 
-      const result = part as unknown as {
-        type: "tool-result";
-        output: unknown;
-        [key: string]: unknown;
-      };
+      const sanitizedOutput = this.serializeValue(part.output);
 
-      const sanitizedOutput = this.serializeValue(result.output);
-
-      if (sanitizedOutput === result.output) {
+      if (sanitizedOutput === part.output) {
         return part;
       }
 
+      // SAFETY: serializeValue preserves the ToolResultOutput discriminated union structure.
+      // It only transforms Error instances (which shouldn't appear in ToolResultOutput's
+      // JSON-serializable variants). The cast narrows unknown -> ToolResultOutput.
       return {
-        ...result,
-        output: sanitizedOutput,
+        ...part,
+        output: sanitizedOutput as ToolResultPart["output"],
       };
     });
 
     return {
       ...message,
-      content: sanitizedContent as typeof message.content,
+      content: sanitizedContent,
     };
   }
 

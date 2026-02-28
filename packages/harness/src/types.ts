@@ -79,7 +79,7 @@ export interface RunAgentLoopOptions extends LoopHooks {
 }
 
 export interface RunAgentLoopResult {
-  finishReason: string;
+  finishReason: AgentFinishReason;
   iterations: number;
   messages: ModelMessage[];
 }

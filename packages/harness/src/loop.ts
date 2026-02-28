@@ -48,7 +48,7 @@ export async function runAgentLoop(
       ]);
 
       messages.push(...response.messages);
-      lastFinishReason = finishReason as AgentFinishReason;
+      lastFinishReason = finishReason;
 
       await onStepComplete?.({
         finishReason: lastFinishReason,
@@ -71,6 +71,6 @@ export async function runAgentLoop(
   return {
     messages,
     iterations: iteration,
-    finishReason: String(lastFinishReason),
+    finishReason: lastFinishReason,
   };
 }
