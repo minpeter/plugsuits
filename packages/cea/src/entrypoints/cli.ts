@@ -674,6 +674,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     tui.requestRender();
   };
 
+  const showCtrlCExitNotice = (): void => {
+    clearStatus();
+    statusContainer.addChild(
+      new Text(style(ANSI_CYAN, "Press Ctrl+C again to exit"), 1, 0)
+    );
+    tui.requestRender();
+  };
+
   const showLoader = (message: string): void => {
     clearStatus();
     loader = new Loader(
@@ -695,6 +703,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
 
   const clearPendingExitConfirmation = (): void => {
     pendingExitConfirmation = false;
+    lastCtrlCPressAt = 0;
   };
 
   const setActiveModalCancel = (cancel: (() => void) | null): void => {
@@ -736,6 +745,14 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   };
 
   const handleCtrlCPress = (): void => {
+    if (pendingExitConfirmation) {
+      pendingExitConfirmation = false;
+      lastCtrlCPressAt = 0;
+      dismissActiveModal();
+      requestExit();
+      return;
+    }
+
     const now = Date.now();
 
     // Double press within window: request graceful shutdown immediately.
@@ -751,7 +768,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     const canceled = cancelActiveStream();
     if (canceled) {
       pendingExitConfirmation = true;
-      clearStatus();
+      showCtrlCExitNotice();
       return;
     }
 
@@ -759,6 +776,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
     pendingExitConfirmation = true;
     dismissActiveModal();
     clearPromptInput();
+    showCtrlCExitNotice();
   };
 
   const showReasoningModeSelector = async (
