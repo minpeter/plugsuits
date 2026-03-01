@@ -728,6 +728,10 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   };
 
   const isCtrlCInput = (data: string): boolean => {
+    if (isKeyRelease(data) || isKeyRepeat(data)) {
+      return false;
+    }
+
     return data === CTRL_C_ETX || matchesKey(data, Key.ctrl("c"));
   };
 
