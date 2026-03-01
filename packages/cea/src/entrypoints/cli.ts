@@ -1205,8 +1205,9 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       return;
     }
 
-    if (text.trim().length > 0) {
-      editor.addToHistory(text);
+    const trimmed = text.trim();
+    if (trimmed) {
+      editor.addToHistory(trimmed);
     }
 
     pendingExitConfirmation = false;
