@@ -1205,6 +1205,10 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
       return;
     }
 
+    if (text.trim().length > 0) {
+      editor.addToHistory(text);
+    }
+
     pendingExitConfirmation = false;
     lastCtrlCPressAt = 0;
     const resolve = inputResolver;
