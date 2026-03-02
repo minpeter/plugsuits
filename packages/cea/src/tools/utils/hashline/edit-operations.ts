@@ -43,13 +43,12 @@ export function applyHashlineEditsWithReport(
     };
   }
 
-  const dedupeResult = dedupeEdits(edits);
   const EDIT_PRECEDENCE: Record<string, number> = {
     replace: 0,
     append: 1,
     prepend: 2,
   };
-  const sortedEdits = [...dedupeResult.edits].sort((a, b) => {
+  const sortedEdits = [...edits].sort((a, b) => {
     const lineA = getEditLineNumber(a);
     const lineB = getEditLineNumber(b);
     if (lineB !== lineA) {
@@ -58,19 +57,22 @@ export function applyHashlineEditsWithReport(
     return (EDIT_PRECEDENCE[a.op] ?? 3) - (EDIT_PRECEDENCE[b.op] ?? 3);
   });
 
+  const dedupeResult = dedupeEdits(sortedEdits);
+  const uniqueEdits = dedupeResult.edits;
+
   let noopEdits = 0;
 
   let lines = content.length === 0 ? [] : content.split("\n");
 
-  const refs = collectLineRefs(sortedEdits);
+  const refs = collectLineRefs(uniqueEdits);
   validateLineRefs(lines, refs);
 
-  const overlapError = detectOverlappingRanges(dedupeResult.edits);
+  const overlapError = detectOverlappingRanges(uniqueEdits);
   if (overlapError) {
     throw new Error(overlapError);
   }
 
-  for (const edit of sortedEdits) {
+  for (const edit of uniqueEdits) {
     switch (edit.op) {
       case "replace": {
         const next = edit.end
