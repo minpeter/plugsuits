@@ -1,12 +1,27 @@
 {
-  "name": "@ai-sdk-tool/cea",
-  "private": true,
+  "name": "plugsuits",
   "version": "1.0.0",
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
   "type": "module",
   "main": "dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "cli.js",
+    "src",
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
-    "code-editing-agent": "./src/index.ts"
+    "plugsuits": "cli.js",
+    "pss": "cli.js"
   },
   "scripts": {
     "start": "bun run src/entrypoints/cli.ts",
@@ -19,7 +34,7 @@
     "lint": "bunx ultracite fix"
   },
   "dependencies": {
-    "@ai-sdk-tool/harness": "workspace:*",
+    "@ai-sdk-tool/harness": "^0.1.0",
     "@ai-sdk-tool/parser": "^4.1.3",
     "@ai-sdk/anthropic": "^3.0.47",
     "@ai-sdk/openai-compatible": "^2.0.30",
