@@ -64,17 +64,20 @@ describe("edit_file (hashline-only)", () => {
     const lineRef = extractLineRef(readOutput, 2);
     const fileHash = extractFileHash(readOutput);
 
-    const result = await executeEditFile({
-      path: testFile,
-      expected_file_hash: fileHash,
-      edits: [
-        {
-          op: "replace",
-          pos: lineRef,
-          lines: ["BRAVO"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        expected_file_hash: fileHash,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["BRAVO"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(result).toContain(`Updated ${testFile}`);
     expect(result).toContain("1 edit(s) applied");
@@ -102,16 +105,19 @@ describe("edit_file (hashline-only)", () => {
       throw new Error("Failed to extract hashline anchor from grep output");
     }
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: grepLine,
-          lines: ["BRAVO"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: grepLine,
+            lines: ["BRAVO"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
   });
@@ -126,16 +132,19 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "one\nTWO-CHANGED\nthree\n");
 
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [
-          {
-            op: "replace",
-            pos: lineRef,
-            lines: ["two-updated"],
-          },
-        ],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [
+            {
+              op: "replace",
+              pos: lineRef,
+              lines: ["two-updated"],
+            },
+          ],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("changed since last read");
   });
 
@@ -150,17 +159,20 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "x\nY-NEW\n");
 
     await expect(
-      executeEditFile({
-        path: testFile,
-        expected_file_hash: fileHash,
-        edits: [
-          {
-            op: "replace",
-            pos: lineRef,
-            lines: ["y-updated"],
-          },
-        ],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          expected_file_hash: fileHash,
+          edits: [
+            {
+              op: "replace",
+              pos: lineRef,
+              lines: ["y-updated"],
+            },
+          ],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("File changed since read_file output");
   });
 
@@ -171,21 +183,24 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const middleRef = extractLineRef(readOutput, 2);
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "prepend",
-          pos: middleRef,
-          lines: ["before-b"],
-        },
-        {
-          op: "append",
-          pos: middleRef,
-          lines: ["after-b"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "prepend",
+            pos: middleRef,
+            lines: ["before-b"],
+          },
+          {
+            op: "append",
+            pos: middleRef,
+            lines: ["after-b"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe(
       "a\nbefore-b\nb\nafter-b\nc\n"
@@ -195,15 +210,18 @@ describe("edit_file (hashline-only)", () => {
   it("creates missing file with anchorless append", async () => {
     const testFile = join(tempDir, "hashline-create.txt");
 
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "append",
-          lines: ["created-via-hashline"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "append",
+            lines: ["created-via-hashline"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(result).toContain(`Created ${testFile}`);
     expect(result).toContain("1 edit(s) applied");
@@ -215,10 +233,13 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "a\nb\n");
 
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow();
   });
 
@@ -229,16 +250,19 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 2);
 
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: lineRef,
-          lines: ["b"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["b"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
     expect(result).toContain("No changes made");
   });
 
@@ -250,15 +274,18 @@ describe("edit_file (hashline-only)", () => {
     const lineRef = extractLineRef(readOutput, 2);
 
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [
-          {
-            op: "replace",
-            pos: lineRef,
-          },
-        ],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [
+            {
+              op: "replace",
+              pos: lineRef,
+            },
+          ],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("explicit 'lines' field");
 
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\n");
@@ -269,16 +296,19 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "heading\nbody\n");
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 1);
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: lineRef,
-          lines: null,
-        },
-      ],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: null,
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe("body\n");
     // No deletion warning — lines: null is intentional deletion
     expect(result).not.toContain("Deleted");
@@ -289,16 +319,19 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "hello\n\nworld\n");
     const readOutput = await executeReadFile({ path: testFile });
     const blankLineRef = extractLineRef(readOutput, 2);
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "append",
-          pos: blankLineRef,
-          lines: ["inserted"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "append",
+            pos: blankLineRef,
+            lines: ["inserted"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe("hello\n\ninserted\nworld\n");
     expect(result).not.toContain("Warnings:");
   });
@@ -310,17 +343,20 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 2);
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: "invalid-anchor",
-          end: lineRef,
-          lines: ["BRAVO"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: "invalid-anchor",
+            end: lineRef,
+            lines: ["BRAVO"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\ncharlie\n");
   });
@@ -332,17 +368,20 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 2);
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "append",
-          pos: "invalid-anchor",
-          end: lineRef,
-          lines: ["after-bravo"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "append",
+            pos: "invalid-anchor",
+            end: lineRef,
+            lines: ["after-bravo"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\nafter-bravo\n");
   });
@@ -354,17 +393,20 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 2);
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "prepend",
-          pos: lineRef,
-          end: "invalid-anchor",
-          lines: ["before-bravo"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "prepend",
+            pos: lineRef,
+            end: "invalid-anchor",
+            lines: ["before-bravo"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe(
       "alpha\nbefore-bravo\nbravo\n"
@@ -379,16 +421,19 @@ describe("edit_file (hashline-only)", () => {
     const lineRef = extractLineRef(readOutput, 2);
     const longLineRef = `${lineRef}ZZ`;
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: longLineRef,
-          lines: ["BRAVO"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: longLineRef,
+            lines: ["BRAVO"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nBRAVO\n");
   });
@@ -408,15 +453,18 @@ describe("edit_file (hashline-only)", () => {
     ].join("\n");
 
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [
-          {
-            op: "replace",
-            pos: multilinePos,
-          },
-        ],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [
+            {
+              op: "replace",
+              pos: multilinePos,
+            },
+          ],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("single-line");
 
     expect(readFileSync(testFile, "utf-8")).toBe("alpha\nbravo\ncharlie\n");
@@ -429,16 +477,19 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 1);
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: lineRef,
-          lines: ["FOO"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["FOO"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe("FOO\r\nbar\r\n");
   });
@@ -450,16 +501,19 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 1);
 
-    await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: lineRef,
-          lines: ["FOO"],
-        },
-      ],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: lineRef,
+            lines: ["FOO"],
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(readFileSync(testFile, "utf-8")).toBe("\uFEFFFOO\r\nbar\r\n");
   });
@@ -471,10 +525,13 @@ describe("edit_file (hashline-only)", () => {
     const lineRef = extractLineRef(readOutput, 1);
     const hash = lineRef.split("#")[1];
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: `LINE#${hash}`, lines: ["replaced"] }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: `LINE#${hash}`, lines: ["replaced"] }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("not a line number");
   });
 
@@ -485,10 +542,13 @@ describe("edit_file (hashline-only)", () => {
     const lineRef = extractLineRef(readOutput, 1);
     const hash = lineRef.split("#")[1];
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: `LINE#${hash}`, lines: ["replaced"] }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: `LINE#${hash}`, lines: ["replaced"] }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("Did you mean");
   });
 
@@ -501,10 +561,13 @@ describe("edit_file (hashline-only)", () => {
       .filter((l: string) => HASHLINE_LINE_PREFIX_REGEX.test(l));
     const multilinePos = lines.join("\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: multilinePos, lines: ["x"] }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: multilinePos, lines: ["x"] }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("lines");
   });
 
@@ -513,10 +576,13 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "alpha\nbravo\n");
     const readOutput = await executeReadFile({ path: testFile });
     const lineRef = extractLineRef(readOutput, 1);
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: `>>> ${lineRef}`, lines: ["ALPHA"] }],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: `>>> ${lineRef}`, lines: ["ALPHA"] }],
+      },
+      { rootDir: tempDir }
+    );
     expect(result).toContain("1 edit(s) applied");
     expect(readFileSync(testFile, "utf-8")).toBe("ALPHA\nbravo\n");
   });
@@ -525,10 +591,13 @@ describe("edit_file (hashline-only)", () => {
     const testFile = join(tempDir, "hashline-append-invalid.txt");
     writeFileSync(testFile, "alpha\nbravo\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "append", pos: "LINE#XX", lines: ["inserted"] }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "append", pos: "LINE#XX", lines: ["inserted"] }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("not a line number");
   });
 
@@ -538,10 +607,13 @@ describe("edit_file (hashline-only)", () => {
     const testFile = join(tempDir, "diag-pattern-a.txt");
     writeFileSync(testFile, "alpha\nbravo\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: "1#ZZ|alpha" }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: "1#ZZ|alpha" }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("changed since last read");
   });
 
@@ -552,10 +624,13 @@ describe("edit_file (hashline-only)", () => {
     const lineRef = extractLineRef(readOutput, 2);
     const malformedPos = `${lineRef}', 'lines': ['replaced text']}`;
 
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: malformedPos }],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: malformedPos }],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(
       result.includes("Warnings:") || result.includes("Auto-repaired")
@@ -569,10 +644,13 @@ describe("edit_file (hashline-only)", () => {
     const testFile = join(tempDir, "diag-pattern-c.txt");
     writeFileSync(testFile, "alpha\nbravo\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: "1#ZZ=some content here" }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: "1#ZZ=some content here" }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("changed since last read");
   });
 
@@ -580,15 +658,18 @@ describe("edit_file (hashline-only)", () => {
     const testFile = join(tempDir, "diag-pattern-d.txt");
     writeFileSync(testFile, "alpha\nbravo\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [
-          {
-            op: "replace",
-            pos: "1#ZZ']}</parameter><parameter>",
-          },
-        ],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [
+            {
+              op: "replace",
+              pos: "1#ZZ']}</parameter><parameter>",
+            },
+          ],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("explicit 'lines'");
   });
 
@@ -598,15 +679,18 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const line2Anchor = extractLineRef(readOutput, 2);
 
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [
-        {
-          op: "replace",
-          pos: `${line2Anchor}', 'lines': ['REPLACED']}`,
-        },
-      ],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          {
+            op: "replace",
+            pos: `${line2Anchor}', 'lines': ['REPLACED']}`,
+          },
+        ],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(
       result.includes("Warnings:") || result.includes("Auto-repaired")
@@ -620,10 +704,13 @@ describe("edit_file (hashline-only)", () => {
     const readOutput = await executeReadFile({ path: testFile });
     const line2Anchor = extractLineRef(readOutput, 2);
 
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: `${line2Anchor}|old bravo content` }],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: `${line2Anchor}|old bravo content` }],
+      },
+      { rootDir: tempDir }
+    );
 
     // Content 'old bravo content' extracted from pos as lines replacement
     expect(result).toContain("Warnings:");
@@ -636,10 +723,13 @@ describe("edit_file (hashline-only)", () => {
     const testFile = join(tempDir, "diag-clean-anchor.txt");
     writeFileSync(testFile, "alpha\nbravo\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: "1#ZZ" }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: "1#ZZ" }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("'lines'");
   });
 
@@ -647,10 +737,13 @@ describe("edit_file (hashline-only)", () => {
     const testFile = join(tempDir, "diag-no-pos.txt");
     writeFileSync(testFile, "alpha\nbravo\n");
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace" }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace" }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("explicit 'lines'");
   });
 
@@ -659,10 +752,13 @@ describe("edit_file (hashline-only)", () => {
     writeFileSync(testFile, "alpha\nbravo\n");
     const longPos = `not-an-anchor-${"x".repeat(200)}`;
     await expect(
-      executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: longPos }],
-      }, { rootDir: tempDir })
+      executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: longPos }],
+        },
+        { rootDir: tempDir }
+      )
     ).rejects.toThrow("...");
   });
 });
@@ -892,10 +988,13 @@ describe("repeated failure escalation", () => {
     anchor: string
   ): Promise<Error> {
     try {
-      await executeEditFile({
-        path: testFile,
-        edits: [{ op: "replace", pos: anchor }],
-      }, { rootDir: tempDir });
+      await executeEditFile(
+        {
+          path: testFile,
+          edits: [{ op: "replace", pos: anchor }],
+        },
+        { rootDir: tempDir }
+      );
       throw new Error("Expected executeEditFile to reject");
     } catch (error) {
       if (error instanceof Error) {
@@ -1016,18 +1115,24 @@ describe("soft-reject after repeated failures", () => {
     // First 5 failures should throw errors
     for (let i = 0; i < 5; i++) {
       await expect(
-        executeEditFile({
-          path: testFile,
-          edits: [{ op: "replace", pos: line2Anchor }],
-        }, { rootDir: tempDir })
+        executeEditFile(
+          {
+            path: testFile,
+            edits: [{ op: "replace", pos: line2Anchor }],
+          },
+          { rootDir: tempDir }
+        )
       ).rejects.toThrow("explicit 'lines'");
     }
 
     // 6th+ failure should return a string (soft-reject) instead of throwing
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line2Anchor }],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: line2Anchor }],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(typeof result).toBe("string");
     expect(result).toContain("NOT APPLIED");
@@ -1048,19 +1153,25 @@ describe("soft-reject after repeated failures", () => {
     // Trigger 6 failures
     for (let i = 0; i < 6; i++) {
       try {
-        await executeEditFile({
-          path: testFile,
-          edits: [{ op: "replace", pos: line1Anchor }],
-        }, { rootDir: tempDir });
+        await executeEditFile(
+          {
+            path: testFile,
+            edits: [{ op: "replace", pos: line1Anchor }],
+          },
+          { rootDir: tempDir }
+        );
       } catch {
         // expected for first 5
       }
     }
 
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line1Anchor }],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: line1Anchor }],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(result).toContain("write_file");
   });
@@ -1079,20 +1190,26 @@ describe("soft-reject after repeated failures", () => {
     const anchors = [line1Anchor, line2Anchor, line3Anchor];
     for (let i = 0; i < 9; i++) {
       try {
-        await executeEditFile({
-          path: testFile,
-          edits: [{ op: "replace", pos: anchors[i % anchors.length] }],
-        }, { rootDir: tempDir });
+        await executeEditFile(
+          {
+            path: testFile,
+            edits: [{ op: "replace", pos: anchors[i % anchors.length] }],
+          },
+          { rootDir: tempDir }
+        );
       } catch {
         // expected errors
       }
     }
 
     // 10th file-level failure should trigger soft-reject
-    const result = await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: anchors[0] }],
-    }, { rootDir: tempDir });
+    const result = await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: anchors[0] }],
+      },
+      { rootDir: tempDir }
+    );
 
     expect(typeof result).toBe("string");
     expect(result).toContain("NOT APPLIED");
@@ -1128,6 +1245,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/[Pp]ath traversal blocked/);
   });
 
@@ -1140,6 +1258,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/[Pp]ath traversal blocked|outside/);
   });
 
@@ -1157,6 +1276,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/symlink/i);
 
     // Original file should be unchanged
@@ -1179,6 +1299,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
           },
           { rootDir: tempDir }
         )
+        // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
       ).rejects.toThrow(/symlink/i);
       expect(readFileSync(outsideFile, "utf-8")).toBe("secret data\n");
     } finally {
@@ -1227,5 +1348,72 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
 
     expect(result).toContain("Updated");
     expect(readFileSync(safeFile, "utf-8")).toBe("updated content\n");
+  });
+
+  it("C-1a: rejects operation when rootDir is system root (/)", async () => {
+    await expect(
+      executeEditFile(
+        {
+          path: "/etc/passwd",
+          edits: [{ op: "append", lines: ["malicious"] }],
+        },
+        { rootDir: "/" }
+      )
+    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+    ).rejects.toThrow(/root directory/i);
+  });
+
+  it("C-1b: blocks access to sensitive system paths outside project root", async () => {
+    // Attempt to access /etc/passwd - should be blocked by path traversal or sensitive path guard
+    await expect(
+      executeEditFile(
+        {
+          path: "/etc/passwd",
+          edits: [{ op: "append", lines: ["malicious"] }],
+        },
+        { rootDir: tempDir }
+      )
+    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+    ).rejects.toThrow(/(sensitive system path|Path traversal blocked)/i);
+  });
+
+  it("C-1b: blocks access to /proc directory outside project root", async () => {
+    // Attempt to access /proc - should be blocked by path traversal or sensitive path guard
+    await expect(
+      executeEditFile(
+        {
+          path: "/proc/self/environ",
+          edits: [{ op: "append", lines: ["malicious"] }],
+        },
+        { rootDir: tempDir }
+      )
+    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+    ).rejects.toThrow(/(sensitive system path|Path traversal blocked)/i);
+  });
+
+  it("C-1c: blocks path with .. segments in relative path", async () => {
+    await expect(
+      executeEditFile(
+        {
+          path: "../../etc/passwd",
+          edits: [{ op: "append", lines: ["malicious"] }],
+        },
+        { rootDir: tempDir }
+      )
+    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+    ).rejects.toThrow(/[Pp]ath traversal blocked.*\.\./i);
+  });
+
+  it("C-1c: blocks path with embedded .. segments", async () => {
+    await expect(
+      executeEditFile(
+        {
+          path: "foo/../bar/../../etc/passwd",
+          edits: [{ op: "append", lines: ["malicious"] }],
+        },
+        { rootDir: tempDir }
+      )
+    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+    ).rejects.toThrow(/[Pp]ath traversal blocked.*\.\./i);
   });
 });

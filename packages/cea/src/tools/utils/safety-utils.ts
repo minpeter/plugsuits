@@ -21,6 +21,32 @@ const FILE_READ_POLICY = {
   nonPrintableThreshold: 0.3,
 } as const;
 
+/**
+ * Sensitive system paths that should never be accessed.
+ * These are blocked as an additional defense-in-depth measure.
+ */
+const SENSITIVE_SYSTEM_PATHS = [
+  "/etc",
+  "/proc",
+  "/sys",
+  "/dev",
+  "/boot",
+  "/sbin",
+  "/bin",
+  "/lib",
+  "/lib64",
+  "/usr/sbin",
+  "/usr/bin",
+  "/usr/lib",
+  "/usr/lib64",
+  "/root",
+  "/var/log",
+  "/var/spool",
+  "/var/mail",
+  "/tmp",
+  "/var/tmp",
+] as const;
+
 const LEADING_DOT_SLASH_PATTERN = /^\.\//;
 const MULTIPLE_SLASH_PATTERN = /\/+/g;
 const LINE_SPLIT_PATTERN = /\r?\n/;
@@ -666,6 +692,107 @@ const checkPathTraversalGuard: FileWriteGuard = ({
 };
 
 /**
+ * C-1a: Root directory guard.
+ * Rejects operations when the project root is the system root (/).
+ * This prevents accidental modification of system files when cwd is /.
+ */
+// biome-ignore lint/correctness/noUnusedVariables: Reserved for future use
+const checkRootDirectoryGuard: FileWriteGuard = ({ rootDir }) => {
+  if (rootDir === "/" || rootDir === "\\") {
+    return {
+      allowed: false,
+      reason:
+        "Refusing to operate with root directory ('/') as project root. " +
+        "Please run from a project subdirectory.",
+    };
+  }
+  return null;
+};
+
+/**
+ * C-1b: Sensitive paths guard.
+ * Rejects paths that resolve to sensitive system directories,
+ * but only when they are outside the project root.
+ * This prevents access to system files while allowing test directories in /tmp.
+ */
+// biome-ignore lint/correctness/noUnusedVariables: Reserved for future use
+const checkSensitivePathsGuard: FileWriteGuard = ({
+  filePath,
+  resolvedFilePath,
+  rootDir,
+}) => {
+  // Skip check if the path is within the project root
+  if (
+    resolvedFilePath === rootDir ||
+    resolvedFilePath.startsWith(rootDir + sep)
+  ) {
+    return null;
+  }
+
+  const normalizedPath = resolvedFilePath.toLowerCase();
+
+  for (const sensitivePath of SENSITIVE_SYSTEM_PATHS) {
+    if (
+      normalizedPath === sensitivePath ||
+      normalizedPath.startsWith(sensitivePath + sep)
+    ) {
+      return {
+        allowed: false,
+        reason:
+          `Access to sensitive system path blocked: '${filePath}' ` +
+          `resolves to '${resolvedFilePath}'. ` +
+          "This path is in a protected system directory and outside the project root.",
+      };
+    }
+  }
+  return null;
+};
+
+/**
+ * C-1c: Path segment traversal guard.
+ * Checks the raw path for '..' segments before resolution.
+ * Catches attempts to traverse upward that might be obscured.
+ */
+// biome-ignore lint/correctness/noUnusedVariables: Reserved for future use
+const checkPathTraversalSegmentsGuard: FileWriteGuard = ({
+  filePath,
+  rootDir,
+}) => {
+  // Normalize path separators for consistent checking
+  const normalizedPath = filePath.replace(/\\/g, "/");
+
+  // Split into segments and check for traversal attempts
+  const segments = normalizedPath.split("/").filter((s) => s.length > 0);
+
+  // Check for '..' segments anywhere in the path - this takes precedence
+  for (const segment of segments) {
+    if (segment === "..") {
+      return {
+        allowed: false,
+        reason:
+          `Path traversal blocked: '${filePath}' contains '..' segment. ` +
+          "Use relative paths within the project root only.",
+      };
+    }
+  }
+
+  // Additional check: absolute paths should start with rootDir
+  if (isAbsolute(filePath)) {
+    const resolvedInput = resolve(filePath);
+    if (resolvedInput !== rootDir && !resolvedInput.startsWith(rootDir + sep)) {
+      return {
+        allowed: false,
+        reason:
+          `Path traversal blocked: '${filePath}' resolves to '${resolvedInput}' ` +
+          `which is outside the project root '${rootDir}'.`,
+      };
+    }
+  }
+
+  return null;
+};
+
+/**
  * C-2: Symlink guard.
  * Uses lstat() (doesn't follow symlinks) to detect symlinks, then
  * fs.realpath() to verify the target stays within the project root.
@@ -807,8 +934,11 @@ async function checkAncestorSymlinkSafety(
 }
 
 const FILE_WRITE_GUARDS: FileWriteGuard[] = [
-  checkPathTraversalGuard,
-  checkSymlinkGuard,
+  checkRootDirectoryGuard, // C-1a: Block if rootDir is system root
+  checkPathTraversalSegmentsGuard, // C-1c: Block .. segments and absolute paths outside root
+  checkSensitivePathsGuard, // C-1b: Block sensitive system paths (after path traversal check)
+  checkPathTraversalGuard, // C-1: Block resolved paths outside root
+  checkSymlinkGuard, // C-2: Block symlink escapes
 ];
 
 /**

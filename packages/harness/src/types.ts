@@ -2,6 +2,13 @@ import type {
   LanguageModel,
   ModelMessage,
   streamText,
+  ToolCallPart,
+  ToolSet,
+} from "ai";
+
+export type {
+  LanguageModel,
+  ModelMessage,
   Tool,
   ToolCallPart,
   ToolSet,
@@ -9,8 +16,6 @@ import type {
 
 type CoreStreamResult = ReturnType<typeof streamText>;
 type StreamTextOptions = Parameters<typeof streamText>[0];
-
-export type { LanguageModel, ModelMessage, Tool, ToolSet };
 
 export type AgentInstructions = string | (() => Promise<string>);
 
