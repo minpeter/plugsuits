@@ -19,7 +19,7 @@ function sanitizeSummaryText(text: string): string {
   // Remove XML-like tags that could be interpreted as system boundaries
   return text
     .replace(/<\s*(\/?)\s*(system|user|assistant)\s*>/gi, "[$1$2]")
-    .replace(/\x00-\x1F/g, ""); // Remove control characters except newlines
+    .replace(/[\x00-\x09\x0B-\x1F]/g, ""); // Remove control characters except newlines (\x0A)
 }
 
 /**
@@ -291,6 +291,11 @@ export class MessageHistory {
       return false;
     }
 
+    // Prevent concurrent compaction (race condition fix)
+    if (this.compactionInProgress) {
+      return false;
+    }
+
     return this.performCompaction();
   }
 
@@ -428,8 +433,13 @@ export class MessageHistory {
         }
       }
 
-      // If nothing to compact, return early
+      // Ensure at least one message is kept (empty messages bug fix)
       if (splitIndex === 0) {
+        splitIndex = 1;
+      }
+
+      // If all messages would be kept, nothing to compact
+      if (splitIndex >= this.messages.length) {
         return false;
       }
 
