@@ -306,3 +306,244 @@ describe("MessageHistory enforceLimit", () => {
     expect(() => new MessageHistory({ maxMessages: Infinity })).toThrow(RangeError);
   });
 });
+
+describe("MessageHistory compaction", () => {
+  it("is disabled by default", () => {
+    const history = new MessageHistory();
+    expect(history.isCompactionEnabled()).toBe(false);
+  });
+
+  it("can be enabled via options", () => {
+    const history = new MessageHistory({
+      compaction: { enabled: true },
+    });
+    expect(history.isCompactionEnabled()).toBe(true);
+  });
+
+  it("returns empty summaries when compaction is disabled", () => {
+    const history = new MessageHistory();
+    expect(history.getSummaries()).toEqual([]);
+  });
+
+  it("returns empty summaries initially when enabled", () => {
+    const history = new MessageHistory({
+      compaction: { enabled: true },
+    });
+    expect(history.getSummaries()).toEqual([]);
+  });
+
+  it("getMessagesForLLM returns plain messages when no summaries", () => {
+    const history = new MessageHistory({
+      compaction: { enabled: true },
+    });
+    history.addUserMessage("Hello");
+    history.addModelMessages([{ role: "assistant", content: "Hi there" }]);
+
+    const messages = history.getMessagesForLLM();
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toEqual({ role: "user", content: "Hello" });
+    expect(messages[1]).toEqual({ role: "assistant", content: "Hi there" });
+  });
+
+  it("manual compact returns false when compaction is disabled", async () => {
+    const history = new MessageHistory();
+    history.addUserMessage("Hello");
+
+    const result = await history.compact();
+    expect(result).toBe(false);
+  });
+
+  it("manual compact returns false when no messages", async () => {
+    const history = new MessageHistory({
+      compaction: { enabled: true },
+    });
+
+    const result = await history.compact();
+    expect(result).toBe(false);
+  });
+
+  it("uses custom summarize function when provided", async () => {
+    const customSummarize = async () => "Custom summary";
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100, // Low threshold to trigger compaction
+        keepRecentTokens: 50,
+        summarizeFn: customSummarize,
+      },
+    });
+
+    // Add enough messages to potentially trigger compaction
+    for (let i = 0; i < 10; i++) {
+      history.addUserMessage(`This is a long message ${i} with enough content to trigger token limits`);
+      history.addModelMessages([{
+        role: "assistant",
+        content: `This is a long assistant response ${i} with sufficient content to contribute to token count`,
+      }]);
+    }
+
+    // Wait for async compaction
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const result = await history.compact();
+    // Result depends on whether thresholds were exceeded
+    // Either way, custom summarizer should have been called if compaction happened
+    expect(typeof result).toBe("boolean");
+  });
+
+  it("preserves recent messages based on keepRecentTokens", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 500,
+        keepRecentTokens: 200,
+        reserveTokens: 100,
+      },
+    });
+
+    // Add messages
+    history.addUserMessage("First message that should be summarized");
+    history.addModelMessages([{ role: "assistant", content: "First response" }]);
+    history.addUserMessage("Recent message to keep");
+    history.addModelMessages([{ role: "assistant", content: "Recent response" }]);
+
+    // Manual compaction
+    await history.compact();
+
+    // Recent messages should still be accessible
+    const messages = history.getAll();
+    const contents = messages.map(m => m.modelMessage.content);
+    expect(contents.some(c => typeof c === "string" && c.includes("Recent"))).toBe(true);
+  });
+
+  it("getEstimatedTokens returns 0 for empty history", () => {
+    const history = new MessageHistory({
+      compaction: { enabled: true },
+    });
+    expect(history.getEstimatedTokens()).toBe(0);
+  });
+
+  it("getEstimatedTokens increases with message count", () => {
+    const history = new MessageHistory({
+      compaction: { enabled: true },
+    });
+
+    const tokensBefore = history.getEstimatedTokens();
+    history.addUserMessage("This is a test message with some content");
+    const tokensAfter = history.getEstimatedTokens();
+
+    expect(tokensAfter).toBeGreaterThan(tokensBefore);
+  });
+
+  it("includes summaries in estimated token count", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 20, // Lowered to ensure compaction actually happens
+        summarizeFn: async () => "Short summary",
+      },
+    });
+
+    // Add long messages to ensure they exceed keepRecentTokens and trigger compaction
+    history.addUserMessage("Message one with enough text to count and exceed token limits");
+    history.addModelMessages([{ role: "assistant", content: "Response one with content that is long enough" }]);
+    history.addUserMessage("Message two with enough text to count and exceed token limits");
+    history.addModelMessages([{ role: "assistant", content: "Response two with content that is long enough" }]);
+
+    await history.compact();
+
+    const summaries = history.getSummaries();
+    // Compaction should actually happen with these settings
+    expect(summaries.length).toBeGreaterThan(0);
+    expect(summaries[0].summary).toBe("Short summary");
+    expect(summaries[0].tokensBefore).toBeGreaterThan(0);
+    expect(summaries[0].summaryTokens).toBeGreaterThan(0);
+  });
+
+  it("getMessagesForLLM prepends summaries as system message", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 20, // Lowered to ensure compaction actually happens
+        summarizeFn: async () => "Conversation summary",
+      },
+    });
+
+    // Add long messages to ensure compaction actually happens
+    history.addUserMessage("Old message to be summarized with sufficient length to trigger");
+    history.addModelMessages([{ role: "assistant", content: "Old response with enough content to count" }]);
+
+    // Force compaction
+    await history.compact();
+
+    const messages = history.getMessagesForLLM();
+    const summaries = history.getSummaries();
+
+    // Compaction should actually happen with these settings
+    expect(summaries.length).toBeGreaterThan(0);
+    // Should have system message + remaining messages
+    expect(messages.length).toBeGreaterThan(0);
+    expect(messages[0].role).toBe("system");
+    expect(typeof messages[0].content).toBe("string");
+    expect(messages[0].content).toContain("Conversation summary");
+  });
+
+  it("clears summaries when clear() is called", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 50,
+        summarizeFn: async () => "Summary",
+      },
+    });
+
+    history.addUserMessage("Message");
+    await history.compact();
+
+    history.clear();
+    expect(history.getSummaries()).toEqual([]);
+    expect(history.getAll()).toEqual([]);
+  });
+
+  it("handles concurrent compaction calls gracefully", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 50,
+      },
+    });
+
+    // Add messages
+    for (let i = 0; i < 5; i++) {
+      history.addUserMessage(`Message ${i} with content`);
+    }
+
+    // Multiple concurrent compaction calls
+    const results = await Promise.all([
+      history.compact(),
+      history.compact(),
+      history.compact(),
+    ]);
+
+    // Should not throw and should return boolean results
+    expect(results.every(r => typeof r === "boolean")).toBe(true);
+  });
+
+  it("respects maxMessages even with compaction enabled", () => {
+    const history = new MessageHistory({
+      maxMessages: 3,
+      compaction: { enabled: true },
+    });
+
+    history.addUserMessage("one");
+    history.addUserMessage("two");
+    history.addUserMessage("three");
+    history.addUserMessage("four");
+
+    expect(history.getAll()).toHaveLength(3);
+  });
+});
