@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, statSync, unlinkSync } from "node:fs";
 import { sanitizeOutput, stripAnsi, truncateOutput } from "./output-handler";
 
 describe("stripAnsi", () => {
@@ -60,6 +60,37 @@ describe("truncateOutput", () => {
         throw new Error("Expected fullOutputPath to be defined.");
       }
       expect(existsSync(fullOutputPath)).toBe(true);
+      tempPaths.push(fullOutputPath);
+    } finally {
+      for (const path of tempPaths) {
+        if (existsSync(path)) {
+          unlinkSync(path);
+        }
+      }
+    }
+  });
+
+  test("creates temp file with restrictive permissions (0o600)", async () => {
+    const output = Array.from({ length: 3000 }, (_, i) => `line-${i + 1}`).join(
+      "\n"
+    );
+    const tempPaths: string[] = [];
+
+    try {
+      const result = await truncateOutput(output);
+      const fullOutputPath = result.fullOutputPath;
+
+      expect(fullOutputPath).toBeDefined();
+      if (!fullOutputPath) {
+        throw new Error("Expected fullOutputPath to be defined.");
+      }
+      expect(existsSync(fullOutputPath)).toBe(true);
+
+      // Verify file permissions are restrictive (owner only: 0o600)
+      const stats = statSync(fullOutputPath);
+      const mode = stats.mode & 0o777;
+      expect(mode).toBe(0o600);
+
       tempPaths.push(fullOutputPath);
     } finally {
       for (const path of tempPaths) {

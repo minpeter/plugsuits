@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -33,6 +33,8 @@ async function persistFullOutput(text: string): Promise<string> {
     const tempPath = join(tmpdir(), `cea-output-${randomUUID()}.txt`);
     try {
       await writeFile(tempPath, text, { encoding: "utf-8", flag: "wx" });
+      // Set restrictive permissions (owner only) to prevent world-readable temp files
+      await chmod(tempPath, 0o600);
       return tempPath;
     } catch (error) {
       if (

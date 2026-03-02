@@ -21,6 +21,32 @@ const FILE_READ_POLICY = {
   nonPrintableThreshold: 0.3,
 } as const;
 
+/**
+ * Sensitive system paths that should never be accessed.
+ * These are blocked as an additional defense-in-depth measure.
+ */
+const SENSITIVE_SYSTEM_PATHS = [
+  "/etc",
+  "/proc",
+  "/sys",
+  "/dev",
+  "/boot",
+  "/sbin",
+  "/bin",
+  "/lib",
+  "/lib64",
+  "/usr/sbin",
+  "/usr/bin",
+  "/usr/lib",
+  "/usr/lib64",
+  "/root",
+  "/var/log",
+  "/var/spool",
+  "/var/mail",
+  "/tmp",
+  "/var/tmp",
+] as const;
+
 const LEADING_DOT_SLASH_PATTERN = /^\.\//;
 const MULTIPLE_SLASH_PATTERN = /\/+/g;
 const LINE_SPLIT_PATTERN = /\r?\n/;
