@@ -45,7 +45,7 @@ No framework overhead. No abstraction tax. Just the interface between model and 
 
 ```bash
 export FRIENDLI_TOKEN=your_token_here
-bunx github:minpeter/plugsuits#main
+bunx plugsuits
 ```
 
 ### Local development
