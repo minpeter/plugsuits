@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -212,6 +213,85 @@ describe("executeGlob", () => {
           rmSync(repoDir, { recursive: true });
         }
       }
+    });
+  });
+  describe("security: symlink containment", () => {
+    it("excludes files accessed via directory symlink pointing outside searchDir", async () => {
+      const outerDir = mkdtempSync(join(tmpdir(), "glob-outer-"));
+      const innerDir = mkdtempSync(join(tmpdir(), "glob-inner-"));
+      try {
+        writeFileSync(join(outerDir, "secret.txt"), "secret");
+        // Create a directory symlink inside innerDir pointing to outerDir
+        symlinkSync(outerDir, join(innerDir, "link_to_outer"));
+
+        const result = await executeGlob({
+          pattern: "**/*.txt",
+          path: innerDir,
+        });
+
+        // secret.txt is accessible via symlink but outside searchDir — excluded
+        expect(result).toContain("file_count: 0");
+        expect(result).not.toContain("secret.txt");
+      } finally {
+        rmSync(outerDir, { recursive: true, force: true });
+        rmSync(innerDir, { recursive: true, force: true });
+      }
+    });
+
+    it("excludes file symlinks pointing outside searchDir", async () => {
+      const outerDir = mkdtempSync(join(tmpdir(), "glob-outer2-"));
+      const innerDir = mkdtempSync(join(tmpdir(), "glob-inner2-"));
+      try {
+        writeFileSync(join(outerDir, "secret.ts"), "secret");
+        writeFileSync(join(innerDir, "real.ts"), "real");
+        // Create a file symlink pointing outside innerDir
+        symlinkSync(join(outerDir, "secret.ts"), join(innerDir, "link_secret.ts"));
+
+        const result = await executeGlob({
+          pattern: "**/*.ts",
+          path: innerDir,
+        });
+
+        expect(result).toContain("file_count: 1");
+        expect(result).toContain("real.ts");
+        expect(result).not.toContain("secret.ts");
+      } finally {
+        rmSync(outerDir, { recursive: true, force: true });
+        rmSync(innerDir, { recursive: true, force: true });
+      }
+    });
+
+    it("handles broken symlinks gracefully by skipping them", async () => {
+      const testDir = mkdtempSync(join(tmpdir(), "glob-broken-sym-"));
+      try {
+        writeFileSync(join(testDir, "real.ts"), "content");
+        // Broken symlink: target does not exist
+        symlinkSync("/nonexistent/path/ghost.ts", join(testDir, "broken.ts"));
+
+        const result = await executeGlob({
+          pattern: "**/*.ts",
+          path: testDir,
+        });
+
+        expect(result).toContain("file_count: 1");
+        expect(result).toContain("real.ts");
+      } finally {
+        rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("security: result limit", () => {
+    it("includes glob_limit_reached field in output", async () => {
+      const result = await executeGlob({ pattern: "**/*", path: tempDir });
+
+      expect(result).toContain("glob_limit_reached:");
+    });
+
+    it("reports glob_limit_reached: false for small result sets", async () => {
+      const result = await executeGlob({ pattern: "**/*", path: tempDir });
+
+      expect(result).toContain("glob_limit_reached: false");
     });
   });
 });

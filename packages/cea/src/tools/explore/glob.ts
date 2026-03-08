@@ -1,11 +1,12 @@
-import { stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { formatBlock, getIgnoreFilter } from "../utils/safety-utils";
 import GLOB_FILES_DESCRIPTION from "./glob-files.txt";
 
 const MAX_RESULTS = 500;
+const MAX_GLOB_RESULTS = 10_000; // max candidates scanned before stat phase
 const STAT_CONCURRENCY = 32;
 
 interface FileWithMtime {
@@ -52,10 +53,20 @@ export async function executeGlob({
 }: GlobInput): Promise<string> {
   const searchDir = path ? resolve(path) : process.cwd();
 
+  // Canonicalize searchDir by resolving all symlinks for containment checks.
+  let canonicalSearchDir: string;
+  try {
+    canonicalSearchDir = await realpath(searchDir);
+  } catch {
+    canonicalSearchDir = searchDir;
+  }
+
   const glob = new Bun.Glob(pattern);
   const topFilesByMtime: FileWithMtime[] = [];
   let totalMatches = 0;
   let skippedUnreadable = 0;
+  let candidateCount = 0;
+  let globLimitReached = false;
 
   const ignoreFilter = respect_git_ignore
     ? await getIgnoreFilter(searchDir)
@@ -91,7 +102,33 @@ export async function executeGlob({
       continue;
     }
 
+    // Enforce candidate limit before stat phase.
+    candidateCount += 1;
+    if (candidateCount > MAX_GLOB_RESULTS) {
+      globLimitReached = true;
+      break;
+    }
+
     const absolutePath = join(searchDir, file);
+
+    // Symlink containment: resolve symlinks and verify the real path
+    // stays within searchDir to prevent traversal via symlinks.
+    let realAbsolutePath: string;
+    try {
+      realAbsolutePath = await realpath(absolutePath);
+    } catch {
+      // Broken symlink or inaccessible path — skip silently.
+      continue;
+    }
+
+    if (
+      realAbsolutePath !== canonicalSearchDir &&
+      !realAbsolutePath.startsWith(canonicalSearchDir + sep)
+    ) {
+      // File resolves outside searchDir via symlink — skip silently.
+      continue;
+    }
+
     enqueueStat(absolutePath);
 
     if (pending.size >= STAT_CONCURRENCY) {
@@ -112,6 +149,7 @@ export async function executeGlob({
     `file_count: ${totalMatches}`,
     `truncated: ${truncated}`,
     `skipped_unreadable: ${skippedUnreadable}`,
+    `glob_limit_reached: ${globLimitReached}`,
     "sorted_by: mtime desc",
     "",
   ];
