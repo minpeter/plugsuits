@@ -259,8 +259,16 @@ export class AgentManager {
   private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private translationEnabled = true;
+  private readonly friendliClient: ReturnType<typeof createFriendli> | null;
+  private readonly anthropicClient: ReturnType<typeof createAnthropic> | null;
 
-  constructor() {
+  constructor(
+    friendliClient?: ReturnType<typeof createFriendli> | null,
+    anthropicClient?: ReturnType<typeof createAnthropic> | null,
+  ) {
+    // Use provided clients or fall back to module-level singletons
+    this.friendliClient = friendliClient !== undefined ? friendliClient : friendli;
+    this.anthropicClient = anthropicClient !== undefined ? anthropicClient : anthropic;
     this.applyBestReasoningModeForCurrentModel();
   }
 
@@ -282,13 +290,40 @@ export class AgentManager {
     );
   }
 
+  private getProviderModel(modelId: string, provider: ProviderType) {
+    if (provider === "anthropic") {
+      if (!this.anthropicClient) {
+        throw new Error(
+          "ANTHROPIC_API_KEY is not set. Please set it in your environment."
+        );
+      }
+      return this.anthropicClient(modelId);
+    }
+
+    if (!this.friendliClient) {
+      throw new Error(
+        "FRIENDLI_TOKEN is not set. Please set it in your environment."
+      );
+    }
+    return this.friendliClient(modelId);
+  }
+
   private buildModel(reasoningMode: ReasoningMode = this.reasoningMode) {
-    return createBaseModel(
+    const model = this.getProviderModel(this.modelId, this.provider);
+    const { options, maxOutputTokens } = getProviderOptions(
       this.modelId,
       this.provider,
-      this.toolFallbackMode,
       reasoningMode
     );
+
+    const wrappedModel = wrapLanguageModel({
+      model,
+      middleware: buildMiddlewares({
+        toolFallbackMode: this.toolFallbackMode,
+      }),
+    });
+
+    return { model: wrappedModel, providerOptions: options, maxOutputTokens };
   }
 
   getModelId(): string {
@@ -454,4 +489,51 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
   }
 }
 
-export const agentManager = new AgentManager();
+/**
+ * Factory function for creating a fresh AgentManager instance with custom provider clients.
+ * Useful for test isolation and multi-agent scenarios.
+ *
+ * @param options - Optional provider credentials and base URLs.
+ *   If not provided, falls back to environment variables.
+ * @returns A new AgentManager instance with fresh provider clients.
+ *
+ * @example
+ * ```typescript
+ * // Test isolation: create a fresh instance per test
+ * const manager = createAgentManager({
+ *   friendliToken: 'test-token',
+ *   friendliBaseUrl: 'http://localhost:8080',
+ * });
+ * ```
+ */
+export function createAgentManager(options?: {
+  friendliToken?: string;
+  anthropicApiKey?: string;
+  friendliBaseUrl?: string;
+  anthropicBaseUrl?: string;
+}): AgentManager {
+  const friendliToken = options?.friendliToken ?? env.FRIENDLI_TOKEN;
+  const friendliClient = friendliToken
+    ? createFriendli({
+        apiKey: friendliToken,
+        includeUsage: true,
+        ...(options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL
+          ? { baseURL: options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL }
+          : {}),
+      })
+    : null;
+
+  const anthropicApiKey = options?.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
+  const anthropicClient = anthropicApiKey
+    ? createAnthropic({
+        apiKey: anthropicApiKey,
+        ...(options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL
+          ? { baseURL: options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL }
+          : {}),
+      })
+    : null;
+
+  return new AgentManager(friendliClient, anthropicClient);
+}
+
+export const agentManager = createAgentManager();
