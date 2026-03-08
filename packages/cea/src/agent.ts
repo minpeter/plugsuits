@@ -67,23 +67,6 @@ const anthropic = env.ANTHROPIC_API_KEY
     })
   : null;
 
-const getModel = (modelId: string, provider: ProviderType) => {
-  if (provider === "anthropic") {
-    if (!anthropic) {
-      throw new Error(
-        "ANTHROPIC_API_KEY is not set. Please set it in your environment."
-      );
-    }
-    return anthropic(modelId);
-  }
-
-  if (!friendli) {
-    throw new Error(
-      "FRIENDLI_TOKEN is not set. Please set it in your environment."
-    );
-  }
-  return friendli(modelId);
-};
 
 const ANTHROPIC_THINKING_BUDGET_TOKENS = 10_000;
 const ANTHROPIC_MAX_OUTPUT_TOKENS = 64_000;
@@ -191,28 +174,6 @@ const getProviderOptions = (
   };
 };
 
-const createBaseModel = (
-  modelId: string,
-  provider: ProviderType,
-  toolFallbackMode: ToolFallbackMode,
-  reasoningMode: ReasoningMode
-) => {
-  const model = getModel(modelId, provider);
-  const { options, maxOutputTokens } = getProviderOptions(
-    modelId,
-    provider,
-    reasoningMode
-  );
-
-  const wrappedModel = wrapLanguageModel({
-    model,
-    middleware: buildMiddlewares({
-      toolFallbackMode,
-    }),
-  });
-
-  return { model: wrappedModel, providerOptions: options, maxOutputTokens };
-};
 
 const defaultToolRegistry = createTools();
 
