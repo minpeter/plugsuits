@@ -486,7 +486,7 @@ const processAgentResponse = async (
       pendingToolCalls
     );
 
-    const STREAM_RESPONSE_TIMEOUT_MS = 5000;
+    const STREAM_RESPONSE_TIMEOUT_MS = 30_000;
     try {
       const [response, finishReason] = await Promise.race([
         Promise.all([stream.response, stream.finishReason]),
