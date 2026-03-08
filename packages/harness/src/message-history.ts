@@ -488,6 +488,7 @@ export class MessageHistory {
 
       this.summaries.push(summaryEntry);
       this.messages = messagesToKeep;
+      this.ensureNoOrphanedToolResults();
 
       return true;
     } catch (error) {
@@ -506,6 +507,7 @@ export class MessageHistory {
 
     if (this.maxMessages === 1) {
       this.messages = [this.messages[this.messages.length - 1]];
+      this.ensureNoOrphanedToolResults();
       return;
     }
 
@@ -521,6 +523,7 @@ export class MessageHistory {
         this.messages[0],
         ...this.messages.slice(-(this.maxMessages - 1)),
       ];
+      this.ensureNoOrphanedToolResults();
       return;
     }
 
@@ -547,6 +550,38 @@ export class MessageHistory {
       this.messages[0],
       ...this.messages.slice(-(this.maxMessages - 1)),
     ];
+    this.ensureNoOrphanedToolResults();
+  }
+
+  /**
+   * Remove orphaned tool_result messages that lack a preceding tool_call.
+   * Called after enforceLimit() and performCompaction() trim the message array.
+   * Providers reject message sequences where a tool role message appears without
+   * a corresponding assistant message containing tool-call parts.
+   */
+  private ensureNoOrphanedToolResults(): void {
+    // Remove leading 'tool' messages (handles maxMessages=1 edge case where
+    // the only remaining message is a tool result with no parent tool_call)
+    while (
+      this.messages.length > 0 &&
+      this.messages[0]?.modelMessage.role === "tool"
+    ) {
+      this.messages.shift();
+    }
+
+    // Remove 'tool' messages at subsequent positions that lack a preceding
+    // 'assistant' message (handles fallback slice starting with a tool message)
+    let i = 1;
+    while (i < this.messages.length) {
+      if (this.messages[i]?.modelMessage.role === "tool") {
+        const prev = this.messages[i - 1];
+        if (prev?.modelMessage.role !== "assistant") {
+          this.messages.splice(i, 1);
+          continue;
+        }
+      }
+      i++;
+    }
   }
 
   private sanitizeMessage(message: ModelMessage): ModelMessage {

@@ -547,3 +547,157 @@ describe("MessageHistory compaction", () => {
     expect(history.getAll()).toHaveLength(3);
   });
 });
+
+describe("MessageHistory enforceLimit - tool sequence validity", () => {
+  it("never leaves a tool role message as the first message after enforceLimit", () => {
+    // maxMessages=1: the last message is a tool result — it should be removed
+    const history = new MessageHistory({ maxMessages: 1 });
+    history.addUserMessage("initial user");
+    history.addModelMessages([
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call_1",
+            toolName: "read_file",
+            input: { path: "test.ts" },
+          },
+        ],
+      },
+      {
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call_1",
+            toolName: "read_file",
+            output: { type: "text" as const, value: "file contents" },
+          },
+        ],
+      },
+    ]);
+
+    const msgs = history.toModelMessages();
+    // The first message must never be a 'tool' role
+    if (msgs.length > 0) {
+      expect(msgs[0].role).not.toBe("tool");
+    }
+  });
+
+  it("removes orphaned tool_result when fallback slice starts with a tool message", () => {
+    // maxMessages=2, messages=[user:initial, user:turn1, assistant:{tool-call}, tool:{tool-result}]
+    // enforceLimit fallback produces [user:initial, tool:{tool-result}] — orphaned tool must be removed
+    const history = new MessageHistory({ maxMessages: 2 });
+    history.addUserMessage("initial");
+    history.addUserMessage("turn 1");
+    history.addModelMessages([
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call_1",
+            toolName: "read_file",
+            input: { path: "test.ts" },
+          },
+        ],
+      },
+      {
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call_1",
+            toolName: "read_file",
+            output: { type: "text" as const, value: "file contents" },
+          },
+        ],
+      },
+    ]);
+
+    const msgs = history.toModelMessages();
+    // No tool message should appear without a directly preceding assistant message
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role === "tool") {
+        expect(i).toBeGreaterThan(0);
+        expect(msgs[i - 1].role).toBe("assistant");
+      }
+    }
+  });
+
+  it("removes all tool messages when only tool_result messages remain after trim", () => {
+    // maxMessages=1 and the last message is a tool result — all tool messages removed
+    const history = new MessageHistory({ maxMessages: 1 });
+    history.addUserMessage("initial");
+    history.addModelMessages([
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call_2",
+            toolName: "shell_execute",
+            input: { command: "ls" },
+          },
+        ],
+      },
+      {
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call_2",
+            toolName: "shell_execute",
+            output: { type: "text" as const, value: "file1.ts\nfile2.ts" },
+          },
+        ],
+      },
+    ]);
+
+    const msgs = history.toModelMessages();
+    // Every tool message must have a preceding assistant message
+    const hasOrphanedTool = msgs.some(
+      (m, i) => m.role === "tool" && (i === 0 || msgs[i - 1].role !== "assistant")
+    );
+    expect(hasOrphanedTool).toBe(false);
+  });
+
+  it("preserves valid tool_call and tool_result pair when both fit within the limit", () => {
+    // 5 messages total, maxMessages=4 → boundary trim keeps [user, user, assistant, tool]
+    const history = new MessageHistory({ maxMessages: 4 });
+    history.addUserMessage("initial");
+    history.addUserMessage("second turn");
+    history.addUserMessage("third turn");
+    history.addModelMessages([
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call_3",
+            toolName: "read_file",
+            input: { path: "src/index.ts" },
+          },
+        ],
+      },
+      {
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call_3",
+            toolName: "read_file",
+            output: { type: "text" as const, value: "export default function main() {}" },
+          },
+        ],
+      },
+    ]);
+
+    const msgs = history.toModelMessages();
+    // The assistant+tool pair should be preserved intact
+    expect(msgs).toHaveLength(4);
+    expect(msgs[2].role).toBe("assistant");
+    expect(msgs[3].role).toBe("tool");
+  });
+});
