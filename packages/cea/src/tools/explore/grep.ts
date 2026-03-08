@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { ensureTool } from "../../utils/tools-manager";
-import { formatLineTag } from "../utils/hashline";
+import { formatLineTag } from "../utils/hashline/hash-computation";
 import { formatBlock } from "../utils/safety-utils";
 import GREP_FILES_DESCRIPTION from "./grep-files.txt";
 

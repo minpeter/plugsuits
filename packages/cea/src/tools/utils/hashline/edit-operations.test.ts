@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import {
   applyHashlineEdits,
   applyHashlineEditsWithReport,
-  computeLineHash,
-  HashlineMismatchError,
-} from ".";
+} from "./edit-operations";
+import { computeLineHash } from "./hash-computation";
+import { HashlineMismatchError } from "./validation";
 
 const OVERLAPPING_REGEX = /[Oo]verlapping/;
 

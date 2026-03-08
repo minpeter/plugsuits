@@ -10,13 +10,6 @@ function stripAllWhitespace(text: string): string {
   return normalizeTokens(text);
 }
 
-// biome-ignore lint/performance/noBarrelFile: intentional re-export for module API surface
-export {
-  maybeExpandSingleLineMerge,
-  stripMergeOperatorChars,
-  stripTrailingContinuationTokens,
-} from "./merge-expansion";
-
 function leadingWhitespace(text: string): string {
   if (!text) {
     return "";
@@ -25,34 +18,34 @@ function leadingWhitespace(text: string): string {
   return match ? match[0] : "";
 }
 
-export function restoreOldWrappedLines(
-  originalLines: string[],
-  replacementLines: string[]
-): string[] {
-  if (originalLines.length === 0 || replacementLines.length < 2) {
-    return replacementLines;
-  }
+interface SpanCandidate {
+  canonical: string;
+  len: number;
+  replacement: string;
+  start: number;
+}
 
-  const canonicalToOriginal = new Map<
-    string,
-    { line: string; count: number }
-  >();
-  for (const line of originalLines) {
+function buildCanonicalMap(
+  lines: string[]
+): Map<string, { line: string; count: number }> {
+  const map = new Map<string, { line: string; count: number }>();
+  for (const line of lines) {
     const canonical = stripAllWhitespace(line);
-    const existing = canonicalToOriginal.get(canonical);
+    const existing = map.get(canonical);
     if (existing) {
       existing.count += 1;
     } else {
-      canonicalToOriginal.set(canonical, { line, count: 1 });
+      map.set(canonical, { line, count: 1 });
     }
   }
+  return map;
+}
 
-  const candidates: {
-    start: number;
-    len: number;
-    replacement: string;
-    canonical: string;
-  }[] = [];
+function findSpanCandidates(
+  replacementLines: string[],
+  canonicalToOriginal: Map<string, { line: string; count: number }>
+): SpanCandidate[] {
+  const candidates: SpanCandidate[] = [];
   for (let start = 0; start < replacementLines.length; start += 1) {
     for (
       let len = 2;
@@ -75,10 +68,10 @@ export function restoreOldWrappedLines(
       }
     }
   }
-  if (candidates.length === 0) {
-    return replacementLines;
-  }
+  return candidates;
+}
 
+function filterNonOverlapping(candidates: SpanCandidate[]): SpanCandidate[] {
   const canonicalCounts = new Map<string, number>();
   for (const candidate of candidates) {
     canonicalCounts.set(
@@ -91,12 +84,11 @@ export function restoreOldWrappedLines(
     (candidate) => (canonicalCounts.get(candidate.canonical) ?? 0) === 1
   );
   if (uniqueCandidates.length === 0) {
-    return replacementLines;
+    return [];
   }
 
   uniqueCandidates.sort((a, b) => b.start - a.start);
-  // Filter overlapping candidates — walk sorted list and skip any whose range overlaps
-  const accepted: typeof uniqueCandidates = [];
+  const accepted: SpanCandidate[] = [];
   let nextAvailable = Number.POSITIVE_INFINITY;
   for (const candidate of uniqueCandidates) {
     const candidateEnd = candidate.start + candidate.len;
@@ -105,6 +97,28 @@ export function restoreOldWrappedLines(
       nextAvailable = candidate.start;
     }
   }
+  return accepted;
+}
+
+export function restoreOldWrappedLines(
+  originalLines: string[],
+  replacementLines: string[]
+): string[] {
+  if (originalLines.length === 0 || replacementLines.length < 2) {
+    return replacementLines;
+  }
+
+  const canonicalToOriginal = buildCanonicalMap(originalLines);
+  const candidates = findSpanCandidates(replacementLines, canonicalToOriginal);
+  if (candidates.length === 0) {
+    return replacementLines;
+  }
+
+  const accepted = filterNonOverlapping(candidates);
+  if (accepted.length === 0) {
+    return replacementLines;
+  }
+
   const correctedLines = [...replacementLines];
   for (const candidate of accepted) {
     correctedLines.splice(

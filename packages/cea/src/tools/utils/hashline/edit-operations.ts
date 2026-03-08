@@ -28,6 +28,37 @@ function arraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
+const SKIP_VALIDATION = { skipValidation: true };
+
+function computeEditResult(edit: HashlineEdit, lines: string[]): string[] {
+  switch (edit.op) {
+    case "replace": {
+      return edit.end
+        ? applyReplaceLines(
+            lines,
+            edit.pos,
+            edit.end,
+            edit.lines,
+            SKIP_VALIDATION
+          )
+        : applySetLine(lines, edit.pos, edit.lines, SKIP_VALIDATION);
+    }
+    case "append": {
+      return edit.pos
+        ? applyInsertAfter(lines, edit.pos, edit.lines, SKIP_VALIDATION)
+        : applyAppend(lines, edit.lines);
+    }
+    case "prepend": {
+      return edit.pos
+        ? applyInsertBefore(lines, edit.pos, edit.lines, SKIP_VALIDATION)
+        : applyPrepend(lines, edit.lines);
+    }
+    default: {
+      return lines;
+    }
+  }
+}
+
 export interface HashlineApplyReport {
   content: string;
   deduplicatedEdits: number;
@@ -76,49 +107,11 @@ export function applyHashlineEditsWithReport(
   }
 
   for (const edit of uniqueEdits) {
-    switch (edit.op) {
-      case "replace": {
-        const next = edit.end
-          ? applyReplaceLines(lines, edit.pos, edit.end, edit.lines, {
-              skipValidation: true,
-            })
-          : applySetLine(lines, edit.pos, edit.lines, { skipValidation: true });
-        if (arraysEqual(next, lines)) {
-          noopEdits += 1;
-          break;
-        }
-        lines = next;
-        break;
-      }
-      case "append": {
-        const next = edit.pos
-          ? applyInsertAfter(lines, edit.pos, edit.lines, {
-              skipValidation: true,
-            })
-          : applyAppend(lines, edit.lines);
-        if (arraysEqual(next, lines)) {
-          noopEdits += 1;
-          break;
-        }
-        lines = next;
-        break;
-      }
-      case "prepend": {
-        const next = edit.pos
-          ? applyInsertBefore(lines, edit.pos, edit.lines, {
-              skipValidation: true,
-            })
-          : applyPrepend(lines, edit.lines);
-        if (arraysEqual(next, lines)) {
-          noopEdits += 1;
-          break;
-        }
-        lines = next;
-        break;
-      }
-      default: {
-        break;
-      }
+    const next = computeEditResult(edit, lines);
+    if (arraysEqual(next, lines)) {
+      noopEdits += 1;
+    } else {
+      lines = next;
     }
   }
 
