@@ -3,7 +3,15 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executeCommand, killProcessTree } from "./process-manager";
+import {
+  executeCommand,
+  getActiveProcessesForTesting,
+  hasPendingSigkillTimeoutForTesting,
+  killProcessTree,
+  resetProcessManagerForTesting,
+  trackActiveProcessForTesting,
+  untrackActiveProcessForTesting,
+} from "./process-manager";
 import { getShell, getShellArgs } from "./shell-detection";
 
 const FIVE_SECONDS_MS = 5000;
@@ -156,12 +164,15 @@ describe("process-manager", () => {
 
     try {
       await sleep(ABORT_DELAY_MS);
+      // Register pid in activeProcesses so SIGKILL guard allows the kill
+      trackActiveProcessForTesting(pid);
       killProcessTree(pid);
       await sleep(SIGKILL_GRACE_MS);
 
       expect(isProcessAlive(pid)).toBe(false);
     } finally {
-      killProcessTree(pid);
+      killProcessTree(pid, true);
+      resetProcessManagerForTesting();
     }
   }, 10_000);
 
@@ -172,4 +183,73 @@ describe("process-manager", () => {
 
     expect(source.includes("spawnSync")).toBe(false);
   });
+
+  it("activeProcesses is empty after executeCommand completes", async () => {
+    resetProcessManagerForTesting();
+    await executeCommand("echo hello");
+    expect(getActiveProcessesForTesting()).toHaveLength(0);
+  });
+
+  it("killProcessTree skips SIGKILL when pid removed from activeProcesses before timeout", async () => {
+    const shell = getShell();
+    const shellArgs = getShellArgs(shell);
+    const child = spawn(shell, [...shellArgs, "trap '' TERM; exec sleep 30"], {
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+
+    const pid = child.pid;
+    expect(pid).toBeDefined();
+    if (!pid) throw new Error("Expected pid to be defined");
+
+    child.unref();
+    await sleep(ABORT_DELAY_MS);
+
+    // killProcessTree adds pid to activeProcesses then schedules SIGKILL
+    killProcessTree(pid);
+    expect(hasPendingSigkillTimeoutForTesting(pid)).toBe(true);
+
+    // Simulate finish() by removing pid from activeProcesses BEFORE the SIGKILL fires.
+    // The guard in the timeout callback: if (!activeProcesses.has(pid)) return;
+    // will detect the removal and skip the SIGKILL.
+    untrackActiveProcessForTesting(pid);
+
+    // Wait past SIGKILL_DELAY_MS (200ms) to confirm SIGKILL was not sent
+    await sleep(400);
+    const aliveAfterDelay = isProcessAlive(pid);
+
+    // Force cleanup now
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // ignore
+    }
+    await sleep(200);
+
+    // Process should still have been alive when we checked (guard blocked SIGKILL)
+    expect(aliveAfterDelay).toBe(true);
+  }, 10_000);
+
+  it("finish() clears pending SIGKILL timeout when process exits from SIGTERM", async () => {
+    resetProcessManagerForTesting();
+
+    const controller = new AbortController();
+    const commandPromise = executeCommand("sleep 30", { signal: controller.signal });
+
+    // Let the process spawn and register in activeProcesses
+    await sleep(10);
+    const pids = getActiveProcessesForTesting();
+    expect(pids.length).toBe(1);
+    const pid = pids[0]!;
+
+    // Abort — triggers killProcessTree which sets a SIGKILL timer
+    controller.abort();
+    expect(hasPendingSigkillTimeoutForTesting(pid)).toBe(true);
+
+    // Wait for process to exit; finish() calls clearScheduledSigkill(pid)
+    const result = await commandPromise;
+    expect(hasPendingSigkillTimeoutForTesting(pid)).toBe(false);
+    expect(getActiveProcessesForTesting()).not.toContain(pid);
+    expect(result.cancelled).toBe(true);
+  }, 10_000);
 });

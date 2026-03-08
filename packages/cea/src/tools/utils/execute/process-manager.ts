@@ -11,6 +11,7 @@ const TIMEOUT_EXIT_CODE = 124;
 const MAX_IN_MEMORY_OUTPUT_BYTES = 2 * 1024 * 1024;
 const TRIMMED_BUFFER_TARGET_BYTES = 512 * 1024;
 const activeProcesses = new Set<number>();
+const pendingSigkillTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
 
 export interface ExecuteOptions {
   onChunk?: (chunk: string) => void;
@@ -60,6 +61,16 @@ function safeKillProcessGroup(pid: number, signal: NodeJS.Signals): void {
     }
     throw error;
   }
+}
+
+function clearScheduledSigkill(pid: number): void {
+  const handle = pendingSigkillTimeouts.get(pid);
+  if (!handle) {
+    return;
+  }
+
+  clearTimeout(handle);
+  pendingSigkillTimeouts.delete(pid);
 }
 
 function resolveExitCode(
@@ -112,16 +123,38 @@ export function killProcessTree(pid: number, force = false): void {
   safeKillProcessGroup(pid, "SIGTERM");
 
   if (force) {
-    safeKillProcessGroup(pid, "SIGKILL");
+    clearScheduledSigkill(pid);
+    try {
+      safeKillProcessGroup(pid, "SIGKILL");
+    } finally {
+      activeProcesses.delete(pid);
+    }
+    return;
+  }
+
+  activeProcesses.add(pid);
+
+  if (pendingSigkillTimeouts.has(pid)) {
     return;
   }
 
   const handle = setTimeout(() => {
-    if (!isProcessGroupAlive(pid)) {
+    pendingSigkillTimeouts.delete(pid);
+    if (!activeProcesses.has(pid)) {
       return;
     }
-    safeKillProcessGroup(pid, "SIGKILL");
+    if (!isProcessGroupAlive(pid)) {
+      activeProcesses.delete(pid);
+      return;
+    }
+
+    try {
+      safeKillProcessGroup(pid, "SIGKILL");
+    } finally {
+      activeProcesses.delete(pid);
+    }
   }, SIGKILL_DELAY_MS);
+  pendingSigkillTimeouts.set(pid, handle);
   if (typeof handle === "object" && "unref" in handle) {
     handle.unref();
   }
@@ -180,6 +213,9 @@ export async function executeCommand(
     let settled = false;
 
     const timeoutHandle = setTimeout(() => {
+      if (settled) {
+        return;
+      }
       timedOut = true;
       if (child.pid) {
         killProcessTree(child.pid);
@@ -239,6 +275,7 @@ export async function executeCommand(
       settled = true;
 
       if (child.pid) {
+        clearScheduledSigkill(child.pid);
         activeProcesses.delete(child.pid);
       }
 
@@ -299,12 +336,35 @@ export async function executeCommand(
 }
 
 export function cleanup(force = false): void {
-  for (const pid of activeProcesses) {
+  for (const pid of [...activeProcesses]) {
     try {
       killProcessTree(pid, force);
     } catch {
       // Best-effort cleanup: continue killing remaining processes
     }
   }
+}
+
+export function getActiveProcessesForTesting(): number[] {
+  return [...activeProcesses];
+}
+
+export function hasPendingSigkillTimeoutForTesting(pid: number): boolean {
+  return pendingSigkillTimeouts.has(pid);
+}
+
+export function trackActiveProcessForTesting(pid: number): void {
+  activeProcesses.add(pid);
+}
+
+export function untrackActiveProcessForTesting(pid: number): void {
+  activeProcesses.delete(pid);
+}
+
+export function resetProcessManagerForTesting(): void {
+  for (const handle of pendingSigkillTimeouts.values()) {
+    clearTimeout(handle);
+  }
+  pendingSigkillTimeouts.clear();
   activeProcesses.clear();
 }
