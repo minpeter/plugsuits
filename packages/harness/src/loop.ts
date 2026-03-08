@@ -1,3 +1,8 @@
+/**
+ * @module loop
+ * Agent execution loop for the harness package.
+ */
+
 import {
   MANUAL_TOOL_LOOP_MAX_STEPS,
   shouldContinueManualToolLoop,
@@ -9,6 +14,26 @@ import type {
   RunAgentLoopResult,
 } from "./types";
 
+/**
+ * Runs an {@link Agent} in a loop until a stop condition is met or `maxIterations` is reached.
+ *
+ * The loop continues as long as `shouldContinue` returns `true` (default: continues on
+ * `tool-calls` and `unknown` finish reasons). Each iteration streams a full agent turn,
+ * collects tool calls, and appends response messages to the conversation history.
+ *
+ * @param options - Loop configuration including agent, messages, hooks, and limits.
+ * @returns A promise resolving to the final messages, iteration count, and finish reason.
+ *
+ * @example
+ * ```typescript
+ * const result = await runAgentLoop({
+ *   agent,
+ *   messages: [{ role: 'user', content: 'Hello!' }],
+ *   maxIterations: 20,
+ *   onToolCall: (call, ctx) => console.log(call.toolName),
+ * });
+ * ```
+ */
 export async function runAgentLoop(
   options: RunAgentLoopOptions
 ): Promise<RunAgentLoopResult> {
