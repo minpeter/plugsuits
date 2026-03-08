@@ -147,6 +147,7 @@ const parseArgs = (): {
   reasoningMode: ReasoningMode | null;
   toolFallbackMode: ToolFallbackMode;
   translateUserPrompts: boolean;
+  maxIterations?: number;
 } => {
   const args = process.argv.slice(2);
   let prompt = "";
@@ -155,6 +156,7 @@ const parseArgs = (): {
   let reasoningMode: ReasoningMode | null = null;
   let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   let translateUserPrompts = true;
+  let maxIterations: number | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const promptOrModelOption = parsePromptOrModelOption(args, i);
@@ -193,11 +195,20 @@ const parseArgs = (): {
       toolFallbackMode = toolFallbackOption.mode;
       i += toolFallbackOption.consumedArgs;
     }
+
+    if (args[i] === "--max-iterations" && i + 1 < args.length) {
+      const val = parseInt(args[i + 1]!, 10);
+      if (!isNaN(val) && val > 0) {
+        maxIterations = val;
+        i += 1;
+      }
+      continue;
+    }
   }
 
   if (!prompt) {
     console.error(
-      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--toolcall-mode <mode>]"
+      "Usage: bun run src/entrypoints/headless.ts -p <prompt> [-m <model>] [--provider anthropic|friendli] [--translate|--no-translate] [--think] [--reasoning-mode <off|on|interleaved|preserved>] [--tool-fallback [mode]] [--toolcall-mode <mode>] [--max-iterations <n>]"
     );
     process.exit(1);
   }
@@ -209,6 +220,7 @@ const parseArgs = (): {
     reasoningMode,
     toolFallbackMode,
     translateUserPrompts,
+    maxIterations,
   };
 };
 
@@ -398,12 +410,24 @@ const emitMalformedToolCallsSummary = (
 };
 
 const processAgentResponse = async (
-  messageHistory: MessageHistory
+  messageHistory: MessageHistory,
+  maxIterations?: number
 ): Promise<void> => {
   const modelId = agentManager.getModelId();
   let manualToolLoopCount = 0;
+  let iterationCount = 0;
 
   while (true) {
+    iterationCount++;
+    if (maxIterations !== undefined && iterationCount > maxIterations) {
+      emitEvent({
+        timestamp: new Date().toISOString(),
+        type: "error",
+        sessionId,
+        error: `Max iterations (${maxIterations}) reached`,
+      });
+      break;
+    }
     const stream = await agentManager.stream(messageHistory.toModelMessages());
 
     let currentText = "";
@@ -462,40 +486,52 @@ const processAgentResponse = async (
       pendingToolCalls
     );
 
-    const [response, finishReason] = await Promise.all([
-      stream.response,
-      stream.finishReason,
-    ]);
-    messageHistory.addModelMessages(response.messages);
+    const STREAM_RESPONSE_TIMEOUT_MS = 5000;
+    try {
+      const [response, finishReason] = await Promise.race([
+        Promise.all([stream.response, stream.finishReason]),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Stream response timeout")), STREAM_RESPONSE_TIMEOUT_MS)
+        ),
+      ]);
+      messageHistory.addModelMessages(response.messages);
 
-    if (currentText.trim()) {
-      emitEvent({
-        timestamp: new Date().toISOString(),
-        type: "assistant",
-        sessionId,
-        content: currentText,
-        model: modelId,
-        reasoning_content: currentReasoning || undefined,
-      });
-    }
+      if (currentText.trim()) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "assistant",
+          sessionId,
+          content: currentText,
+          model: modelId,
+          reasoning_content: currentReasoning || undefined,
+        });
+      }
 
-    // Release map contents eagerly so tool-argument strings can be GC'd before next iteration
-    pendingToolCalls.clear();
-    completedToolCallIds.clear();
+      // Release map contents eagerly so tool-argument strings can be GC'd before next iteration
+      pendingToolCalls.clear();
+      completedToolCallIds.clear();
 
-    if (!shouldContinueManualToolLoop(finishReason)) {
-      return;
-    }
+      if (!shouldContinueManualToolLoop(finishReason)) {
+        return;
+      }
 
-    manualToolLoopCount += 1;
-    if (manualToolLoopCount >= MANUAL_TOOL_LOOP_MAX_STEPS) {
+      manualToolLoopCount += 1;
+      if (manualToolLoopCount >= MANUAL_TOOL_LOOP_MAX_STEPS) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          sessionId,
+          error: `Manual tool loop safety cap reached (${MANUAL_TOOL_LOOP_MAX_STEPS}).`,
+        });
+        return;
+      }
+    } catch (error) {
       emitEvent({
         timestamp: new Date().toISOString(),
         type: "error",
         sessionId,
-        error: `Manual tool loop safety cap reached (${MANUAL_TOOL_LOOP_MAX_STEPS}).`,
+        error: String(error),
       });
-      return;
     }
   }
 };
@@ -510,6 +546,7 @@ const run = async (): Promise<void> => {
     reasoningMode,
     toolFallbackMode,
     translateUserPrompts,
+    maxIterations,
   } = parseArgs();
 
   applyHeadlessAgentConfig(agentManager, {
@@ -549,7 +586,7 @@ const run = async (): Promise<void> => {
     preparedPrompt.originalText
   );
   try {
-    await processAgentResponse(messageHistory);
+    await processAgentResponse(messageHistory, maxIterations);
 
     const MAX_TODO_REMINDER_ITERATIONS = 20;
     let todoReminderCount = 0;
@@ -579,27 +616,10 @@ const run = async (): Promise<void> => {
         content: reminder,
       });
 
-      const preparedReminder = agentManager.isTranslationEnabled()
-        ? await translateToEnglish(reminder, agentManager)
-        : {
-            translated: false,
-            text: reminder,
-          };
-
-      if (preparedReminder.error) {
-        emitEvent({
-          timestamp: new Date().toISOString(),
-          type: "error",
-          sessionId,
-          error: `[translation] Failed to translate todo reminder: ${preparedReminder.error}. Using original text.`,
-        });
-      }
-
-      messageHistory.addUserMessage(
-        preparedReminder.text,
-        preparedReminder.originalText
-      );
-      await processAgentResponse(messageHistory);
+      // System-generated English messages don't need translation
+      const preparedReminder = { translated: false, text: reminder };
+      messageHistory.addUserMessage(preparedReminder.text);
+      await processAgentResponse(messageHistory, maxIterations);
     }
   } catch (error) {
     emitEvent({
