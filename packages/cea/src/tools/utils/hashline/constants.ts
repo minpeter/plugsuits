@@ -1,10 +1,8 @@
 export const NIBBLE_STR = "ZPMQVRWSNKTXJBYH";
 
 export const HASHLINE_DICT = Array.from({ length: 256 }, (_, i) => {
-  // biome-ignore lint/suspicious/noBitwiseOperators: intentional bit shift for hash nibble extraction
-  const high = i >>> 4;
-  // biome-ignore lint/suspicious/noBitwiseOperators: intentional bit shift for hash nibble extraction
-  const low = i & 0x0f;
+  const high = Math.floor(i / 16);
+  const low = i % 16;
   return `${NIBBLE_STR[high]}${NIBBLE_STR[low]}`;
 });
 

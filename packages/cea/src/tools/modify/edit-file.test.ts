@@ -26,6 +26,13 @@ const FILE_HASH_REGEX = /^file_hash:\s+([0-9a-f]{8})$/m;
 const LINE_REF_REGEX_TEMPLATE = (lineNumber: number): RegExp =>
   new RegExp(`\\b${lineNumber}#([ZPMQVRWSNKTXJBYH]{2})\\|`);
 const HASHLINE_LINE_PREFIX_REGEX = /^\d+#/;
+const PATH_TRAVERSAL_BLOCKED_REGEX = /[Pp]ath traversal blocked/;
+const PATH_TRAVERSAL_OR_OUTSIDE_REGEX = /[Pp]ath traversal blocked|outside/;
+const SYMLINK_REGEX = /symlink/i;
+const ROOT_DIRECTORY_REGEX = /root directory/i;
+const SENSITIVE_PATH_OR_TRAVERSAL_REGEX =
+  /(sensitive system path|Path traversal blocked)/i;
+const PATH_TRAVERSAL_DOTDOT_REGEX = /[Pp]ath traversal blocked.*\.\./i;
 
 function extractFileHash(readOutput: string): string {
   const matched = readOutput.match(FILE_HASH_REGEX);
@@ -1245,8 +1252,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/[Pp]ath traversal blocked/);
+    ).rejects.toThrow(PATH_TRAVERSAL_BLOCKED_REGEX);
   });
 
   it("C-1: blocks absolute paths outside project root", async () => {
@@ -1258,8 +1264,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/[Pp]ath traversal blocked|outside/);
+    ).rejects.toThrow(PATH_TRAVERSAL_OR_OUTSIDE_REGEX);
   });
 
   it("C-2: blocks edits through symlinks", async () => {
@@ -1276,8 +1281,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/symlink/i);
+    ).rejects.toThrow(SYMLINK_REGEX);
 
     // Original file should be unchanged
     expect(readFileSync(realFile, "utf-8")).toBe("original\n");
@@ -1299,8 +1303,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
           },
           { rootDir: tempDir }
         )
-        // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-      ).rejects.toThrow(/symlink/i);
+      ).rejects.toThrow(SYMLINK_REGEX);
       expect(readFileSync(outsideFile, "utf-8")).toBe("secret data\n");
     } finally {
       rmSync(outsideDir, { recursive: true });
@@ -1359,8 +1362,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: "/" }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/root directory/i);
+    ).rejects.toThrow(ROOT_DIRECTORY_REGEX);
   });
 
   it("C-1b: blocks access to sensitive system paths outside project root", async () => {
@@ -1373,8 +1375,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/(sensitive system path|Path traversal blocked)/i);
+    ).rejects.toThrow(SENSITIVE_PATH_OR_TRAVERSAL_REGEX);
   });
 
   it("C-1b: blocks access to /proc directory outside project root", async () => {
@@ -1387,8 +1388,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/(sensitive system path|Path traversal blocked)/i);
+    ).rejects.toThrow(SENSITIVE_PATH_OR_TRAVERSAL_REGEX);
   });
 
   it("C-1c: blocks path with .. segments in relative path", async () => {
@@ -1400,8 +1400,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/[Pp]ath traversal blocked.*\.\./i);
+    ).rejects.toThrow(PATH_TRAVERSAL_DOTDOT_REGEX);
   });
 
   it("C-1c: blocks path with embedded .. segments", async () => {
@@ -1413,7 +1412,6 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
-    ).rejects.toThrow(/[Pp]ath traversal blocked.*\.\./i);
+    ).rejects.toThrow(PATH_TRAVERSAL_DOTDOT_REGEX);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Container, type MarkdownTheme } from "@mariozechner/pi-tui";
 import type { TextStreamPart, ToolSet } from "ai";
-import { computeLineHash } from "../tools/utils/hashline";
+import { computeLineHash } from "../tools/utils/hashline/hash-computation";
 import {
   type PiTuiStreamRenderOptions,
   renderFullStreamWithPiTui,

@@ -139,6 +139,31 @@ const parsePromptOrModelOption = (
   return null;
 };
 
+const parseMaxIterations = (
+  args: string[],
+  i: number
+): { value: number; consumedArgs: number } | null => {
+  if (args[i] !== "--max-iterations" || i + 1 >= args.length) {
+    return null;
+  }
+  const val = Number.parseInt(args[i + 1], 10);
+  if (Number.isNaN(val) || val <= 0) {
+    return null;
+  }
+  return { value: val, consumedArgs: 1 };
+};
+
+const parseProviderOption = (
+  args: string[],
+  i: number
+): { provider: ProviderType | null; consumedArgs: number } | null => {
+  if (args[i] !== "--provider" || i + 1 >= args.length) {
+    return null;
+  }
+  const parsed = parseProviderArg(args[i + 1]);
+  return { provider: parsed, consumedArgs: 1 };
+};
+
 const parseArgs = (): {
   prompt: string;
   model?: string;
@@ -177,9 +202,12 @@ const parseArgs = (): {
       continue;
     }
 
-    if (args[i] === "--provider" && i + 1 < args.length) {
-      provider = parseProviderArg(args[i + 1]) ?? provider;
-      i += 1;
+    const providerOption = parseProviderOption(args, i);
+    if (providerOption) {
+      if (providerOption.provider) {
+        provider = providerOption.provider;
+      }
+      i += providerOption.consumedArgs;
       continue;
     }
 
@@ -195,15 +223,10 @@ const parseArgs = (): {
       i += toolFallbackOption.consumedArgs;
     }
 
-    if (args[i] === "--max-iterations" && i + 1 < args.length) {
-      const nextArg = args[i + 1];
-      if (nextArg !== undefined) {
-        const val = Number.parseInt(nextArg, 10);
-        if (!Number.isNaN(val) && val > 0) {
-          maxIterations = val;
-          i += 1;
-        }
-      }
+    const maxIterOption = parseMaxIterations(args, i);
+    if (maxIterOption) {
+      maxIterations = maxIterOption.value;
+      i += maxIterOption.consumedArgs;
     }
   }
 

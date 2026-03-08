@@ -1,8 +1,6 @@
-import {
-  computeFileHash,
-  type HashlineEdit,
-  tryParseLineTag,
-} from "../utils/hashline";
+import { computeFileHash } from "../utils/hashline/hash-computation";
+import type { HashlineEdit } from "../utils/hashline/types";
+import { tryParseLineTag } from "../utils/hashline/validation";
 import {
   diagnoseAnchorFailure,
   diagnoseMissingLines,
@@ -16,7 +14,158 @@ import {
   repairMalformedEdit,
 } from "./edit-file-repair";
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex validation pipeline
+type ParsedLineTag = ReturnType<typeof tryParseLineTag>;
+
+function assertEditAnchorsAreSingleLine(edit: HashlineToolEdit): void {
+  assertSingleLineAnchor(edit.pos, "pos");
+  assertSingleLineAnchor(edit.end, "end");
+}
+
+function throwMissingReplaceLinesError(
+  edit: HashlineToolEdit,
+  fileLines: string[],
+  filePath: string
+): never {
+  const failureCount = trackMissingLinesFailure(edit.pos, filePath);
+  const baseMessage = diagnoseMissingLines(edit.pos);
+  const hint =
+    failureCount >= ESCALATION_THRESHOLD && fileLines.length > 0
+      ? getEscalatedHint(edit.pos, fileLines, failureCount)
+      : null;
+
+  if (hint) {
+    throw new Error(`${baseMessage} ${hint}`);
+  }
+
+  throw new Error(baseMessage);
+}
+
+function ensureReplaceEditHasLines(
+  edit: HashlineToolEdit,
+  fileLines: string[],
+  filePath: string
+): void {
+  if (edit.op !== "replace" || edit.lines !== undefined) {
+    return;
+  }
+
+  throwMissingReplaceLinesError(edit, fileLines, filePath);
+}
+
+function parseEditAnchors(edit: HashlineToolEdit): {
+  parsedPos: ParsedLineTag;
+  parsedEnd: ParsedLineTag;
+} {
+  return {
+    parsedPos: tryParseLineTag(edit.pos),
+    parsedEnd: tryParseLineTag(edit.end),
+  };
+}
+
+function throwReplaceAnchorFailure(
+  edit: HashlineToolEdit,
+  fileLines: string[]
+): never {
+  if (edit.pos) {
+    throw new Error(diagnoseAnchorFailure(edit.pos, "pos", fileLines));
+  }
+
+  if (edit.end) {
+    throw new Error(diagnoseAnchorFailure(edit.end, "end", fileLines));
+  }
+
+  throw new Error("replace requires pos or end anchor.");
+}
+
+function pushFallbackToEndWarning(
+  originalEdit: HashlineToolEdit,
+  repairWarnings: string[],
+  isReplace: boolean
+): void {
+  if (isReplace && originalEdit.pos === undefined) {
+    repairWarnings.push("pos was not provided; falling back to end anchor.");
+    return;
+  }
+
+  repairWarnings.push(
+    `Ignored invalid pos "${originalEdit.pos}"; falling back to end anchor.`
+  );
+}
+
+function pushFallbackToPosWarning(
+  originalEdit: HashlineToolEdit,
+  repairWarnings: string[]
+): void {
+  repairWarnings.push(
+    `Ignored invalid end "${originalEdit.end}"; falling back to pos anchor.`
+  );
+}
+
+function validateReplaceAnchors(
+  repairedEdit: HashlineToolEdit,
+  originalEdit: HashlineToolEdit,
+  parsedPos: ParsedLineTag,
+  parsedEnd: ParsedLineTag,
+  fileLines: string[],
+  repairWarnings: string[]
+): HashlineToolEdit {
+  if (!(parsedPos || parsedEnd)) {
+    throwReplaceAnchorFailure(repairedEdit, fileLines);
+  }
+
+  if (!parsedPos && parsedEnd) {
+    pushFallbackToEndWarning(originalEdit, repairWarnings, true);
+    return { ...repairedEdit, pos: undefined };
+  }
+
+  if (parsedPos && !parsedEnd && repairedEdit.end) {
+    pushFallbackToPosWarning(originalEdit, repairWarnings);
+    return { ...repairedEdit, end: undefined };
+  }
+
+  return repairedEdit;
+}
+
+function maybeThrowAppendPrependAnchorFailure(
+  repairedEdit: HashlineToolEdit,
+  fileLines: string[]
+): void {
+  const failedField = repairedEdit.pos ? "pos" : "end";
+  const failedValue = repairedEdit.pos ?? repairedEdit.end;
+
+  if (!failedValue) {
+    return;
+  }
+
+  throw new Error(diagnoseAnchorFailure(failedValue, failedField, fileLines));
+}
+
+function validateAppendPrependAnchors(
+  repairedEdit: HashlineToolEdit,
+  originalEdit: HashlineToolEdit,
+  parsedPos: ParsedLineTag,
+  parsedEnd: ParsedLineTag,
+  fileLines: string[],
+  repairWarnings: string[]
+): HashlineToolEdit {
+  if ((repairedEdit.pos || repairedEdit.end) && !parsedPos && !parsedEnd) {
+    maybeThrowAppendPrependAnchorFailure(repairedEdit, fileLines);
+    return repairedEdit;
+  }
+
+  if (!parsedPos && parsedEnd) {
+    pushFallbackToEndWarning(originalEdit, repairWarnings, false);
+    return { ...repairedEdit, pos: repairedEdit.end, end: undefined };
+  }
+
+  if (parsedPos && !parsedEnd && repairedEdit.end) {
+    pushFallbackToPosWarning(originalEdit, repairWarnings);
+    return { ...repairedEdit, end: undefined };
+  }
+
+  return repairedEdit;
+}
+
 export function validateAndRepairEdits(
   edits: HashlineToolEdit[],
   fileLines: string[],
@@ -29,80 +178,28 @@ export function validateAndRepairEdits(
     let { edit: repairedEdit, warnings } = repairMalformedEdit(edit);
     repairWarnings.push(...warnings);
 
-    assertSingleLineAnchor(repairedEdit.pos, "pos");
-    assertSingleLineAnchor(repairedEdit.end, "end");
+    assertEditAnchorsAreSingleLine(repairedEdit);
+    ensureReplaceEditHasLines(repairedEdit, fileLines, filePath);
 
-    if (repairedEdit.op === "replace" && repairedEdit.lines === undefined) {
-      const failureCount = trackMissingLinesFailure(repairedEdit.pos, filePath);
-      const baseMessage = diagnoseMissingLines(repairedEdit.pos);
-      if (failureCount >= ESCALATION_THRESHOLD && fileLines.length > 0) {
-        const hint = getEscalatedHint(
-          repairedEdit.pos,
-          fileLines,
-          failureCount
-        );
-        if (hint) {
-          throw new Error(`${baseMessage} ${hint}`);
-        }
-      }
-      throw new Error(baseMessage);
-    }
-
-    const parsedPos = tryParseLineTag(repairedEdit.pos);
-    const parsedEnd = tryParseLineTag(repairedEdit.end);
-
-    if (repairedEdit.op === "replace") {
-      if (!(parsedPos || parsedEnd)) {
-        if (repairedEdit.pos) {
-          throw new Error(
-            diagnoseAnchorFailure(repairedEdit.pos, "pos", fileLines)
+    const { parsedPos, parsedEnd } = parseEditAnchors(repairedEdit);
+    repairedEdit =
+      repairedEdit.op === "replace"
+        ? validateReplaceAnchors(
+            repairedEdit,
+            edit,
+            parsedPos,
+            parsedEnd,
+            fileLines,
+            repairWarnings
+          )
+        : validateAppendPrependAnchors(
+            repairedEdit,
+            edit,
+            parsedPos,
+            parsedEnd,
+            fileLines,
+            repairWarnings
           );
-        }
-        if (repairedEdit.end) {
-          throw new Error(
-            diagnoseAnchorFailure(repairedEdit.end, "end", fileLines)
-          );
-        }
-        throw new Error("replace requires pos or end anchor.");
-      }
-      // Fallback: clear invalid anchors so normalize uses the valid one
-      if (!parsedPos && parsedEnd) {
-        repairedEdit = { ...repairedEdit, pos: undefined };
-        repairWarnings.push(
-          edit.pos === undefined
-            ? "pos was not provided; falling back to end anchor."
-            : `Ignored invalid pos "${edit.pos}"; falling back to end anchor.`
-        );
-      } else if (parsedPos && !parsedEnd && repairedEdit.end) {
-        repairedEdit = { ...repairedEdit, end: undefined };
-        repairWarnings.push(
-          `Ignored invalid end "${edit.end}"; falling back to pos anchor.`
-        );
-      }
-    } else if (
-      (repairedEdit.pos || repairedEdit.end) &&
-      !parsedPos &&
-      !parsedEnd
-    ) {
-      const failedField = repairedEdit.pos ? "pos" : "end";
-      const failedValue = repairedEdit.pos ?? repairedEdit.end;
-      if (failedValue) {
-        throw new Error(
-          diagnoseAnchorFailure(failedValue, failedField, fileLines)
-        );
-      }
-    } else if (!parsedPos && parsedEnd) {
-      // For append/prepend: fall back to end when pos is invalid
-      repairedEdit = { ...repairedEdit, pos: repairedEdit.end, end: undefined };
-      repairWarnings.push(
-        `Ignored invalid pos "${edit.pos}"; falling back to end anchor.`
-      );
-    } else if (parsedPos && !parsedEnd && repairedEdit.end) {
-      repairedEdit = { ...repairedEdit, end: undefined };
-      repairWarnings.push(
-        `Ignored invalid end "${edit.end}"; falling back to pos anchor.`
-      );
-    }
 
     validated.push(repairedEdit);
   }

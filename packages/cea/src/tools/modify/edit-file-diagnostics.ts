@@ -1,4 +1,5 @@
-import { computeLineHash, tryParseLineTag } from "../utils/hashline";
+import { computeLineHash } from "../utils/hashline/hash-computation";
+import { tryParseLineTag } from "../utils/hashline/validation";
 
 const ANCHOR_HASH_EXTRACT_REGEX = /#([ZPMQVRWSNKTXJBYH]{2})/i;
 const NUMERIC_LINE_PREFIX_REGEX = /^\d+$/;

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import { parseHashlineText } from "./edit-text-normalization";
+import { computeLineHash } from "./hash-computation";
 import {
-  computeLineHash,
   HashlineMismatchError,
-  parseHashlineText,
   parseLineRef,
-  parseLineTag,
+  parseLineRef as parseLineTag,
   tryParseLineTag,
   validateLineRef,
   validateLineRefs,
-} from ".";
+} from "./validation";
 
 describe("hashline - validation", () => {
   it("parses line refs with noisy prefixes", () => {

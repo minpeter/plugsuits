@@ -4,7 +4,7 @@ import {
   computeLineHash,
   streamHashLinesFromLines,
   streamHashLinesFromUtf8,
-} from ".";
+} from "./hash-computation";
 
 const HASH_PATTERN = /^[ZPMQVRWSNKTXJBYH]{2}$/;
 

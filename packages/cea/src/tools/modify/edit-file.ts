@@ -2,13 +2,13 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { applyHashlineEditsWithReport } from "../utils/hashline/edit-operations";
 import {
-  applyHashlineEditsWithReport,
   canonicalizeFileText,
-  type HashlineEdit,
-  normalizeHashlineEdits,
   restoreFileText,
-} from "../utils/hashline";
+} from "../utils/hashline/file-text-canonicalization";
+import { normalizeHashlineEdits } from "../utils/hashline/normalize-edits";
+import type { HashlineEdit } from "../utils/hashline/types";
 import { assertWriteSafety, safeAtomicWriteFile } from "../utils/safety-utils";
 import EDIT_FILE_DESCRIPTION from "./edit-file.txt";
 import { buildEscalationBailMessage } from "./edit-file-diagnostics";
@@ -141,13 +141,9 @@ async function readExistingContent(path: string): Promise<{
   }
 }
 
-export async function executeEditFile(
-  input: EditFileInput,
-  options?: EditFileOptions
-): Promise<string> {
-  let parsed: z.infer<typeof inputSchema>;
+function parseEditInput(input: EditFileInput): z.infer<typeof inputSchema> {
   try {
-    parsed = inputSchema.parse(input);
+    return inputSchema.parse(input);
   } catch (error) {
     if (
       error instanceof z.ZodError &&
@@ -156,11 +152,17 @@ export async function executeEditFile(
       )
     ) {
       // Fall back to lenient parse — custom validation gives better error messages
-      parsed = lenientInputSchema.parse(input) as z.infer<typeof inputSchema>;
-    } else {
-      throw error;
+      return lenientInputSchema.parse(input) as z.infer<typeof inputSchema>;
     }
+    throw error;
   }
+}
+
+export async function executeEditFile(
+  input: EditFileInput,
+  options?: EditFileOptions
+): Promise<string> {
+  const parsed = parseEditInput(input);
 
   // C-1 + C-2: Path traversal and symlink safety checks
   const safePath = await assertWriteSafety(parsed.path, options?.rootDir);

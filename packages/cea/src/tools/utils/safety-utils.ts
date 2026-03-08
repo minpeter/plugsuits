@@ -12,7 +12,10 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import ignore from "ignore";
-import { computeFileHash, formatHashlineNumberedLines } from "./hashline";
+import {
+  computeFileHash,
+  formatHashlineNumberedLines,
+} from "./hashline/hash-computation";
 
 const FILE_READ_POLICY = {
   maxFileSizeBytes: 1024 * 1024, // 1MB
