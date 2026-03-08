@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
@@ -78,6 +78,23 @@ function generateMarkdown(todos: TodoItem[]): string {
   return lines.join("\n");
 }
 
+async function cleanupStaleTodos(todoDir: string): Promise<void> {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  try {
+    const entries = await readdir(todoDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const filePath = join(todoDir, entry.name);
+      const fileStats = await stat(filePath);
+      if (fileStats.mtimeMs < cutoff) {
+        await unlink(filePath).catch(() => {});
+      }
+    }
+  } catch {
+    // Directory doesn't exist yet — nothing to clean
+  }
+}
+
 export async function executeTodoWrite({
   todos,
 }: TodoWriteInput): Promise<string> {
@@ -89,9 +106,9 @@ export async function executeTodoWrite({
   }
 
   const sessionId = getSessionId();
-  const cwd = process.cwd();
-  const todoDir = join(cwd, TODO_DIR);
+  const todoDir = TODO_DIR;
 
+  await cleanupStaleTodos(todoDir);
   await mkdir(todoDir, { recursive: true });
 
   const timestamp = new Date().toISOString();

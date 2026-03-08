@@ -81,6 +81,7 @@ import {
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
 import { cleanup } from "../tools/utils/execute/process-manager";
+import { resetMissingLinesFailures } from "../tools/modify/edit-file-diagnostics";
 import { initializeTools } from "../utils/tools-manager";
 
 const ANSI_RESET = "\x1b[0m";
@@ -1683,6 +1684,7 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
     ui.clearStatus();
     initializeSession();
     messageHistory.clear();
+    resetMissingLinesFailures();
     ui.chatContainer.clear();
     addNewSessionMessage(ui.chatContainer);
     ui.updateHeader();
