@@ -27,6 +27,7 @@ import {
 } from "../tool-fallback-mode";
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
+import { validateProviderConfig } from "../env";
 import { applyHeadlessAgentConfig } from "./headless-agent-config";
 
 interface BaseEvent {
@@ -501,6 +502,7 @@ const processAgentResponse = async (
 };
 
 const run = async (): Promise<void> => {
+  validateProviderConfig();
   await initializeTools();
 
   const {

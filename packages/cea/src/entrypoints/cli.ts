@@ -62,7 +62,7 @@ import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
 import { isNonEnglish, translateToEnglish } from "../context/translation";
-import { env } from "../env";
+import { env, validateProviderConfig } from "../env";
 import { renderFullStreamWithPiTui } from "../interaction/pi-tui-stream-renderer";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
 import {
@@ -1780,6 +1780,7 @@ const processInput = async (ui: CliUi, input: string): Promise<boolean> => {
 };
 
 const run = async (): Promise<void> => {
+  validateProviderConfig();
   await initializeTools();
   cachedSkills = await loadAllSkills();
   setSpinnerOutputEnabled(false);

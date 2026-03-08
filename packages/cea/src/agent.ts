@@ -56,12 +56,14 @@ const friendli = env.FRIENDLI_TOKEN
   ? createFriendli({
       apiKey: env.FRIENDLI_TOKEN,
       includeUsage: true,
+      ...(env.FRIENDLI_BASE_URL ? { baseURL: env.FRIENDLI_BASE_URL } : {}),
     })
   : null;
 
 const anthropic = env.ANTHROPIC_API_KEY
   ? createAnthropic({
       apiKey: env.ANTHROPIC_API_KEY,
+      ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}),
     })
   : null;
 
