@@ -25,7 +25,6 @@ function leadingWhitespace(text: string): string {
   return match ? match[0] : "";
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: line-wrapping restoration algorithm
 export function restoreOldWrappedLines(
   originalLines: string[],
   replacementLines: string[]

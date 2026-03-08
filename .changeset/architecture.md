@@ -1,5 +1,5 @@
 ---
-"@ai-sdk-tool/cea": patch
+"plugsuits": patch
 ---
 
 fix(architecture): add createAgentManager factory and use instance provider clients

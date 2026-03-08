@@ -88,6 +88,7 @@ describe("truncateOutput", () => {
 
       // Verify file permissions are restrictive (owner only: 0o600)
       const stats = statSync(fullOutputPath);
+      // biome-ignore lint/suspicious/noBitwiseOperators: intentional file permission bitmask
       const mode = stats.mode & 0o777;
       expect(mode).toBe(0o600);
 

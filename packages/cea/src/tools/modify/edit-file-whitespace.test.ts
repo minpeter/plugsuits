@@ -47,10 +47,15 @@ describe("edit_file whitespace stress patterns", () => {
     const testFile = join(tempDir, "stress-indent-leading.txt");
     writeFileSync(testFile, "start\n    indented line\nend\n");
     const [line2] = await lineRefs(testFile, 2);
-    await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line2, lines: ["updated indented line"] }],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [
+          { op: "replace", pos: line2, lines: ["updated indented line"] },
+        ],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe(
       "start\n    updated indented line\nend\n"
     );
@@ -60,10 +65,13 @@ describe("edit_file whitespace stress patterns", () => {
     const testFile = join(tempDir, "stress-only-spaces-line.txt");
     writeFileSync(testFile, "before\n    \nafter\n");
     const [line2] = await lineRefs(testFile, 2);
-    await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line2, lines: ["filled"] }],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: line2, lines: ["filled"] }],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe("before\n    filled\nafter\n");
   });
 
@@ -71,10 +79,13 @@ describe("edit_file whitespace stress patterns", () => {
     const testFile = join(tempDir, "stress-tab-indent.txt");
     writeFileSync(testFile, "start\n\tfunction foo() {\nend\n");
     const [line2] = await lineRefs(testFile, 2);
-    await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line2, lines: ["return 42;"] }],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: line2, lines: ["return 42;"] }],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe("start\n\treturn 42;\nend\n");
   });
 
@@ -82,10 +93,13 @@ describe("edit_file whitespace stress patterns", () => {
     const testFile = join(tempDir, "stress-append-blank-lines.txt");
     writeFileSync(testFile, "anchor\ntail\n");
     const [line1] = await lineRefs(testFile, 1);
-    await executeEditFile({
-      path: testFile,
-      edits: [{ op: "append", pos: line1, lines: ["", "new content", ""] }],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "append", pos: line1, lines: ["", "new content", ""] }],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe(
       "anchor\n\nnew content\n\ntail\n"
     );
@@ -95,10 +109,13 @@ describe("edit_file whitespace stress patterns", () => {
     const testFile = join(tempDir, "stress-trailing-spaces.txt");
     writeFileSync(testFile, "x\ny\n");
     const [line2] = await lineRefs(testFile, 2);
-    await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line2, lines: ["hello   "] }],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: line2, lines: ["hello   "] }],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe("x\nhello   \n");
   });
 
@@ -106,10 +123,13 @@ describe("edit_file whitespace stress patterns", () => {
     const testFile = join(tempDir, "stress-mixed-indentation.txt");
     writeFileSync(testFile, "\tif (ok) {\n    run();\n\t    mixed();\n}\n");
     const [line2] = await lineRefs(testFile, 2);
-    await executeEditFile({
-      path: testFile,
-      edits: [{ op: "replace", pos: line2, lines: ["updated();"] }],
-    }, { rootDir: tempDir });
+    await executeEditFile(
+      {
+        path: testFile,
+        edits: [{ op: "replace", pos: line2, lines: ["updated();"] }],
+      },
+      { rootDir: tempDir }
+    );
     expect(readFileSync(testFile, "utf-8")).toBe(
       "\tif (ok) {\n    updated();\n\t    mixed();\n}\n"
     );

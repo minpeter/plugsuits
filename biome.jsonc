@@ -3,5 +3,17 @@
   "extends": ["ultracite/biome/core"],
   "javascript": {
     "globals": ["Bun"]
+  },
+  "linter": {
+    "rules": {
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": {
+            "maxAllowedComplexity": 30
+          }
+        }
+      }
+    }
   }
 }

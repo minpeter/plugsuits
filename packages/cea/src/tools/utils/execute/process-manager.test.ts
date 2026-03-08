@@ -200,7 +200,9 @@ describe("process-manager", () => {
 
     const pid = child.pid;
     expect(pid).toBeDefined();
-    if (!pid) throw new Error("Expected pid to be defined");
+    if (!pid) {
+      throw new Error("Expected pid to be defined");
+    }
 
     child.unref();
     await sleep(ABORT_DELAY_MS);
@@ -234,13 +236,18 @@ describe("process-manager", () => {
     resetProcessManagerForTesting();
 
     const controller = new AbortController();
-    const commandPromise = executeCommand("sleep 30", { signal: controller.signal });
+    const commandPromise = executeCommand("sleep 30", {
+      signal: controller.signal,
+    });
 
     // Let the process spawn and register in activeProcesses
     await sleep(10);
     const pids = getActiveProcessesForTesting();
     expect(pids.length).toBe(1);
-    const pid = pids[0]!;
+    const pid = pids[0];
+    if (pid === undefined) {
+      throw new Error("Expected pid");
+    }
 
     // Abort — triggers killProcessTree which sets a SIGKILL timer
     controller.abort();

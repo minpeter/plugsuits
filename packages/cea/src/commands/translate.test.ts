@@ -5,7 +5,9 @@ import { createTranslateCommand } from "./translate";
 describe("translate command", () => {
   const command = createTranslateCommand();
 
-  beforeEach(() => { agentManager.resetForTesting(); });
+  beforeEach(() => {
+    agentManager.resetForTesting();
+  });
 
   it("reports current translation state when called without args", async () => {
     agentManager.setTranslationEnabled(true);

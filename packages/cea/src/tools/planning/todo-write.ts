@@ -83,11 +83,15 @@ async function cleanupStaleTodos(todoDir: string): Promise<void> {
   try {
     const entries = await readdir(todoDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
       const filePath = join(todoDir, entry.name);
       const fileStats = await stat(filePath);
       if (fileStats.mtimeMs < cutoff) {
-        await unlink(filePath).catch(() => {});
+        await unlink(filePath).catch(() => {
+          /* ignore */
+        });
       }
     }
   } catch {

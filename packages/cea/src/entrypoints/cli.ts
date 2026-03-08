@@ -80,8 +80,8 @@ import {
   TOOL_FALLBACK_MODES,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
-import { cleanup } from "../tools/utils/execute/process-manager";
 import { resetMissingLinesFailures } from "../tools/modify/edit-file-diagnostics";
+import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
 
 const ANSI_RESET = "\x1b[0m";

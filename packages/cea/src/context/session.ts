@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+
 let currentSessionId: string | null = null;
 
 export function initializeSession(): string {

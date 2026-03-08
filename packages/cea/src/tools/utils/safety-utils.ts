@@ -696,7 +696,6 @@ const checkPathTraversalGuard: FileWriteGuard = ({
  * Rejects operations when the project root is the system root (/).
  * This prevents accidental modification of system files when cwd is /.
  */
-// biome-ignore lint/correctness/noUnusedVariables: Reserved for future use
 const checkRootDirectoryGuard: FileWriteGuard = ({ rootDir }) => {
   if (rootDir === "/" || rootDir === "\\") {
     return {
@@ -715,7 +714,6 @@ const checkRootDirectoryGuard: FileWriteGuard = ({ rootDir }) => {
  * but only when they are outside the project root.
  * This prevents access to system files while allowing test directories in /tmp.
  */
-// biome-ignore lint/correctness/noUnusedVariables: Reserved for future use
 const checkSensitivePathsGuard: FileWriteGuard = ({
   filePath,
   resolvedFilePath,
@@ -753,7 +751,6 @@ const checkSensitivePathsGuard: FileWriteGuard = ({
  * Checks the raw path for '..' segments before resolution.
  * Catches attempts to traverse upward that might be obscured.
  */
-// biome-ignore lint/correctness/noUnusedVariables: Reserved for future use
 const checkPathTraversalSegmentsGuard: FileWriteGuard = ({
   filePath,
   rootDir,

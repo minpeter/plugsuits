@@ -1,5 +1,5 @@
 ---
-"@ai-sdk-tool/cea": patch
+"plugsuits": patch
 ---
 
 fix(security): add path containment and result limit to glob tool

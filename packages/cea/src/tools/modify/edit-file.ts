@@ -141,8 +141,10 @@ async function readExistingContent(path: string): Promise<{
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex validation logic
-export async function executeEditFile(input: EditFileInput, options?: EditFileOptions): Promise<string> {
+export async function executeEditFile(
+  input: EditFileInput,
+  options?: EditFileOptions
+): Promise<string> {
   let parsed: z.infer<typeof inputSchema>;
   try {
     parsed = inputSchema.parse(input);
@@ -163,9 +165,7 @@ export async function executeEditFile(input: EditFileInput, options?: EditFileOp
   // C-1 + C-2: Path traversal and symlink safety checks
   const safePath = await assertWriteSafety(parsed.path, options?.rootDir);
 
-  const { content: rawContent, exists } = await readExistingContent(
-    safePath
-  );
+  const { content: rawContent, exists } = await readExistingContent(safePath);
   const oldEnvelope = canonicalizeFileText(rawContent);
   const fileLines = exists ? oldEnvelope.content.split("\n") : [];
 

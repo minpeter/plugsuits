@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { agentManager, selectTranslationReasoningMode } from "./agent";
 
 describe("AgentManager translation state", () => {
-  beforeEach(() => { agentManager.resetForTesting(); });
+  beforeEach(() => {
+    agentManager.resetForTesting();
+  });
   it("enables translation by default", () => {
     expect(agentManager.isTranslationEnabled()).toBe(true);
   });
@@ -29,7 +31,9 @@ describe("selectTranslationReasoningMode", () => {
 });
 
 describe("AgentManager translation reasoning selection", () => {
-  beforeEach(() => { agentManager.resetForTesting(); });
+  beforeEach(() => {
+    agentManager.resetForTesting();
+  });
 
   it("uses off for translation when off is selectable", () => {
     agentManager.setProvider("friendli");

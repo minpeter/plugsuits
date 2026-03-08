@@ -62,7 +62,7 @@ export const escapeXmlEntities = (text: string): string => {
  * Sanitizes text for safe inclusion in XML CDATA section.
  * Prevents CDATA injection attacks by escaping the CDATA end sequence (]]>)
  * by splitting into multiple CDATA sections.
- * 
+ *
  * Note: CDATA sections treat content as literal text, so XML escaping is not
  * strictly necessary within CDATA. However, we escape the content before
  * wrapping in CDATA as defense-in-depth against potential XML parser quirks.
@@ -74,10 +74,7 @@ const sanitizeForCdata = (text: string): string => {
   // Then handle CDATA end sequence by splitting into multiple CDATA sections
   // The CDATA_SPLIT_SEQUENCE contains unescaped < and > which are safe here
   // because they will be inside the CDATA section
-  sanitized = sanitized.replaceAll(
-    CDATA_END_SEQUENCE,
-    CDATA_SPLIT_SEQUENCE
-  );
+  sanitized = sanitized.replaceAll(CDATA_END_SEQUENCE, CDATA_SPLIT_SEQUENCE);
 
   return sanitized;
 };

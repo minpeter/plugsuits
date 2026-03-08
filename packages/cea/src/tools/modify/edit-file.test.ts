@@ -1359,7 +1359,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: "/" }
       )
-    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/root directory/i);
   });
 
@@ -1373,7 +1373,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/(sensitive system path|Path traversal blocked)/i);
   });
 
@@ -1387,7 +1387,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/(sensitive system path|Path traversal blocked)/i);
   });
 
@@ -1400,7 +1400,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/[Pp]ath traversal blocked.*\.\./i);
   });
 
@@ -1413,7 +1413,7 @@ describe("edit_file safety (C-1, C-2, H-1)", () => {
         },
         { rootDir: tempDir }
       )
-    // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
+      // biome-ignore lint/performance/useTopLevelRegex: Test regex, not performance-critical
     ).rejects.toThrow(/[Pp]ath traversal blocked.*\.\./i);
   });
 });

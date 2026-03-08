@@ -6,6 +6,8 @@ import {
 } from "./noninteractive-wrapper";
 
 const DUPLICATE_Y_FLAG = /-y.*-y/;
+const DASH_Y_RE = /-y/;
+const TRAILING_DASH_Y_RE = / -y$/;
 
 describe("wrapCommandNonInteractive", () => {
   describe("apt/apt-get commands", () => {
@@ -311,7 +313,7 @@ describe("compound command handling", () => {
       "apt-get update && apt-get install nginx"
     );
     expect(result.command).toBe("apt-get update && apt-get install nginx");
-    expect(result.command).not.toMatch(/-y/);
+    expect(result.command).not.toMatch(DASH_Y_RE);
   });
 
   it("does not append -y to pip install package && pip install other", () => {
@@ -326,7 +328,7 @@ describe("compound command handling", () => {
       "apt-get update || apt-get install nginx"
     );
     expect(result.command).toBe("apt-get update || apt-get install nginx");
-    expect(result.command).not.toMatch(/-y/);
+    expect(result.command).not.toMatch(DASH_Y_RE);
   });
 
   it("does not append suffix args to commands with ; separator", () => {
@@ -334,7 +336,7 @@ describe("compound command handling", () => {
       "apt-get update ; apt-get install nginx"
     );
     expect(result.command).toBe("apt-get update ; apt-get install nginx");
-    expect(result.command).not.toMatch(/-y/);
+    expect(result.command).not.toMatch(DASH_Y_RE);
   });
 
   it("does not append suffix args to piped commands", () => {
@@ -342,7 +344,7 @@ describe("compound command handling", () => {
       "apt-get install nginx | tee /tmp/log"
     );
     expect(result.command).toBe("apt-get install nginx | tee /tmp/log");
-    expect(result.command).not.toMatch(/-y/);
+    expect(result.command).not.toMatch(DASH_Y_RE);
   });
 
   it("still appends -y to simple apt-get install", () => {
@@ -352,6 +354,6 @@ describe("compound command handling", () => {
 
   it("hasFlag does not match -y inside single-quoted argument", () => {
     const result = wrapCommandNonInteractive("pip install 'package==-y'");
-    expect(result.command).not.toMatch(/ -y$/);
+    expect(result.command).not.toMatch(TRAILING_DASH_Y_RE);
   });
 });

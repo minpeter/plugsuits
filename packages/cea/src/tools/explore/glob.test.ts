@@ -245,7 +245,10 @@ describe("executeGlob", () => {
         writeFileSync(join(outerDir, "secret.ts"), "secret");
         writeFileSync(join(innerDir, "real.ts"), "real");
         // Create a file symlink pointing outside innerDir
-        symlinkSync(join(outerDir, "secret.ts"), join(innerDir, "link_secret.ts"));
+        symlinkSync(
+          join(outerDir, "secret.ts"),
+          join(innerDir, "link_secret.ts")
+        );
 
         const result = await executeGlob({
           pattern: "**/*.ts",

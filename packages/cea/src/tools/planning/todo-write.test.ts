@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { initializeSession } from "../../context/session";
 import { executeTodoWrite } from "./todo-write";
 
@@ -103,24 +103,34 @@ describe("stale todo cleanup", () => {
   const cleanupTestDir = join(tmpdir(), "cea-todos-cleanup-test");
 
   beforeEach(async () => {
-    await rm(cleanupTestDir, { recursive: true, force: true }).catch(() => {});
+    await rm(cleanupTestDir, { recursive: true, force: true }).catch(() => {
+      /* ignore */
+    });
     await mkdir(cleanupTestDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(cleanupTestDir, { recursive: true, force: true }).catch(() => {});
+    await rm(cleanupTestDir, { recursive: true, force: true }).catch(() => {
+      /* ignore */
+    });
   });
 
   test("stale files older than 24h are deleted on write", async () => {
     // Create a stale file (25 hours old)
     const staleFile = join(cleanupTestDir, "stale-session.json");
-    await writeFile(staleFile, JSON.stringify({ todos: [], sessionId: "stale" }));
+    await writeFile(
+      staleFile,
+      JSON.stringify({ todos: [], sessionId: "stale" })
+    );
     const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000);
     await utimes(staleFile, staleTime, staleTime);
 
     // Create a fresh file (1 hour old)
     const freshFile = join(cleanupTestDir, "fresh-session.json");
-    await writeFile(freshFile, JSON.stringify({ todos: [], sessionId: "fresh" }));
+    await writeFile(
+      freshFile,
+      JSON.stringify({ todos: [], sessionId: "fresh" })
+    );
     const freshTime = new Date(Date.now() - 60 * 60 * 1000);
     await utimes(freshFile, freshTime, freshTime);
 
@@ -134,12 +144,16 @@ describe("stale todo cleanup", () => {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const entries = await readdir(cleanupTestDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
       const filePath = path.join(cleanupTestDir, entry.name);
       const fileStats = await stat(filePath);
       if (fileStats.mtimeMs < cutoff) {
         const { unlink } = await import("node:fs/promises");
-        await unlink(filePath).catch(() => {});
+        await unlink(filePath).catch(() => {
+          /* ignore */
+        });
       }
     }
 

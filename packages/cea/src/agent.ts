@@ -67,7 +67,6 @@ const anthropic = env.ANTHROPIC_API_KEY
     })
   : null;
 
-
 const ANTHROPIC_THINKING_BUDGET_TOKENS = 10_000;
 const ANTHROPIC_MAX_OUTPUT_TOKENS = 64_000;
 const ANTHROPIC_SELECTABLE_REASONING_MODES: ReasoningMode[] = ["off", "on"];
@@ -174,7 +173,6 @@ const getProviderOptions = (
   };
 };
 
-
 const defaultToolRegistry = createTools();
 
 /**
@@ -225,11 +223,13 @@ export class AgentManager {
 
   constructor(
     friendliClient?: ReturnType<typeof createFriendli> | null,
-    anthropicClient?: ReturnType<typeof createAnthropic> | null,
+    anthropicClient?: ReturnType<typeof createAnthropic> | null
   ) {
     // Use provided clients or fall back to module-level singletons
-    this.friendliClient = friendliClient !== undefined ? friendliClient : friendli;
-    this.anthropicClient = anthropicClient !== undefined ? anthropicClient : anthropic;
+    this.friendliClient =
+      friendliClient !== undefined ? friendliClient : friendli;
+    this.anthropicClient =
+      anthropicClient !== undefined ? anthropicClient : anthropic;
     this.applyBestReasoningModeForCurrentModel();
   }
 
@@ -478,7 +478,7 @@ export function createAgentManager(options?: {
     ? createFriendli({
         apiKey: friendliToken,
         includeUsage: true,
-        ...(options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL
+        ...((options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL)
           ? { baseURL: options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL }
           : {}),
       })
@@ -488,7 +488,7 @@ export function createAgentManager(options?: {
   const anthropicClient = anthropicApiKey
     ? createAnthropic({
         apiKey: anthropicApiKey,
-        ...(options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL
+        ...((options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL)
           ? { baseURL: options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL }
           : {}),
       })

@@ -14,20 +14,18 @@ import {
 } from "../cli-args";
 import { initializeSession } from "../context/session";
 import { translateToEnglish } from "../context/translation";
+import { validateProviderConfig } from "../env";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
-import {
-  type ReasoningMode,
-} from "../reasoning-mode";
+import type { ReasoningMode } from "../reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
-import { validateProviderConfig } from "../env";
 import { applyHeadlessAgentConfig } from "./headless-agent-config";
 
 interface BaseEvent {
@@ -198,12 +196,14 @@ const parseArgs = (): {
     }
 
     if (args[i] === "--max-iterations" && i + 1 < args.length) {
-      const val = parseInt(args[i + 1]!, 10);
-      if (!isNaN(val) && val > 0) {
-        maxIterations = val;
-        i += 1;
+      const nextArg = args[i + 1];
+      if (nextArg !== undefined) {
+        const val = Number.parseInt(nextArg, 10);
+        if (!Number.isNaN(val) && val > 0) {
+          maxIterations = val;
+          i += 1;
+        }
       }
-      continue;
     }
   }
 
@@ -492,7 +492,10 @@ const processAgentResponse = async (
       const [response, finishReason] = await Promise.race([
         Promise.all([stream.response, stream.finishReason]),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Stream response timeout")), STREAM_RESPONSE_TIMEOUT_MS)
+          setTimeout(
+            () => reject(new Error("Stream response timeout")),
+            STREAM_RESPONSE_TIMEOUT_MS
+          )
         ),
       ]);
       messageHistory.addModelMessages(response.messages);
