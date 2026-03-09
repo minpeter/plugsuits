@@ -1,5 +1,12 @@
 # plugsuits
 
+## 1.1.1
+
+### Patch Changes
+
+- 7b381a7: Fix Ctrl+C double-press exit not working after a conversation due to lingering AI SDK HTTP connections keeping the event loop alive. Simplify Ctrl+C handling to match pi-coding-agent: first press clears editor, second press within 500ms exits. Remove pendingExitConfirmation state machine and force process.exit after cleanup.
+- af6223c: Fix empty Enter (blank input) causing the app to exit instead of being silently ignored, matching pi-coding-agent behavior.
+
 ## 1.1.0
 
 ### Minor Changes
