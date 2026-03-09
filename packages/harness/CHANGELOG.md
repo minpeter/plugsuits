@@ -1,5 +1,11 @@
 # @ai-sdk-tool/harness
 
+## 0.3.1
+
+### Patch Changes
+
+- 2f41927: Remove hardcoded MANUAL_TOOL_LOOP_MAX_STEPS=200 cap and default maxIterations to Infinity. The loop now runs until the model returns a stop finish reason, an abort signal fires, or a custom shouldContinue callback returns false. Also fix shouldContinue context inconsistency where iteration was stale (pre-increment) while messages were already updated.
+
 ## 0.3.0
 
 ### Minor Changes
