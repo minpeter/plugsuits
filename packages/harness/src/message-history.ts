@@ -1,4 +1,6 @@
 import type { ModelMessage, TextPart, ToolResultPart } from "ai";
+import { pruneToolOutputs } from "./tool-pruning";
+import type { PruningConfig } from "./tool-pruning";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -243,8 +245,11 @@ export interface CompactionConfig {
   /**
    * Custom function to summarize a batch of messages.
    * If not provided, an improved extraction-based fallback is used.
+   *
+   * @param messages - The messages to summarize
+   * @param previousSummary - Optional previous summary to build upon (iterative compaction)
    */
-  summarizeFn?: (messages: ModelMessage[]) => Promise<string>;
+  summarizeFn?: (messages: ModelMessage[], previousSummary?: string) => Promise<string>;
 }
 
 export interface MessageHistoryOptions {
@@ -261,6 +266,14 @@ export interface MessageHistoryOptions {
    * while preserving important context.
    */
   compaction?: CompactionConfig;
+
+  /**
+   * Tool output pruning configuration.
+   * When enabled, large tool outputs outside a recent token window
+   * are replaced with stubs before compaction runs, potentially
+   * avoiding expensive LLM-based compaction entirely.
+   */
+  pruning?: PruningConfig;
 }
 
 const createMessageId = (() => {
@@ -283,7 +296,7 @@ const DEFAULT_COMPACTION_RESERVE = 2000;
  * Output is sanitized to prevent prompt injection and structured with
  * clear sections for context preservation.
  */
-async function defaultSummarizeFn(messages: ModelMessage[]): Promise<string> {
+async function defaultSummarizeFn(messages: ModelMessage[], previousSummary?: string): Promise<string> {
   if (messages.length === 0) {
     return sanitizeSummaryText(`${SUMMARY_PREFIX}\n(empty conversation)`);
   }
@@ -358,6 +371,11 @@ async function defaultSummarizeFn(messages: ModelMessage[]): Promise<string> {
   // Build structured summary
   const sections: string[] = [];
 
+  // Section 0: Previous context (if iterative compaction)
+  if (previousSummary) {
+    sections.push(`Previous Context:\n${sanitizeSummaryText(previousSummary)}`);
+  }
+
   // Section 1: Key Topics (from user messages)
   if (userIntents.length > 0) {
     const topicEntries = userIntents.length > 4
@@ -399,6 +417,7 @@ export class MessageHistory {
   private messages: Message[] = [];
   private readonly maxMessages: number;
   private compaction: CompactionConfig;
+  private pruning: PruningConfig;
   private summaries: CompactionSummary[] = [];
   private compactionInProgress = false;
   private pendingCompaction = false;
@@ -420,6 +439,14 @@ export class MessageHistory {
       reserveTokens:
         options?.compaction?.reserveTokens ?? DEFAULT_COMPACTION_RESERVE,
       summarizeFn: options?.compaction?.summarizeFn,
+    };
+
+    this.pruning = {
+      enabled: options?.pruning?.enabled ?? false,
+      protectRecentTokens: options?.pruning?.protectRecentTokens,
+      minSavingsTokens: options?.pruning?.minSavingsTokens,
+      protectedToolNames: options?.pruning?.protectedToolNames,
+      replacementText: options?.pruning?.replacementText,
     };
   }
 
@@ -448,6 +475,20 @@ export class MessageHistory {
    */
   getCompactionConfig(): Readonly<CompactionConfig> {
     return { ...this.compaction };
+  }
+
+  /**
+   * Check if pruning is enabled.
+   */
+  isPruningEnabled(): boolean {
+    return this.pruning.enabled === true;
+  }
+
+  /**
+   * Get the current pruning configuration.
+   */
+  getPruningConfig(): Readonly<PruningConfig> {
+    return { ...this.pruning };
   }
 
   /**
@@ -503,9 +544,11 @@ export class MessageHistory {
 
   /**
    * Trigger compaction manually. Returns true if compaction was performed.
+   * When pruning is enabled, it runs first. If pruning alone brings
+   * the token count below the compaction threshold, compaction is skipped.
    */
   async compact(): Promise<boolean> {
-    if (!this.compaction.enabled || this.messages.length === 0) {
+    if (this.messages.length === 0) {
       return false;
     }
 
@@ -514,7 +557,23 @@ export class MessageHistory {
       return false;
     }
 
-    return this.performCompaction();
+    // Run pruning first if enabled
+    let pruned = false;
+    if (this.pruning.enabled) {
+      pruned = this.performPruning();
+    }
+
+    if (!this.compaction.enabled) {
+      return pruned;
+    }
+
+    // If pruning brought us below threshold, skip compaction
+    if (pruned && !this.needsCompaction()) {
+      return true;
+    }
+
+    const compacted = await this.performCompaction();
+    return pruned || compacted;
   }
 
   addUserMessage(content: string, originalContent?: string): Message {
@@ -604,16 +663,54 @@ export class MessageHistory {
    * point of use rather than fire-and-forget.
    */
   async getMessagesForLLMAsync(): Promise<ModelMessage[]> {
-    if (this.pendingCompaction && this.needsCompaction()) {
+    if (this.pendingCompaction) {
       this.pendingCompaction = false;
-      try {
-        await this.performCompaction();
-      } catch (error) {
-        console.error("Compaction error in getMessagesForLLMAsync:", error);
+
+      // Run pruning first if enabled
+      if (this.pruning.enabled) {
+        try {
+          this.performPruning();
+        } catch (error) {
+          console.error("Pruning error in getMessagesForLLMAsync:", error);
+        }
+      }
+
+      // Only run compaction if still needed
+      if (this.compaction.enabled && this.needsCompaction()) {
+        try {
+          await this.performCompaction();
+        } catch (error) {
+          console.error("Compaction error in getMessagesForLLMAsync:", error);
+        }
       }
     }
 
     return this.getMessagesForLLM();
+  }
+
+  /**
+   * Apply tool output pruning to messages in-place.
+   * Returns true if any outputs were pruned.
+   */
+  private performPruning(): boolean {
+    const modelMessages = this.messages.map((m) => m.modelMessage);
+    const result = pruneToolOutputs(modelMessages, this.pruning);
+
+    if (result.prunedTokens === 0) {
+      return false;
+    }
+
+    // Update messages with pruned model messages
+    for (let i = 0; i < this.messages.length; i++) {
+      if (this.messages[i].modelMessage !== result.messages[i]) {
+        this.messages[i] = {
+          ...this.messages[i],
+          modelMessage: result.messages[i],
+        };
+      }
+    }
+
+    return true;
   }
 
   private async performCompaction(): Promise<boolean> {
@@ -687,6 +784,11 @@ export class MessageHistory {
       const firstKeptMessageId =
         messagesToKeep.length > 0 ? messagesToKeep[0].id : "end";
 
+      // Combine existing summaries into previousSummary for iterative compaction
+      const previousSummary = this.summaries.length > 0
+        ? this.summaries.map((s) => s.summary).join("\n\n---\n\n")
+        : undefined;
+
       // Summarize with error handling and fallback
       const summarizeFn = this.compaction.summarizeFn ?? defaultSummarizeFn;
       const modelMessagesToSummarize = messagesToSummarize.map(
@@ -695,11 +797,11 @@ export class MessageHistory {
 
       let summary: string;
       try {
-        summary = await summarizeFn(modelMessagesToSummarize);
+        summary = await summarizeFn(modelMessagesToSummarize, previousSummary);
       } catch (error) {
         // Fallback to default summarizer if custom one fails
         console.warn("Custom summarizeFn failed, using fallback:", error);
-        summary = await defaultSummarizeFn(modelMessagesToSummarize);
+        summary = await defaultSummarizeFn(modelMessagesToSummarize, previousSummary);
       }
 
       // Sanitize summary to prevent prompt injection
@@ -717,7 +819,9 @@ export class MessageHistory {
         summaryTokens,
       };
 
-      this.summaries.push(summaryEntry);
+      // Replace all previous summaries with the new one (iterative compaction)
+      // The new summary already incorporates previous context via previousSummary parameter
+      this.summaries = [summaryEntry];
       this.messages = messagesToKeep;
       this.ensureNoOrphanedToolResults();
 

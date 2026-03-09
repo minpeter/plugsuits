@@ -345,6 +345,153 @@ describe("compaction integration with model-specific configs", () => {
     });
   });
 
+  describe("iterative compaction (previousSummary)", () => {
+    it("passes previousSummary to summarizeFn on second compaction", async () => {
+      let receivedPreviousSummary: string | undefined;
+      let callCount = 0;
+
+      const customSummarizeFn = async (messages: any[], previousSummary?: string) => {
+        callCount++;
+        receivedPreviousSummary = previousSummary;
+        return `Summary #${callCount}${previousSummary ? ` (updated from: ${previousSummary.slice(0, 50)})` : ""}`;
+      };
+
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 400,
+          keepRecentTokens: 100,
+          reserveTokens: 100,
+          summarizeFn: customSummarizeFn,
+        },
+      });
+
+      // First compaction
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage("x".repeat(400));
+      }
+      await history.compact();
+
+      expect(callCount).toBe(1);
+      expect(receivedPreviousSummary).toBeUndefined();
+      expect(history.getSummaries()).toHaveLength(1);
+      const firstSummary = history.getSummaries()[0].summary;
+      expect(firstSummary).toContain("Summary #1");
+
+      // Add more messages for second compaction
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage("y".repeat(400));
+      }
+      await history.compact();
+
+      expect(callCount).toBe(2);
+      // Second call should have received the first summary as previousSummary
+      expect(receivedPreviousSummary).toBeDefined();
+      expect(receivedPreviousSummary).toContain("Summary #1");
+
+      // After second compaction, summaries should be merged into 1
+      expect(history.getSummaries()).toHaveLength(1);
+      const mergedSummary = history.getSummaries()[0].summary;
+      expect(mergedSummary).toContain("Summary #2");
+      expect(mergedSummary).toContain("updated from:");
+    });
+
+    it("merges multiple summaries into one after compaction", async () => {
+      let callCount = 0;
+      const customSummarizeFn = async (messages: any[], previousSummary?: string) => {
+        callCount++;
+        return `Iteration ${callCount}`;
+      };
+
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 400,
+          keepRecentTokens: 100,
+          reserveTokens: 100,
+          summarizeFn: customSummarizeFn,
+        },
+      });
+
+      // Run 3 compaction cycles
+      for (let cycle = 0; cycle < 3; cycle++) {
+        for (let i = 0; i < 5; i++) {
+          history.addUserMessage("z".repeat(400));
+        }
+        await history.compact();
+      }
+
+      // Should always have exactly 1 summary (merged)
+      expect(history.getSummaries()).toHaveLength(1);
+      expect(callCount).toBe(3);
+      // The last summary should be the final iteration
+      expect(history.getSummaries()[0].summary).toBe("Iteration 3");
+    });
+
+    it("defaultSummarizeFn includes previous context when provided", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 400,
+          keepRecentTokens: 100,
+          reserveTokens: 100,
+          // Use default summarizeFn (no custom)
+        },
+      });
+
+      // First compaction
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage(`First batch message ${i}: ${"a".repeat(300)}`);
+      }
+      await history.compact();
+
+      const firstSummary = history.getSummaries()[0].summary;
+      expect(firstSummary).toContain("Previous conversation summary:");
+
+      // Second compaction — should include previous context
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage(`Second batch message ${i}: ${"b".repeat(300)}`);
+      }
+      await history.compact();
+
+      const secondSummary = history.getSummaries()[0].summary;
+      expect(secondSummary).toContain("Previous Context:");
+      expect(history.getSummaries()).toHaveLength(1);
+    });
+
+    it("backwards compatible — summarizeFn without previousSummary still works", async () => {
+      // Simulate a user who defined summarizeFn with only 1 parameter
+      const oldStyleSummarizeFn = async (messages: any[]) => {
+        return `Old-style summary of ${messages.length} messages`;
+      };
+
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 400,
+          keepRecentTokens: 100,
+          reserveTokens: 100,
+          summarizeFn: oldStyleSummarizeFn,
+        },
+      });
+
+      // First compaction
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage("x".repeat(400));
+      }
+      const result1 = await history.compact();
+      expect(result1).toBe(true);
+
+      // Second compaction — should not crash even though fn ignores 2nd param
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage("y".repeat(400));
+      }
+      const result2 = await history.compact();
+      expect(result2).toBe(true);
+      expect(history.getSummaries()).toHaveLength(1);
+    });
+  });
+
   describe("CJK token estimation", () => {
     it("estimates more tokens for CJK text than Latin text of same length", () => {
       const history = new MessageHistory({ compaction: { enabled: true } });

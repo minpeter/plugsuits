@@ -4,6 +4,7 @@ import { MockLanguageModelV3 } from "ai/test";
 import {
   createModelSummarizer,
   DEFAULT_SUMMARIZATION_PROMPT,
+  ITERATIVE_SUMMARIZATION_PROMPT,
 } from "./compaction-prompts";
 
 // ─── Helpers ───
@@ -273,6 +274,142 @@ describe("compaction-prompts", () => {
       const result = await fn([
         { role: "user", content: "test" } as ModelMessage,
       ]);
+
+      expect(typeof result).toBe("string");
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("ITERATIVE_SUMMARIZATION_PROMPT", () => {
+    it("contains required section headers", () => {
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("## Summary");
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("## Context");
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("## Current State");
+    });
+
+    it("contains iterative update instructions", () => {
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("iterative update");
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("previous summary");
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("MERGE");
+    });
+
+    it("is a non-empty string", () => {
+      expect(typeof ITERATIVE_SUMMARIZATION_PROMPT).toBe("string");
+      expect(ITERATIVE_SUMMARIZATION_PROMPT.length).toBeGreaterThan(100);
+    });
+  });
+
+  describe("createModelSummarizer with previousSummary", () => {
+    it("uses iterative prompt when previousSummary is provided", async () => {
+      const expectedSummary = "## Summary\nUpdated summary with merged context.";
+      const mockModel = createMockModel(expectedSummary);
+      const summarizer = createModelSummarizer(mockModel);
+
+      const messages = makeMessages(
+        { role: "user", content: "New message after compaction" },
+        { role: "assistant", content: "Response to new message" }
+      );
+
+      const previousSummary = "## Summary\nOld conversation about weather.";
+      const result = await summarizer(messages, previousSummary);
+
+      expect(result).toBe(expectedSummary);
+      expect(mockModel.doGenerateCalls).toHaveLength(1);
+
+      // Check that the system prompt is the iterative one
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
+      const systemContent = systemMessages
+        .map((m: any) => {
+          if (typeof m.content === "string") return m.content;
+          if (Array.isArray(m.content)) {
+            return m.content.map((p: any) => p.text ?? "").join("");
+          }
+          return "";
+        })
+        .join("");
+      expect(systemContent).toContain("iterative update");
+
+      // Check that the user content includes the previous summary
+      const userMessages = callPrompt.filter((m: any) => m.role === "user");
+      const userContent = userMessages
+        .map((m: any) => {
+          if (typeof m.content === "string") return m.content;
+          if (Array.isArray(m.content)) {
+            return m.content.map((p: any) => p.text ?? "").join("");
+          }
+          return "";
+        })
+        .join("");
+      expect(userContent).toContain("<previous-summary>");
+      expect(userContent).toContain("Old conversation about weather");
+      expect(userContent).toContain("Update the above summary");
+    });
+
+    it("uses default prompt when no previousSummary", async () => {
+      const mockModel = createMockModel("## Summary\nFresh summary.");
+      const summarizer = createModelSummarizer(mockModel);
+
+      const messages = makeMessages(
+        { role: "user", content: "Hello" }
+      );
+
+      await summarizer(messages);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
+      const systemContent = systemMessages
+        .map((m: any) => {
+          if (typeof m.content === "string") return m.content;
+          if (Array.isArray(m.content)) {
+            return m.content.map((p: any) => p.text ?? "").join("");
+          }
+          return "";
+        })
+        .join("");
+      // Should use default prompt, not iterative
+      expect(systemContent).not.toContain("iterative update");
+      expect(systemContent).toContain("conversation summarizer");
+    });
+
+    it("accepts custom iterativePrompt option", async () => {
+      const customIterativePrompt = "Custom iterative: merge old and new.";
+      const mockModel = createMockModel("## Summary\nCustom merged.");
+      const summarizer = createModelSummarizer(mockModel, {
+        iterativePrompt: customIterativePrompt,
+      });
+
+      const messages = makeMessages(
+        { role: "user", content: "New message" }
+      );
+
+      await summarizer(messages, "Previous summary text");
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
+      const systemContent = systemMessages
+        .map((m: any) => {
+          if (typeof m.content === "string") return m.content;
+          if (Array.isArray(m.content)) {
+            return m.content.map((p: any) => p.text ?? "").join("");
+          }
+          return "";
+        })
+        .join("");
+      expect(systemContent).toContain(customIterativePrompt);
+    });
+
+    it("return type is compatible with CompactionConfig.summarizeFn", async () => {
+      const mockModel = createMockModel("## Summary\nTest.");
+      const summarizeFn = createModelSummarizer(mockModel);
+
+      // Verify it matches the updated signature
+      const fn: (messages: ModelMessage[], previousSummary?: string) => Promise<string> = summarizeFn;
+
+      const result = await fn(
+        [{ role: "user", content: "test" } as ModelMessage],
+        "previous summary"
+      );
 
       expect(typeof result).toBe("string");
       expect(result.length).toBeGreaterThan(0);
