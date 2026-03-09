@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 
 export class SessionManager {
   private sessionId: string | null = null;
+  private readonly prefix: string;
 
-  constructor(private readonly prefix = "session") {}
+  constructor(prefix = "session") {
+    this.prefix = prefix;
+  }
 
   initialize(): string {
     this.sessionId = `${this.prefix}-${randomUUID()}`;
