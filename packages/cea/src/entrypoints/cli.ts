@@ -10,14 +10,14 @@ import {
 import { createAgentTUI } from "@ai-sdk-tool/tui";
 import type { EditorTheme, MarkdownTheme } from "@mariozechner/pi-tui";
 import type { FinishReason, ModelMessage } from "ai";
-import type { ProviderType } from "../agent";
+import { defineCommand, runMain } from "citty";
 import { agentManager } from "../agent";
 import {
-  parseProviderArg,
-  parseReasoningCliOption,
-  parseToolFallbackCliOption,
-  parseTranslateCliOption,
-} from "../cli-args";
+  normalizeRawArgs,
+  resolveSharedConfig,
+  type SharedArgs,
+  sharedArgsDef,
+} from "../cli-defs";
 import { getCommands, registerCommand } from "../commands";
 import { createClearCommand } from "../commands/clear";
 import { createModelCommand } from "../commands/model";
@@ -34,11 +34,6 @@ import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
-import type { ReasoningMode } from "../reasoning-mode";
-import {
-  DEFAULT_TOOL_FALLBACK_MODE,
-  type ToolFallbackMode,
-} from "../tool-fallback-mode";
 import { resetMissingLinesFailures } from "../tools/modify/edit-file-diagnostics";
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
@@ -120,88 +115,6 @@ registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
 registerCommand(createTranslateCommand());
-
-const parseCliArgs = (): {
-  model: string | null;
-  provider: ProviderType | null;
-  reasoningMode: ReasoningMode | null;
-  toolFallbackMode: ToolFallbackMode;
-  translateUserPrompts: boolean;
-} => {
-  const args = process.argv.slice(2);
-  let reasoningMode: ReasoningMode | null = null;
-  let toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
-  let model: string | null = null;
-  let provider: ProviderType | null = null;
-  let translateUserPrompts = true;
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-
-    const reasoningOption = parseReasoningCliOption(args, i);
-    if (reasoningOption) {
-      reasoningMode = reasoningOption.mode;
-      i += reasoningOption.consumedArgs;
-      continue;
-    }
-
-    const toolFallbackOption = parseToolFallbackCliOption(args, i);
-    if (toolFallbackOption) {
-      toolFallbackMode = toolFallbackOption.mode;
-      i += toolFallbackOption.consumedArgs;
-      continue;
-    }
-
-    if (arg === "--model" && i + 1 < args.length) {
-      model = args[i + 1];
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--provider" && i + 1 < args.length) {
-      provider = parseProviderArg(args[i + 1]) ?? provider;
-      i += 1;
-      continue;
-    }
-
-    const translateOption = parseTranslateCliOption(arg);
-    if (translateOption !== null) {
-      translateUserPrompts = translateOption;
-    }
-  }
-
-  return {
-    reasoningMode,
-    toolFallbackMode,
-    model,
-    provider,
-    translateUserPrompts,
-  };
-};
-
-const setupAgent = (): void => {
-  const {
-    reasoningMode,
-    toolFallbackMode,
-    model,
-    provider,
-    translateUserPrompts,
-  } = parseCliArgs();
-
-  if (provider) {
-    agentManager.setProvider(provider);
-  }
-  if (model) {
-    agentManager.setModelId(model);
-  }
-  if (reasoningMode !== null) {
-    agentManager.setReasoningMode(reasoningMode);
-  }
-
-  agentManager.setToolFallbackMode(toolFallbackMode);
-  agentManager.setTranslationEnabled(translateUserPrompts);
-  messageHistory.updateCompaction(agentManager.buildCompactionConfig());
-};
 
 const toModelMessages = (messages: unknown[]): ModelMessage[] => {
   return messages as ModelMessage[];
@@ -360,43 +273,6 @@ const createCliCommands = (): Command[] => {
   });
 };
 
-const run = async (): Promise<void> => {
-  validateProviderConfig();
-  await initializeTools();
-  const skills: SkillInfo[] = await loadAllSkills();
-  setSpinnerOutputEnabled(false);
-
-  sessionManager.initialize();
-  setupAgent();
-
-  const headerSubtitle = `${agentManager.getProvider()}/${agentManager.getModelId()}\nSession: ${sessionManager.getId()}`;
-
-  try {
-    await createAgentTUI({
-      agent: buildAgentStreamWithTodoContinuation(),
-      messageHistory,
-      skills,
-      commands: createCliCommands(),
-      header: {
-        title: "Code Editing Agent",
-        subtitle: headerSubtitle,
-      },
-      theme: {
-        markdownTheme: createMarkdownTheme(),
-        editorTheme: createEditorTheme(),
-      },
-      onSetup: () => {
-        setSpinnerOutputEnabled(false);
-      },
-    });
-  } finally {
-    cleanup();
-    setSpinnerOutputEnabled(true);
-  }
-
-  process.exit(requestedProcessExitCode ?? 0);
-};
-
 const exitWithCleanup = (code: number): never => {
   cleanup(true);
   process.exit(code);
@@ -437,7 +313,61 @@ process.once("unhandledRejection", (reason: unknown) => {
   exitWithCleanup(1);
 });
 
-run().catch((error: unknown) => {
-  console.error("Fatal error:", error);
-  exitWithCleanup(1);
+const mainCommand = defineCommand({
+  meta: {
+    name: "plugsuits",
+    version: "2.0.0",
+    description: "Code Editing Agent",
+  },
+  args: sharedArgsDef,
+  async run({ args }) {
+    validateProviderConfig();
+    await initializeTools();
+    const skills: SkillInfo[] = await loadAllSkills();
+    setSpinnerOutputEnabled(false);
+    sessionManager.initialize();
+
+    const config = resolveSharedConfig(args as SharedArgs);
+    if (config.provider) {
+      agentManager.setProvider(config.provider);
+    }
+    if (config.model) {
+      agentManager.setModelId(config.model);
+    }
+    if (config.reasoningMode !== null) {
+      agentManager.setReasoningMode(config.reasoningMode);
+    }
+    agentManager.setToolFallbackMode(config.toolFallbackMode);
+    agentManager.setTranslationEnabled(config.translateUserPrompts);
+    messageHistory.updateCompaction(agentManager.buildCompactionConfig());
+
+    const headerSubtitle = `${agentManager.getProvider()}/${agentManager.getModelId()}\nSession: ${sessionManager.getId()}`;
+
+    try {
+      await createAgentTUI({
+        agent: buildAgentStreamWithTodoContinuation(),
+        messageHistory,
+        skills,
+        commands: createCliCommands(),
+        header: {
+          title: "Code Editing Agent",
+          subtitle: headerSubtitle,
+        },
+        theme: {
+          markdownTheme: createMarkdownTheme(),
+          editorTheme: createEditorTheme(),
+        },
+        onSetup: () => {
+          setSpinnerOutputEnabled(false);
+        },
+      });
+    } finally {
+      cleanup();
+      setSpinnerOutputEnabled(true);
+    }
+
+    process.exit(requestedProcessExitCode ?? 0);
+  },
 });
+
+runMain(mainCommand, { rawArgs: normalizeRawArgs(process.argv.slice(2)) });

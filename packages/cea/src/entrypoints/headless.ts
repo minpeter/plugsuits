@@ -8,7 +8,14 @@ import {
   runHeadless,
 } from "@ai-sdk-tool/headless";
 import type { ModelMessage } from "ai";
+import { defineCommand, runMain } from "citty";
 import { agentManager } from "../agent";
+import {
+  type HeadlessArgs,
+  headlessArgsDef,
+  normalizeRawArgs,
+  resolveHeadlessConfig,
+} from "../cli-defs";
 import { translateToEnglish } from "../context/translation";
 import { validateProviderConfig } from "../env";
 import {
@@ -17,8 +24,6 @@ import {
 } from "../middleware/todo-continuation";
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
-import { applyHeadlessAgentConfig } from "./headless-agent-config";
-import { parseArgs } from "./headless-args";
 
 const globalSessionState = globalThis as typeof globalThis & {
   __ceaSessionManager?: SessionManager;
@@ -43,88 +48,95 @@ const emit = (event: TrajectoryEvent): void => {
 
 registerSignalHandlers({ onCleanup: cleanup, onFatalCleanup: exitWithCleanup });
 
-const run = async (): Promise<void> => {
-  validateProviderConfig();
-  await initializeTools();
+const headlessCommand = defineCommand({
+  meta: {
+    name: "plugsuits-headless",
+    description: "Run in headless JSONL mode",
+  },
+  args: headlessArgsDef,
+  async run({ args }) {
+    validateProviderConfig();
+    await initializeTools();
 
-  const {
-    prompt,
-    model,
-    provider,
-    reasoningMode,
-    toolFallbackMode,
-    translateUserPrompts,
-    maxIterations,
-  } = parseArgs();
+    const config = resolveHeadlessConfig(args as HeadlessArgs);
 
-  applyHeadlessAgentConfig(agentManager, {
-    model,
-    provider,
-    reasoningMode,
-    toolFallbackMode,
-    translateUserPrompts,
-  });
+    agentManager.setHeadlessMode(true);
+    if (config.provider) {
+      agentManager.setProvider(config.provider);
+    }
+    if (config.model) {
+      agentManager.setModelId(config.model);
+    }
+    if (config.reasoningMode !== null) {
+      agentManager.setReasoningMode(config.reasoningMode);
+    }
+    agentManager.setToolFallbackMode(config.toolFallbackMode);
+    agentManager.setTranslationEnabled(config.translateUserPrompts);
 
-  const messageHistory = new MessageHistory({
-    compaction: agentManager.buildCompactionConfig(),
-  });
-  const preparedPrompt = agentManager.isTranslationEnabled()
-    ? await translateToEnglish(prompt, agentManager)
-    : { translated: false, text: prompt };
+    const messageHistory = new MessageHistory({
+      compaction: agentManager.buildCompactionConfig(),
+    });
 
-  emit({ timestamp: timestamp(), type: "user", sessionId, content: prompt });
-  if (preparedPrompt.error) {
+    const preparedPrompt = agentManager.isTranslationEnabled()
+      ? await translateToEnglish(config.prompt, agentManager)
+      : { translated: false, text: config.prompt };
+
     emit({
       timestamp: timestamp(),
-      type: "error",
+      type: "user",
       sessionId,
-      error: `[translation] Failed to translate input: ${preparedPrompt.error}. Using original text.`,
+      content: config.prompt,
     });
-  }
 
-  messageHistory.addUserMessage(
-    preparedPrompt.text,
-    preparedPrompt.originalText
-  );
+    if (preparedPrompt.error) {
+      emit({
+        timestamp: timestamp(),
+        type: "error",
+        sessionId,
+        error: `[translation] Failed to translate input: ${preparedPrompt.error}. Using original text.`,
+      });
+    }
 
-  try {
-    await runHeadless({
-      sessionId,
-      emitEvent,
-      getModelId: () => agentManager.getModelId(),
-      maxIterations,
-      messageHistory,
-      onTodoReminder: async () => {
-        const incompleteTodos = await getIncompleteTodos();
-        if (incompleteTodos.length === 0) {
-          return { hasReminder: false, message: null };
-        }
+    messageHistory.addUserMessage(
+      preparedPrompt.text,
+      preparedPrompt.originalText
+    );
 
-        return {
-          hasReminder: true,
-          message: buildTodoContinuationUserMessage(incompleteTodos),
-        };
-      },
-      stream: (messages: unknown[]) =>
-        agentManager.stream(messages as ModelMessage[]),
-    });
-  } catch (error) {
-    emit({
-      timestamp: timestamp(),
-      type: "error",
-      sessionId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    exitWithCleanup(1);
-  }
+    try {
+      await runHeadless({
+        sessionId,
+        emitEvent,
+        getModelId: () => agentManager.getModelId(),
+        maxIterations: config.maxIterations,
+        messageHistory,
+        onTodoReminder: async () => {
+          const incompleteTodos = await getIncompleteTodos();
+          if (incompleteTodos.length === 0) {
+            return { hasReminder: false, message: null };
+          }
+          return {
+            hasReminder: true,
+            message: buildTodoContinuationUserMessage(incompleteTodos),
+          };
+        },
+        stream: (messages: unknown[]) =>
+          agentManager.stream(messages as ModelMessage[]),
+      });
+    } catch (error) {
+      emit({
+        timestamp: timestamp(),
+        type: "error",
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      exitWithCleanup(1);
+    }
 
-  cleanup();
-  console.error(
-    `[headless] Completed in ${((Date.now() - startedAt) / 1000).toFixed(2)}s`
-  );
-};
-
-run().catch((error: unknown) => {
-  console.error("Fatal error:", error);
-  exitWithCleanup(1);
+    cleanup();
+    console.error(
+      `[headless] Completed in ${((Date.now() - startedAt) / 1000).toFixed(2)}s`
+    );
+  },
 });
+
+runMain(headlessCommand, { rawArgs: normalizeRawArgs(process.argv.slice(2)) });
