@@ -6,9 +6,13 @@ import { SessionManager } from "@ai-sdk-tool/harness";
 import { executeTodoWrite } from "./todo-write";
 
 const testDir = join(tmpdir(), "cea-todos");
-const sessionManager = ((
-  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
-).__ceaSessionManager ??= new SessionManager());
+const typedGlobalThis = globalThis as typeof globalThis & {
+  __ceaSessionManager?: SessionManager;
+};
+if (!typedGlobalThis.__ceaSessionManager) {
+  typedGlobalThis.__ceaSessionManager = new SessionManager();
+}
+const sessionManager = typedGlobalThis.__ceaSessionManager;
 
 describe("executeTodoWrite", () => {
   beforeEach(async () => {

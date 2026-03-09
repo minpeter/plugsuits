@@ -1,4 +1,3 @@
-// biome-ignore lint/performance/noBarrelFile: backward-compatible command entrypoint intentionally re-exports harness APIs.
 import { configureCommandRegistry } from "@ai-sdk-tool/harness";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
 import { loadSkillById } from "../context/skills";
@@ -17,6 +16,7 @@ configureCommandRegistry({
   },
 });
 
+// biome-ignore lint/performance/noBarrelFile: backward-compatible command entrypoint intentionally re-exports harness APIs.
 export {
   type Command,
   type CommandContext,

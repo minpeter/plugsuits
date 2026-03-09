@@ -6,9 +6,13 @@ import { z } from "zod";
 import { TODO_DIR } from "../../context/paths";
 import TODO_WRITE_DESCRIPTION from "./todo-write.txt";
 
-const sessionManager = ((
-  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
-).__ceaSessionManager ??= new SessionManager());
+const typedGlobalThis = globalThis as typeof globalThis & {
+  __ceaSessionManager?: SessionManager;
+};
+if (!typedGlobalThis.__ceaSessionManager) {
+  typedGlobalThis.__ceaSessionManager = new SessionManager();
+}
+const sessionManager = typedGlobalThis.__ceaSessionManager;
 
 const todoItemSchema = z.object({
   id: z.string().describe("Unique identifier for the todo item"),
