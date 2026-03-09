@@ -1,5 +1,12 @@
 # plugsuits
 
+## 1.1.2
+
+### Patch Changes
+
+- Updated dependencies [902ded6]
+  - @ai-sdk-tool/harness@0.3.0
+
 ## 1.1.1
 
 ### Patch Changes
