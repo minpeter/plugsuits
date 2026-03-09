@@ -1,19 +1,19 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "esModuleInterop": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "declaration": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": false,
-    "verbatimModuleSyntax": true
+    "noEmit": true,
+    "paths": {
+      "@ai-sdk-tool/harness": ["./packages/harness/src/index.ts"],
+      "@ai-sdk-tool/tui": ["./packages/tui/src/index.ts"],
+      "@ai-sdk-tool/headless": ["./packages/headless/src/index.ts"],
+      "@ai-sdk-tool/cea": ["./packages/cea/src/index.ts"]
+    }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "packages/harness/src/**/*",
+    "packages/tui/src/**/*",
+    "packages/headless/src/**/*",
+    "packages/cea/src/**/*"
+  ],
+  "exclude": ["node_modules", "**/dist", "**/*.test.ts"]
 }

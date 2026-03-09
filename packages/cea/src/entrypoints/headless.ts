@@ -105,7 +105,8 @@ const run = async (): Promise<void> => {
           message: buildTodoContinuationUserMessage(incompleteTodos),
         };
       },
-      stream: (messages) => agentManager.stream(messages as ModelMessage[]),
+      stream: (messages: unknown[]) =>
+        agentManager.stream(messages as ModelMessage[]),
     });
   } catch (error) {
     emit({
