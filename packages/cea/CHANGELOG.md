@@ -1,5 +1,13 @@
 # plugsuits
 
+## 1.1.3
+
+### Patch Changes
+
+- 2f41927: Render tool errors with pretty formatted backgrounds instead of falling back to raw generic output. Applies to read_file, glob_files, grep_files, shell_execute, shell_interact, write_file, edit_file, delete_file, skill_execute, and todo_write tools.
+- Updated dependencies [2f41927]
+  - @ai-sdk-tool/harness@0.3.1
+
 ## 1.1.2
 
 ### Patch Changes
