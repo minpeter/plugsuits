@@ -2,6 +2,7 @@
 
 import {
   MessageHistory,
+  SessionManager,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
 import { agentManager, type ProviderType } from "../agent";
@@ -11,7 +12,6 @@ import {
   parseToolFallbackCliOption,
   parseTranslateCliOption,
 } from "../cli-args";
-import { initializeSession } from "../context/session";
 import { translateToEnglish } from "../context/translation";
 import { validateProviderConfig } from "../env";
 import {
@@ -73,7 +73,10 @@ type TrajectoryEvent =
   | ToolResultEvent
   | ErrorEvent;
 
-const sessionId = initializeSession();
+const sessionManager = ((
+  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
+).__ceaSessionManager ??= new SessionManager());
+const sessionId = sessionManager.initialize();
 
 const cleanupExecutionResources = (): void => {
   cleanup();

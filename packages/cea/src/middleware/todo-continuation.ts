@@ -1,7 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { SessionManager } from "@ai-sdk-tool/harness";
 import { TODO_DIR } from "../context/paths";
-import { getSessionId, hasActiveSession } from "../context/session";
+
+const sessionManager = ((
+  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
+).__ceaSessionManager ??= new SessionManager());
 
 export interface TodoItem {
   content: string;
@@ -17,11 +21,11 @@ interface TodoData {
 }
 
 export async function getIncompleteTodos(): Promise<TodoItem[]> {
-  if (!hasActiveSession()) {
+  if (!sessionManager.isActive()) {
     return [];
   }
 
-  const sessionId = getSessionId();
+  const sessionId = sessionManager.getId();
   const todoPath = join(process.cwd(), TODO_DIR, `${sessionId}.json`);
 
   try {

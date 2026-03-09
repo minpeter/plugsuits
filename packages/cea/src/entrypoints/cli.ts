@@ -3,6 +3,7 @@
 import { stripVTControlCharacters } from "node:util";
 import {
   MessageHistory,
+  SessionManager,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
 import {
@@ -56,7 +57,6 @@ import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createRenderCommand } from "../commands/render";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { createTranslateCommand } from "../commands/translate";
-import { getSessionId, initializeSession } from "../context/session";
 import { toPromptsCommandName } from "../context/skill-command-prefix";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
@@ -101,6 +101,9 @@ const CTRL_C_ETX = "\u0003";
 const CTRL_C_EXIT_WINDOW_MS = 500;
 
 const messageHistory = new MessageHistory();
+const sessionManager = ((
+  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
+).__ceaSessionManager ??= new SessionManager());
 let cachedSkills: SkillInfo[] = [];
 let shouldExit = false;
 let activeStreamController: AbortController | null = null;
@@ -626,7 +629,7 @@ const createCliUi = (skills: SkillInfo[]): CliUi => {
   );
 
   const updateHeader = (): void => {
-    const sessionId = getSessionId();
+    const sessionId = sessionManager.getId();
     const provider = agentManager.getProvider();
     const model = agentManager.getModelId();
     title.setText(
@@ -1593,7 +1596,7 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
 
   if (result?.action === "new-session") {
     ui.clearStatus();
-    initializeSession();
+    sessionManager.initialize();
     messageHistory.clear();
     resetMissingLinesFailures();
     ui.chatContainer.clear();
@@ -1706,7 +1709,7 @@ const run = async (): Promise<void> => {
   cachedSkills = await loadAllSkills();
   setSpinnerOutputEnabled(false);
 
-  initializeSession();
+  sessionManager.initialize();
   setupAgent();
 
   const ui = createCliUi(cachedSkills);

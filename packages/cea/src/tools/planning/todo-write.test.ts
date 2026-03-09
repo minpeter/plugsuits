@@ -2,14 +2,17 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initializeSession } from "../../context/session";
+import { SessionManager } from "@ai-sdk-tool/harness";
 import { executeTodoWrite } from "./todo-write";
 
 const testDir = join(tmpdir(), "cea-todos");
+const sessionManager = ((
+  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
+).__ceaSessionManager ??= new SessionManager());
 
 describe("executeTodoWrite", () => {
   beforeEach(async () => {
-    initializeSession();
+    sessionManager.initialize();
     try {
       await rm(testDir, { recursive: true, force: true });
     } catch {
