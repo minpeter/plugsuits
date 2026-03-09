@@ -1,76 +1,27 @@
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { SessionManager } from "@ai-sdk-tool/harness";
+import type { TodoItem } from "@ai-sdk-tool/harness";
+import { SessionManager, TodoContinuation } from "@ai-sdk-tool/harness";
 import { TODO_DIR } from "../context/paths";
 
-const sessionManager = ((
-  globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager }
-).__ceaSessionManager ??= new SessionManager());
+export type { TodoItem } from "@ai-sdk-tool/harness";
 
-export interface TodoItem {
-  content: string;
-  description?: string;
-  id: string;
-  priority: "high" | "medium" | "low";
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-}
+const sessionManager =
+  (globalThis as typeof globalThis & { __ceaSessionManager?: SessionManager })
+    .__ceaSessionManager ?? new SessionManager();
 
-interface TodoData {
-  todos: TodoItem[];
-  updatedAt: string;
-}
-
-export async function getIncompleteTodos(): Promise<TodoItem[]> {
-  if (!sessionManager.isActive()) {
-    return [];
-  }
-
-  const sessionId = sessionManager.getId();
-  const todoPath = join(process.cwd(), TODO_DIR, `${sessionId}.json`);
-
-  try {
-    await stat(todoPath);
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
-
-  let data: TodoData;
-  try {
-    const content = await readFile(todoPath, "utf-8");
-    data = JSON.parse(content);
-  } catch {
-    return [];
-  }
-
-  if (!Array.isArray(data.todos)) {
-    return [];
-  }
-
-  return data.todos.filter(
-    (t) => t.status !== "completed" && t.status !== "cancelled"
-  );
-}
-
-const STATUS_EMOJI_MAP: Record<TodoItem["status"], string> = {
+const STATUS_EMOJI: Record<string, string> = {
   in_progress: "🔄",
   pending: "📋",
   completed: "✅",
   cancelled: "❌",
 };
 
-const buildTodoTaskList = (todos: TodoItem[]): string =>
-  todos
+function ceaPromptTemplate(todos: TodoItem[]): string {
+  const taskList = todos
     .map((t, i) => {
-      const statusEmoji = STATUS_EMOJI_MAP[t.status] ?? "⚠️";
-      return `${i + 1}. ${statusEmoji} [${t.status.toUpperCase()}] ${t.content} (priority: ${t.priority})`;
+      const emoji = STATUS_EMOJI[t.status] ?? "⚠️";
+      return `${i + 1}. ${emoji} [${t.status.toUpperCase()}] ${t.content} (priority: ${t.priority})`;
     })
     .join("\n");
-
-export function buildTodoContinuationPrompt(todos: TodoItem[]): string {
-  const taskList = buildTodoTaskList(todos);
 
   return `
 
@@ -110,12 +61,16 @@ CRITICAL EXECUTION RULES - READ CAREFULLY:
 
 You are autonomous. Execute tasks, do not just describe them.
 
----
-`.trim();
+---`.trim();
 }
 
-export function buildTodoContinuationUserMessage(todos: TodoItem[]): string {
-  const taskList = buildTodoTaskList(todos);
+function ceaUserMessageTemplate(todos: TodoItem[]): string {
+  const taskList = todos
+    .map((t, i) => {
+      const emoji = STATUS_EMOJI[t.status] ?? "⚠️";
+      return `${i + 1}. ${emoji} [${t.status.toUpperCase()}] ${t.content} (priority: ${t.priority})`;
+    })
+    .join("\n");
 
   return [
     "[SYSTEM REMINDER - TODO CONTINUATION]",
@@ -130,3 +85,18 @@ export function buildTodoContinuationUserMessage(todos: TodoItem[]): string {
     .join("\n")
     .trim();
 }
+
+const todoContinuation = new TodoContinuation(
+  {
+    todoDir: TODO_DIR,
+    promptTemplate: ceaPromptTemplate,
+    userMessageTemplate: ceaUserMessageTemplate,
+  },
+  sessionManager
+);
+
+export const getIncompleteTodos = () => todoContinuation.getIncompleteTodos();
+export const buildTodoContinuationPrompt = (todos: TodoItem[]) =>
+  todoContinuation.buildContinuationPrompt(todos);
+export const buildTodoContinuationUserMessage = (todos: TodoItem[]) =>
+  todoContinuation.buildContinuationUserMessage(todos);

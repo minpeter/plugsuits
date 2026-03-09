@@ -44,6 +44,8 @@ export {
 } from "./skill-command-prefix.js";
 export type { SkillInfo, SkillsConfig } from "./skills.js";
 export { SkillsEngine } from "./skills.js";
+export type { TodoConfig, TodoItem } from "./todo-continuation.js";
+export { TodoContinuation } from "./todo-continuation.js";
 export {
   normalizeFinishReason,
   shouldContinueManualToolLoop,
