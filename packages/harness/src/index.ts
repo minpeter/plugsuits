@@ -32,20 +32,20 @@ export type {
   MessageHistoryOptions,
 } from "./message-history";
 export { MessageHistory } from "./message-history";
-export type { MiddlewareConfig } from "./middleware.js";
-export { buildMiddlewareChain } from "./middleware.js";
-export type { AgentPaths, AgentPathsOptions } from "./paths.js";
-export { createAgentPaths } from "./paths.js";
-export { SessionManager } from "./session.js";
+export type { MiddlewareConfig } from "./middleware";
+export { buildMiddlewareChain } from "./middleware";
+export type { AgentPaths, AgentPathsOptions } from "./paths";
+export { createAgentPaths } from "./paths";
+export { SessionManager } from "./session";
 export {
   PROMPTS_COMMAND_PREFIX,
   parsePromptsCommandName,
   toPromptsCommandName,
-} from "./skill-command-prefix.js";
-export type { SkillInfo, SkillsConfig } from "./skills.js";
-export { SkillsEngine } from "./skills.js";
-export type { TodoConfig, TodoItem } from "./todo-continuation.js";
-export { TodoContinuation } from "./todo-continuation.js";
+} from "./skill-command-prefix";
+export type { SkillInfo, SkillsConfig } from "./skills";
+export { SkillsEngine } from "./skills";
+export type { TodoConfig, TodoItem } from "./todo-continuation";
+export { TodoContinuation } from "./todo-continuation";
 export {
   normalizeFinishReason,
   shouldContinueManualToolLoop,
