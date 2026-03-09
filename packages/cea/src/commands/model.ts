@@ -1,9 +1,9 @@
+import type { Command, CommandResult } from "@ai-sdk-tool/harness";
 import type { ProviderType } from "../agent";
 import { ANTHROPIC_MODELS, agentManager } from "../agent";
 import type { FriendliReasoningModelConfig } from "../friendli-models";
 import { FRIENDLI_MODELS } from "../friendli-models";
 import { colorize } from "../interaction/colors";
-import type { Command, CommandResult } from "./types";
 
 export interface ModelInfo {
   id: string;

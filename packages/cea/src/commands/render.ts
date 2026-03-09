@@ -1,4 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { Command, CommandResult } from "@ai-sdk-tool/harness";
 import type { ModelMessage, ToolSet } from "ai";
 import { generateText, wrapLanguageModel } from "ai";
 import type { ModelType } from "../agent";
@@ -12,7 +13,6 @@ import { Spinner } from "../interaction/spinner";
 import { buildMiddlewares } from "../middleware";
 import type { ReasoningMode } from "../reasoning-mode";
 import type { ToolFallbackMode } from "../tool-fallback-mode";
-import type { Command, CommandResult } from "./types";
 
 interface RenderData {
   instructions: string;

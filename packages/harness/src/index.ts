@@ -1,4 +1,23 @@
+// biome-ignore lint/performance/noBarrelFile: package public entrypoint must aggregate exports.
 export { createAgent } from "./agent";
+export type {
+  Command,
+  CommandContext,
+  CommandRegistryConfig,
+  CommandResult,
+  SkillCommandResult,
+} from "./commands";
+export {
+  configureCommandRegistry,
+  createHelpCommand,
+  executeCommand,
+  getCommands,
+  isCommand,
+  isSkillCommandResult,
+  parseCommand,
+  registerCommand,
+  resolveRegisteredCommandName,
+} from "./commands";
 export type { ModelSummarizerOptions } from "./compaction-prompts";
 export {
   createModelSummarizer,

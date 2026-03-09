@@ -1,4 +1,4 @@
-import type { Command, CommandResult } from "./types";
+import type { Command, CommandResult } from "@ai-sdk-tool/harness";
 
 const newSessionAction = (): CommandResult => ({
   success: true,
