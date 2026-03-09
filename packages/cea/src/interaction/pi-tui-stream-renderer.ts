@@ -653,7 +653,7 @@ const ANSI_DIM = "\x1b[2m";
 const ANSI_ITALIC = "\x1b[3m";
 const ANSI_GRAY = "\x1b[90m";
 const ANSI_BG_GRAY = "\x1b[100m";
-const ANSI_BG_RED = "\x1b[41m";
+const ANSI_BG_DARK_RED = "\x1b[48;5;88m";
 const LEADING_NEWLINES = /^\n+/;
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -662,7 +662,7 @@ const applyReadPreviewBackground = (text: string): string => {
 };
 
 const applyErrorBackground = (text: string): string => {
-  return `${ANSI_BG_RED}${text}${ANSI_RESET}`;
+  return `${ANSI_BG_DARK_RED}${text}${ANSI_RESET}`;
 };
 
 const styleThinkingText = (text: string): string => {
