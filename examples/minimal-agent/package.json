@@ -10,7 +10,8 @@
   "dependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
     "@ai-sdk-tool/tui": "workspace:*",
-    "@ai-sdk-tool/headless": "workspace:*"
+    "@ai-sdk-tool/headless": "workspace:*",
+    "citty": "^0.2.1"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

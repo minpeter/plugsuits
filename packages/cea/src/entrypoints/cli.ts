@@ -4,11 +4,27 @@ import {
   type Command,
   type CommandContext,
   MessageHistory,
+  parseCommand,
   SessionManager,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
-import { createAgentTUI } from "@ai-sdk-tool/tui";
+import {
+  type CommandPreprocessHooks,
+  createAgentTUI,
+  type PreprocessHooks,
+  type PreprocessResult,
+} from "@ai-sdk-tool/tui";
 import type { EditorTheme, MarkdownTheme } from "@mariozechner/pi-tui";
+import {
+  Container,
+  Input,
+  Key,
+  matchesKey,
+  type SelectItem,
+  SelectList,
+  Spacer,
+  Text,
+} from "@mariozechner/pi-tui";
 import type { FinishReason, ModelMessage } from "ai";
 import { defineCommand, runMain } from "citty";
 import { agentManager } from "../agent";
@@ -20,7 +36,13 @@ import {
 } from "../cli-defs";
 import { getCommands, registerCommand } from "../commands";
 import { createClearCommand } from "../commands/clear";
-import { createModelCommand } from "../commands/model";
+import {
+  applyModelSelection,
+  createModelCommand,
+  findModelBySelection,
+  getAvailableModels,
+  type ModelInfo,
+} from "../commands/model";
 import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createRenderCommand } from "../commands/render";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
@@ -34,6 +56,17 @@ import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
 } from "../middleware/todo-continuation";
+import {
+  DEFAULT_REASONING_MODE,
+  parseReasoningMode,
+  REASONING_MODES,
+  type ReasoningMode,
+} from "../reasoning-mode";
+import {
+  parseToolFallbackMode,
+  TOOL_FALLBACK_MODES,
+  type ToolFallbackMode,
+} from "../tool-fallback-mode";
 import { resetMissingLinesFailures } from "../tools/modify/edit-file-diagnostics";
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { initializeTools } from "../utils/tools-manager";
@@ -52,6 +85,35 @@ const ANSI_GRAY = "\x1b[90m";
 
 const style = (prefix: string, text: string): string => {
   return `${prefix}${text}${ANSI_RESET}`;
+};
+
+const buildCurrentIndicatorLabel = (
+  label: string,
+  isCurrent: boolean
+): string => {
+  return isCurrent ? `${label} (current)` : label;
+};
+
+const buildModelSelectorLabel = (
+  model: ModelInfo,
+  isCurrent: boolean
+): string => {
+  return buildCurrentIndicatorLabel(model.id, isCurrent);
+};
+
+const buildModelSelectorDescription = (model: ModelInfo): string => {
+  let providerLabel = "FriendliAI";
+  if (model.provider === "anthropic") {
+    providerLabel = "Anthropic";
+  } else if (model.type === "dedicated") {
+    providerLabel = "FDE";
+  }
+
+  if (model.name?.trim()) {
+    return `${model.name} • ${providerLabel}`;
+  }
+
+  return providerLabel;
 };
 
 const createMarkdownTheme = (): MarkdownTheme => {
@@ -120,45 +182,46 @@ const toModelMessages = (messages: unknown[]): ModelMessage[] => {
   return messages as ModelMessage[];
 };
 
-const withTranslatedLastUserMessage = async (
-  messages: ModelMessage[]
-): Promise<ModelMessage[]> => {
-  if (!agentManager.isTranslationEnabled() || messages.length === 0) {
-    return messages;
-  }
+const createTranslationPreprocessor = () => {
+  return async (
+    input: string,
+    hooks: PreprocessHooks
+  ): Promise<PreprocessResult | undefined> => {
+    if (!(agentManager.isTranslationEnabled() && isNonEnglish(input))) {
+      return undefined;
+    }
 
-  const lastIndex = messages.length - 1;
-  const lastMessage = messages[lastIndex];
-  if (
-    lastMessage.role !== "user" ||
-    typeof lastMessage.content !== "string" ||
-    !isNonEnglish(lastMessage.content)
-  ) {
-    return messages;
-  }
+    hooks.showStatus("Translating...");
 
-  const translation = await translateToEnglish(
-    lastMessage.content,
-    agentManager
-  );
-  if (translation.error || translation.text === lastMessage.content) {
-    return messages;
-  }
+    try {
+      const result = await translateToEnglish(input, agentManager);
 
-  const translatedMessages = [...messages];
-  translatedMessages[lastIndex] = {
-    ...lastMessage,
-    content: translation.text,
+      if (result.error) {
+        return {
+          contentForModel: input,
+          error: `[translation] Failed to translate input: ${result.error}. Using original text.`,
+        };
+      }
+
+      if (!result.translated || result.text === input) {
+        return undefined;
+      }
+
+      return {
+        contentForModel: result.text,
+        originalContent: input,
+        translatedDisplay: result.text,
+      };
+    } finally {
+      hooks.clearStatus();
+    }
   };
-  return translatedMessages;
 };
 
 const buildAgentStreamWithTodoContinuation = () => {
   return {
     stream: async (messages: unknown[], opts?: unknown) => {
-      const preparedMessages = await withTranslatedLastUserMessage(
-        toModelMessages(messages)
-      );
+      const preparedMessages = toModelMessages(messages);
       const stream = await agentManager.stream(preparedMessages, opts as never);
 
       const continuationDecision = (async (): Promise<{
@@ -341,7 +404,505 @@ const mainCommand = defineCommand({
     agentManager.setTranslationEnabled(config.translateUserPrompts);
     messageHistory.updateCompaction(agentManager.buildCompactionConfig());
 
-    const headerSubtitle = `${agentManager.getProvider()}/${agentManager.getModelId()}\nSession: ${sessionManager.getId()}`;
+    const showReasoningModeSelector = async (
+      hooks: CommandPreprocessHooks
+    ): Promise<ReasoningMode | null> => {
+      hooks.clearStatus();
+
+      const selectorContainer = new Container();
+      const selectableModes = agentManager.getSelectableReasoningModes();
+      const currentMode = agentManager.getReasoningMode();
+      const descriptions: Partial<Record<ReasoningMode, string>> = {
+        off: "Disable model reasoning output",
+        on: "Enable model reasoning output",
+        interleaved: "Interleave reasoning with normal response",
+        preserved: "Preserve provider-native reasoning format",
+      };
+      const selectableSet = new Set(selectableModes);
+      const modeItems: SelectItem[] = REASONING_MODES.filter((mode) => {
+        return selectableSet.has(mode);
+      }).map((mode) => {
+        const parsedMode = parseReasoningMode(mode) ?? DEFAULT_REASONING_MODE;
+        return {
+          value: parsedMode,
+          label: buildCurrentIndicatorLabel(
+            parsedMode,
+            parsedMode === currentMode
+          ),
+          description: descriptions[parsedMode],
+        };
+      });
+
+      if (modeItems.length === 0) {
+        return null;
+      }
+
+      const selectList = new SelectList(
+        modeItems,
+        10,
+        hooks.editorTheme.selectList
+      );
+      const currentIndex = modeItems.findIndex(
+        (item) => item.value === currentMode
+      );
+      if (currentIndex >= 0) {
+        selectList.setSelectedIndex(currentIndex);
+      }
+
+      selectorContainer.addChild(
+        new Text(style(ANSI_DIM, "Select reasoning mode"), 1, 0)
+      );
+      selectorContainer.addChild(new Spacer(1));
+      selectorContainer.addChild(selectList);
+
+      hooks.clearStatus();
+      hooks.statusContainer.addChild(selectorContainer);
+      hooks.tui.requestRender();
+
+      return await new Promise<ReasoningMode | null>((resolve) => {
+        let settled = false;
+        let removeInputListener: (() => void) | null = null;
+
+        const finish = (value: ReasoningMode | null): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (removeInputListener) {
+            removeInputListener();
+          }
+          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.tui.requestRender();
+          resolve(value);
+        };
+
+        selectList.onSelect = (item) => {
+          finish(item.value as ReasoningMode);
+        };
+        selectList.onCancel = () => {
+          finish(null);
+        };
+
+        removeInputListener = hooks.tui.addInputListener((data: string) => {
+          if (hooks.isCtrlCInput(data)) {
+            hooks.handleCtrlCPress();
+            finish(null);
+            return { consume: true };
+          }
+
+          selectList.handleInput(data);
+          hooks.tui.requestRender();
+          return { consume: true };
+        });
+      });
+    };
+
+    const showToolFallbackSelector = async (
+      hooks: CommandPreprocessHooks
+    ): Promise<ToolFallbackMode | null> => {
+      hooks.clearStatus();
+
+      const selectorContainer = new Container();
+      const currentMode = agentManager.getToolFallbackMode();
+      const descriptions: Record<ToolFallbackMode, string> = {
+        disable: "Use native tool support only",
+        morphxml: "XML tags per tool (MorphXML protocol)",
+        hermes: "Hermes JSON-in-XML tool_call format",
+        qwen3coder: "Qwen3Coder function-tag tool_call format",
+      };
+
+      const items: SelectItem[] = TOOL_FALLBACK_MODES.map((mode) => {
+        const parsedMode = parseToolFallbackMode(mode) ?? mode;
+        return {
+          value: parsedMode,
+          label: buildCurrentIndicatorLabel(
+            parsedMode,
+            parsedMode === currentMode
+          ),
+          description: descriptions[parsedMode],
+        };
+      });
+
+      const selectList = new SelectList(
+        items,
+        10,
+        hooks.editorTheme.selectList
+      );
+      const currentIndex = items.findIndex(
+        (item) => item.value === currentMode
+      );
+      if (currentIndex >= 0) {
+        selectList.setSelectedIndex(currentIndex);
+      }
+      selectorContainer.addChild(
+        new Text(style(ANSI_DIM, "Select tool fallback mode"), 1, 0)
+      );
+      selectorContainer.addChild(new Spacer(1));
+      selectorContainer.addChild(selectList);
+
+      hooks.statusContainer.addChild(selectorContainer);
+      hooks.tui.requestRender();
+
+      return await new Promise<ToolFallbackMode | null>((resolve) => {
+        let settled = false;
+        let removeInputListener: (() => void) | null = null;
+
+        const finish = (value: ToolFallbackMode | null): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (removeInputListener) {
+            removeInputListener();
+          }
+          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.tui.requestRender();
+          resolve(value);
+        };
+
+        selectList.onSelect = (item) => {
+          finish(item.value as ToolFallbackMode);
+        };
+        selectList.onCancel = () => {
+          finish(null);
+        };
+
+        removeInputListener = hooks.tui.addInputListener((data: string) => {
+          if (hooks.isCtrlCInput(data)) {
+            hooks.handleCtrlCPress();
+            finish(null);
+            return { consume: true };
+          }
+
+          selectList.handleInput(data);
+          hooks.tui.requestRender();
+          return { consume: true };
+        });
+      });
+    };
+
+    const showTranslateModeSelector = async (
+      hooks: CommandPreprocessHooks
+    ): Promise<boolean | null> => {
+      hooks.clearStatus();
+
+      const selectorContainer = new Container();
+      const translationEnabled = agentManager.isTranslationEnabled();
+      const items: SelectItem[] = [
+        {
+          value: "on",
+          label: buildCurrentIndicatorLabel("on", translationEnabled),
+          description: "Auto-translate non-English prompts",
+        },
+        {
+          value: "off",
+          label: buildCurrentIndicatorLabel("off", !translationEnabled),
+          description: "Use prompts as entered",
+        },
+      ];
+
+      const selectList = new SelectList(
+        items,
+        10,
+        hooks.editorTheme.selectList
+      );
+      const currentIndex = translationEnabled ? 0 : 1;
+      selectList.setSelectedIndex(currentIndex);
+      selectorContainer.addChild(
+        new Text(style(ANSI_DIM, "Select translation mode"), 1, 0)
+      );
+      selectorContainer.addChild(new Spacer(1));
+      selectorContainer.addChild(selectList);
+
+      hooks.statusContainer.addChild(selectorContainer);
+      hooks.tui.requestRender();
+
+      return await new Promise<boolean | null>((resolve) => {
+        let settled = false;
+        let removeInputListener: (() => void) | null = null;
+
+        const finish = (value: boolean | null): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (removeInputListener) {
+            removeInputListener();
+          }
+          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.tui.requestRender();
+          resolve(value);
+        };
+
+        selectList.onSelect = (item) => {
+          finish(item.value === "on");
+        };
+        selectList.onCancel = () => {
+          finish(null);
+        };
+
+        removeInputListener = hooks.tui.addInputListener((data: string) => {
+          if (hooks.isCtrlCInput(data)) {
+            hooks.handleCtrlCPress();
+            finish(null);
+            return { consume: true };
+          }
+
+          selectList.handleInput(data);
+          hooks.tui.requestRender();
+          return { consume: true };
+        });
+      });
+    };
+
+    const showModelSelector = async (
+      models: ModelInfo[],
+      currentModelId: string,
+      currentProvider: ModelInfo["provider"],
+      hooks: CommandPreprocessHooks,
+      initialFilter = ""
+    ): Promise<ModelInfo | null> => {
+      hooks.clearStatus();
+
+      const selectorContainer = new Container();
+      const searchInput = new Input();
+      searchInput.focused = true;
+      searchInput.setValue(initialFilter);
+
+      const items: SelectItem[] = models.map((model) => {
+        const isCurrent =
+          model.id === currentModelId && model.provider === currentProvider;
+        return {
+          value: model.id,
+          label: buildModelSelectorLabel(model, isCurrent),
+          description: buildModelSelectorDescription(model),
+        };
+      });
+
+      const selectList = new SelectList(
+        items,
+        10,
+        hooks.editorTheme.selectList
+      );
+
+      selectorContainer.addChild(
+        new Text(style(ANSI_DIM, "Select model"), 1, 0)
+      );
+      selectorContainer.addChild(
+        new Text(
+          style(ANSI_DIM, "Type to filter, Enter to select, Esc to cancel"),
+          1,
+          0
+        )
+      );
+      selectorContainer.addChild(new Spacer(1));
+      selectorContainer.addChild(new Text(style(ANSI_DIM, "Search:"), 1, 0));
+      selectorContainer.addChild(searchInput);
+      selectorContainer.addChild(new Spacer(1));
+      selectorContainer.addChild(selectList);
+
+      hooks.statusContainer.addChild(selectorContainer);
+      selectList.setFilter(initialFilter);
+      if (!initialFilter) {
+        const currentIndex = items.findIndex((_item, i) => {
+          const model = models[i];
+          return (
+            model.id === currentModelId && model.provider === currentProvider
+          );
+        });
+        if (currentIndex >= 0) {
+          selectList.setSelectedIndex(currentIndex);
+        }
+      }
+      hooks.tui.requestRender();
+
+      return await new Promise<ModelInfo | null>((resolve) => {
+        let settled = false;
+        let removeInputListener: (() => void) | null = null;
+
+        const finish = (value: ModelInfo | null): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (removeInputListener) {
+            removeInputListener();
+          }
+          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.tui.requestRender();
+          resolve(value);
+        };
+
+        selectList.onSelect = (item) => {
+          finish(models.find((m) => m.id === item.value) ?? null);
+        };
+        selectList.onCancel = () => {
+          finish(null);
+        };
+
+        removeInputListener = hooks.tui.addInputListener((data: string) => {
+          if (hooks.isCtrlCInput(data)) {
+            hooks.handleCtrlCPress();
+            finish(null);
+            return { consume: true };
+          }
+
+          const isNavigationInput =
+            matchesKey(data, Key.up) ||
+            matchesKey(data, Key.down) ||
+            matchesKey(data, Key.enter) ||
+            matchesKey(data, Key.escape);
+
+          if (isNavigationInput) {
+            selectList.handleInput(data);
+          } else {
+            searchInput.handleInput(data);
+            selectList.setFilter(searchInput.getValue());
+          }
+
+          hooks.tui.requestRender();
+          return { consume: true };
+        });
+      });
+    };
+
+    const handleModelCommand = async (
+      commandInput: string,
+      parsed: { name: string; args: string[] },
+      hooks: CommandPreprocessHooks
+    ): Promise<string | null> => {
+      const models = getAvailableModels();
+      if (models.length === 0) {
+        return commandInput;
+      }
+
+      const searchTerm = parsed.args[0]?.trim() ?? "";
+
+      if (parsed.args.length > 0 && findModelBySelection(searchTerm, models)) {
+        return commandInput;
+      }
+
+      const selectedModel = await showModelSelector(
+        models,
+        agentManager.getModelId(),
+        agentManager.getProvider(),
+        hooks,
+        searchTerm
+      );
+
+      if (!selectedModel) {
+        return null;
+      }
+
+      const result = applyModelSelection(selectedModel);
+      updateCompactionForCurrentModel();
+      if (result.message) {
+        hooks.showMessage(result.message);
+      }
+      hooks.updateHeader();
+      return null;
+    };
+
+    const handleReasoningModeSelectorCommand = async (
+      parsed: { name: string; args: string[] },
+      hooks: CommandPreprocessHooks
+    ): Promise<string | null | undefined> => {
+      if (
+        !(parsed.name === "reasoning-mode" || parsed.name === "think") ||
+        parsed.args.length > 0
+      ) {
+        return undefined;
+      }
+
+      const selected = await showReasoningModeSelector(hooks);
+      return selected ? `/reasoning-mode ${selected}` : null;
+    };
+
+    const handleToolFallbackSelectorCommand = async (
+      parsed: { name: string; args: string[] },
+      hooks: CommandPreprocessHooks
+    ): Promise<string | null | undefined> => {
+      if (parsed.name !== "tool-fallback" || parsed.args.length > 0) {
+        return undefined;
+      }
+
+      const selected = await showToolFallbackSelector(hooks);
+      return selected ? `/tool-fallback ${selected}` : null;
+    };
+
+    const handleTranslateSelectorCommand = async (
+      parsed: { name: string; args: string[] },
+      hooks: CommandPreprocessHooks
+    ): Promise<string | null | undefined> => {
+      if (parsed.name !== "translate" || parsed.args.length > 0) {
+        return undefined;
+      }
+
+      const selected = await showTranslateModeSelector(hooks);
+      if (selected === null) {
+        return null;
+      }
+
+      const mode = selected ? "on" : "off";
+      return `/translate ${mode}`;
+    };
+
+    const preprocessSimpleSelectorCommand = async (
+      parsed: { name: string; args: string[] },
+      hooks: CommandPreprocessHooks
+    ): Promise<string | null | undefined> => {
+      const reasoningResult = await handleReasoningModeSelectorCommand(
+        parsed,
+        hooks
+      );
+      if (reasoningResult !== undefined) {
+        return reasoningResult;
+      }
+
+      const fallbackResult = await handleToolFallbackSelectorCommand(
+        parsed,
+        hooks
+      );
+      if (fallbackResult !== undefined) {
+        return fallbackResult;
+      }
+
+      const translateResult = await handleTranslateSelectorCommand(
+        parsed,
+        hooks
+      );
+      if (translateResult !== undefined) {
+        return translateResult;
+      }
+
+      return undefined;
+    };
+
+    const createCommandPreprocessor = () => {
+      return async (
+        commandInput: string,
+        hooks: CommandPreprocessHooks
+      ): Promise<string | null> => {
+        const parsed = parseCommand(commandInput);
+        if (!parsed) {
+          return commandInput;
+        }
+
+        if (parsed.name === "model") {
+          return handleModelCommand(commandInput, parsed, hooks);
+        }
+
+        const selectorResult = await preprocessSimpleSelectorCommand(
+          parsed,
+          hooks
+        );
+        if (selectorResult !== undefined) {
+          return selectorResult;
+        }
+
+        return commandInput;
+      };
+    };
 
     try {
       await createAgentTUI({
@@ -351,12 +912,16 @@ const mainCommand = defineCommand({
         commands: createCliCommands(),
         header: {
           title: "Code Editing Agent",
-          subtitle: headerSubtitle,
+          get subtitle() {
+            return `${agentManager.getProvider()}/${agentManager.getModelId()}\nSession: ${sessionManager.getId()}`;
+          },
         },
         theme: {
           markdownTheme: createMarkdownTheme(),
           editorTheme: createEditorTheme(),
         },
+        preprocessCommand: createCommandPreprocessor(),
+        preprocessUserInput: createTranslationPreprocessor(),
         onSetup: () => {
           setSpinnerOutputEnabled(false);
         },

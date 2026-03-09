@@ -45,6 +45,7 @@ const ANSI_BLACK = "\x1b[30m";
 const ANSI_BOLD = "\x1b[1m";
 const ANSI_DIM = "\x1b[2m";
 const ANSI_BG_SOFT_LIGHT = "\x1b[48;5;249m";
+const ANSI_BG_GRAY = "\x1b[100m";
 const ANSI_CYAN = "\x1b[36m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
@@ -102,6 +103,19 @@ const addUserMessage = (
   );
 };
 
+const addTranslatedMessage = (
+  chatContainer: Container,
+  markdownTheme: MarkdownTheme,
+  message: string
+): void => {
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(
+    new Markdown(message, 1, 1, markdownTheme, {
+      bgColor: (text: string) => style(ANSI_BG_GRAY, text),
+    })
+  );
+};
+
 const addSystemMessage = (chatContainer: Container, message: string): void => {
   const cleaned = message.trimEnd();
   if (cleaned.length === 0) {
@@ -118,6 +132,29 @@ const addNewSessionMessage = (chatContainer: Container): void => {
   );
 };
 
+export interface PreprocessResult {
+  contentForModel: string;
+  error?: string;
+  originalContent?: string;
+  translatedDisplay?: string;
+}
+
+export interface PreprocessHooks {
+  clearStatus: () => void;
+  showStatus: (text: string) => void;
+}
+
+export interface CommandPreprocessHooks {
+  clearStatus: () => void;
+  editorTheme: EditorTheme;
+  handleCtrlCPress: () => void;
+  isCtrlCInput: (data: string) => boolean;
+  showMessage: (message: string) => void;
+  statusContainer: Container;
+  tui: TUI;
+  updateHeader: () => void;
+}
+
 export interface AgentTUIConfig {
   agent: {
     stream: (messages: unknown[], opts?: unknown) => Promise<AgentStreamResult>;
@@ -126,6 +163,14 @@ export interface AgentTUIConfig {
   header?: { title: string; subtitle?: string };
   messageHistory: MessageHistory;
   onSetup?: () => void | Promise<void>;
+  preprocessCommand?: (
+    commandInput: string,
+    hooks: CommandPreprocessHooks
+  ) => Promise<string | null>;
+  preprocessUserInput?: (
+    input: string,
+    hooks: PreprocessHooks
+  ) => Promise<PreprocessResult | undefined>;
   skills?: SkillInfo[];
   theme?: { markdownTheme?: MarkdownTheme; editorTheme?: EditorTheme };
   toolRenderers?: ToolRendererMap;
@@ -526,6 +571,92 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     return await command.execute({ args: parsed.args });
   };
 
+  const preprocessCommandInput = async (
+    input: string
+  ): Promise<string | null> => {
+    if (!config.preprocessCommand) {
+      return input;
+    }
+
+    return await config.preprocessCommand(input, {
+      clearStatus,
+      tui,
+      statusContainer,
+      editorTheme,
+      isCtrlCInput,
+      handleCtrlCPress,
+      showMessage: (message: string) =>
+        addSystemMessage(chatContainer, message),
+      updateHeader,
+    });
+  };
+
+  const handleCommandResult = (commandResult: CommandResult | null): void => {
+    if (commandResult?.message) {
+      addSystemMessage(chatContainer, commandResult.message);
+    }
+
+    if (commandResult?.success && commandResult.action === "new-session") {
+      config.messageHistory.clear();
+      chatContainer.clear();
+      addNewSessionMessage(chatContainer);
+    }
+
+    tui.requestRender();
+  };
+
+  const processCommandInput = async (trimmed: string): Promise<boolean> => {
+    const commandInput = await preprocessCommandInput(trimmed);
+    if (commandInput === null) {
+      tui.requestRender();
+      return true;
+    }
+
+    const commandResult =
+      (await executeLocalCommand(commandInput)) ??
+      (await executeCommand(commandInput));
+    handleCommandResult(commandResult);
+    return true;
+  };
+
+  const processUserInputMessage = async (trimmed: string): Promise<void> => {
+    let contentForModel = trimmed;
+    let originalContent: string | undefined;
+
+    if (config.preprocessUserInput) {
+      addUserMessage(chatContainer, markdownTheme, trimmed);
+      tui.requestRender();
+
+      const result = await config.preprocessUserInput(trimmed, {
+        showStatus: (text: string) => showLoader(text),
+        clearStatus: () => clearStatus(),
+      });
+
+      if (result) {
+        contentForModel = result.contentForModel;
+        originalContent = result.originalContent;
+
+        if (result.translatedDisplay) {
+          addTranslatedMessage(
+            chatContainer,
+            markdownTheme,
+            result.translatedDisplay
+          );
+        }
+
+        if (result.error) {
+          addSystemMessage(chatContainer, result.error);
+        }
+      }
+    } else {
+      addUserMessage(chatContainer, markdownTheme, trimmed);
+    }
+
+    config.messageHistory.addUserMessage(contentForModel, originalContent);
+    tui.requestRender();
+    await processAgentResponse();
+  };
+
   const processInput = async (input: string): Promise<boolean> => {
     const trimmed = input.trim();
     if (trimmed.length === 0) {
@@ -536,29 +667,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       editor.disableSubmit = true;
 
       if (isCommand(trimmed)) {
-        const commandResult =
-          (await executeLocalCommand(trimmed)) ??
-          (await executeCommand(trimmed));
-
-        if (commandResult?.message) {
-          addSystemMessage(chatContainer, commandResult.message);
-        }
-
-        if (commandResult?.success && commandResult.action === "new-session") {
-          config.messageHistory.clear();
-          chatContainer.clear();
-          addNewSessionMessage(chatContainer);
-        }
-
-        tui.requestRender();
-        return true;
+        return await processCommandInput(trimmed);
       }
 
-      addUserMessage(chatContainer, markdownTheme, trimmed);
-      config.messageHistory.addUserMessage(trimmed);
-      tui.requestRender();
-
-      await processAgentResponse();
+      await processUserInputMessage(trimmed);
       return true;
     } catch (error) {
       const errorMessage =
