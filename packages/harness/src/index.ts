@@ -38,6 +38,13 @@ export type { AgentPaths, AgentPathsOptions } from "./paths.js";
 export { createAgentPaths } from "./paths.js";
 export { SessionManager } from "./session.js";
 export {
+  PROMPTS_COMMAND_PREFIX,
+  parsePromptsCommandName,
+  toPromptsCommandName,
+} from "./skill-command-prefix.js";
+export type { SkillInfo, SkillsConfig } from "./skills.js";
+export { SkillsEngine } from "./skills.js";
+export {
   normalizeFinishReason,
   shouldContinueManualToolLoop,
 } from "./tool-loop-control";

@@ -44,6 +44,8 @@
       "version": "0.3.1",
       "dependencies": {
         "ai": "^6.0.101",
+        "glob": "^13.0.6",
+        "yaml": "^2.8.2",
       },
       "devDependencies": {
         "@ai-sdk/openai": "^3.0.41",

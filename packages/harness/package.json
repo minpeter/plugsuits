@@ -28,7 +28,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ai": "^6.0.101"
+    "ai": "^6.0.101",
+    "glob": "^13.0.6",
+    "yaml": "^2.8.2"
   },
   "peerDependencies": {
     "typescript": "^5.0.0",
