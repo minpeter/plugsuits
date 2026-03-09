@@ -1634,7 +1634,15 @@ const handleCommand = async (ui: CliUi, input: string): Promise<boolean> => {
 const processInput = async (ui: CliUi, input: string): Promise<boolean> => {
   const trimmed = input.trim();
 
-  if (shouldExit || trimmed.length === 0 || trimmed.toLowerCase() === "exit") {
+  if (shouldExit) {
+    return false;
+  }
+
+  if (trimmed.length === 0) {
+    return true;
+  }
+
+  if (trimmed.toLowerCase() === "exit") {
     return false;
   }
 
