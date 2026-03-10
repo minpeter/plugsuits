@@ -38,7 +38,7 @@ function sanitizeSummaryText(text: string): string {
  * Improved token estimator that accounts for CJK characters.
  * CJK characters typically map to ~1-2 tokens each (vs ~4 chars/token for Latin).
  */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   const cjkMatches = text.match(CJK_REGEX);
   const cjkCount = cjkMatches ? cjkMatches.length : 0;
   const nonCjkCount = text.length - cjkCount;
@@ -788,7 +788,8 @@ export class MessageHistory {
       this.compaction.maxTokens = config.maxTokens;
     }
     if (config.keepRecentTokens !== undefined) {
-      didChange ||= this.compaction.keepRecentTokens !== config.keepRecentTokens;
+      didChange ||=
+        this.compaction.keepRecentTokens !== config.keepRecentTokens;
       this.compaction.keepRecentTokens = config.keepRecentTokens;
     }
     if (config.reserveTokens !== undefined) {
@@ -914,7 +915,12 @@ export class MessageHistory {
         (messageId, index) => this.messages[index]?.id === messageId
       );
 
-    if (!hasExactRevisionMatch && !(hasMatchingSummaryPrefix && hasMatchingMessagePrefix)) {
+    if (
+      !(
+        hasExactRevisionMatch ||
+        (hasMatchingSummaryPrefix && hasMatchingMessagePrefix)
+      )
+    ) {
       return { applied: false, reason: "stale" };
     }
 
@@ -926,7 +932,10 @@ export class MessageHistory {
       ? []
       : this.messages.slice(prepared.baseMessageIds.length).map(cloneMessage);
 
-    this.messages = [...prepared.messages.map(cloneMessage), ...appendedMessages];
+    this.messages = [
+      ...prepared.messages.map(cloneMessage),
+      ...appendedMessages,
+    ];
     this.summaries = prepared.summaries.map(cloneCompactionSummary);
     this.pendingCompaction =
       appendedMessages.length > 0 ? true : prepared.pendingCompaction;

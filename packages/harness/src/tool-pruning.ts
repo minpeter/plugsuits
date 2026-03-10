@@ -1,20 +1,5 @@
 import type { ModelMessage, TextPart } from "ai";
-
-// ─── Token estimation (consistent with message-history.ts) ───
-
-const LATIN_CHARS_PER_TOKEN = 4;
-const CJK_CHARS_PER_TOKEN = 1.5;
-const CJK_REGEX =
-  /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3100-\u312F\u3130-\u318F\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7FF\uF900-\uFAFF]/g;
-
-function estimateTokens(text: string): number {
-  const cjkMatches = text.match(CJK_REGEX);
-  const cjkCount = cjkMatches ? cjkMatches.length : 0;
-  const nonCjkCount = text.length - cjkCount;
-  const cjkTokens = cjkCount / CJK_CHARS_PER_TOKEN;
-  const nonCjkTokens = nonCjkCount / LATIN_CHARS_PER_TOKEN;
-  return Math.ceil(cjkTokens + nonCjkTokens);
-}
+import { estimateTokens } from "./message-history";
 
 function extractMessageText(message: ModelMessage): string {
   if (typeof message.content === "string") {
