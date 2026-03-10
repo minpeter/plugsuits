@@ -33,13 +33,19 @@ const SUMMARY_ID_REGEX = /^summary_/;
 // ─── Helpers ───
 
 const CHARS_PER_TOKEN = 4;
+type CompactionPreset = {
+  enabled: true;
+  keepRecentTokens: number;
+  maxTokens: number;
+  reserveTokens: number;
+};
 
 /** Create a message string of approximately `tokenCount` tokens (Latin text). */
 function makeContent(tokenCount: number): string {
   return "x".repeat(tokenCount * CHARS_PER_TOKEN);
 }
 
-function createHistory(compaction: typeof TEST_8K_CONFIG) {
+function createHistory(compaction: CompactionPreset) {
   return new MessageHistory({ compaction });
 }
 
@@ -47,16 +53,13 @@ function createHistory(compaction: typeof TEST_8K_CONFIG) {
  * Create a history with auto-compaction disabled.
  * Messages are added freely, then compact() is called manually.
  */
-function createHistoryManual(compaction: typeof TEST_8K_CONFIG) {
+function createHistoryManual(compaction: CompactionPreset) {
   return new MessageHistory({
     compaction: { ...compaction, enabled: false },
   });
 }
 
-function enableCompaction(
-  history: MessageHistory,
-  config: typeof TEST_8K_CONFIG
-) {
+function enableCompaction(history: MessageHistory, config: CompactionPreset) {
   history.updateCompaction({ ...config, enabled: true });
 }
 
@@ -98,7 +101,7 @@ describe("compaction integration with model-specific configs", () => {
       expect(history.getAll().length).toBeLessThan(8);
     });
 
-    it("DOES trigger compaction via getMessagesForLLMAsync()", async () => {
+    it("DOES trigger compaction via prepare/apply flow", async () => {
       const history = createHistory(TEST_8K_CONFIG);
 
       // Add 8 messages of ~1000 tokens each = ~8000 tokens (above 7168)
@@ -146,7 +149,7 @@ describe("compaction integration with model-specific configs", () => {
       expect(remaining.length).toBeLessThanOrEqual(3);
 
       // Last remaining must be the most recent message
-      const lastRemaining = remainingContents.at(-1);
+      const lastRemaining = remainingContents[remainingContents.length - 1];
       expect(lastRemaining).toContain("msg_9_");
     });
 
@@ -361,7 +364,7 @@ describe("compaction integration with model-specific configs", () => {
       let receivedPreviousSummary: string | undefined;
       let callCount = 0;
 
-      const customSummarizeFn = (
+      const customSummarizeFn = async (
         _messages: unknown[],
         previousSummary?: string
       ) => {
@@ -412,7 +415,7 @@ describe("compaction integration with model-specific configs", () => {
 
     it("merges multiple summaries into one after compaction", async () => {
       let callCount = 0;
-      const customSummarizeFn = (
+      const customSummarizeFn = async (
         _messages: unknown[],
         _previousSummary?: string
       ) => {
@@ -478,7 +481,7 @@ describe("compaction integration with model-specific configs", () => {
 
     it("backwards compatible — summarizeFn without previousSummary still works", async () => {
       // Simulate a user who defined summarizeFn with only 1 parameter
-      const oldStyleSummarizeFn = (messages: unknown[]) => {
+      const oldStyleSummarizeFn = async (messages: unknown[]) => {
         return `Old-style summary of ${messages.length} messages`;
       };
 
@@ -506,6 +509,218 @@ describe("compaction integration with model-specific configs", () => {
       const result2 = await history.compact();
       expect(result2).toBe(true);
       expect(history.getSummaries()).toHaveLength(1);
+    });
+  });
+
+  describe("non-blocking compaction integration", () => {
+    it("messages survive during in-flight compaction", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 600,
+          reserveTokens: 100,
+          keepRecentTokens: 120,
+          summarizeFn: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            return "In-flight summary";
+          },
+        },
+      });
+      history.setContextLimit(600);
+
+      for (let i = 0; i < 6; i++) {
+        history.addUserMessage(`base_${i}_${makeContent(120)}`);
+      }
+      history.updateActualUsage({ totalTokens: 560 });
+
+      const preparePromise = history.prepareSpeculativeCompaction({
+        phase: "new-turn",
+      });
+
+      history.addUserMessage("tail_user_1");
+      history.addUserMessage("tail_user_2");
+      history.addUserMessage("tail_user_3");
+
+      const prepared = await preparePromise;
+      expect(prepared).not.toBeNull();
+
+      const applied = history.applyPreparedCompaction(prepared!);
+      expect(applied).toEqual({ applied: true, reason: "applied" });
+
+      const llmMessages = history.getMessagesForLLM();
+      const textContents = llmMessages.flatMap((message) =>
+        typeof message.content === "string" ? [message.content] : []
+      );
+
+      expect(
+        textContents.some((content) => content.includes("tail_user_1"))
+      ).toBe(true);
+      expect(
+        textContents.some((content) => content.includes("tail_user_2"))
+      ).toBe(true);
+      expect(
+        textContents.some((content) => content.includes("tail_user_3"))
+      ).toBe(true);
+    });
+
+    it("stale compaction rejected after contextLimit change", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 1000,
+          reserveTokens: 100,
+          keepRecentTokens: 200,
+          summarizeFn: async () => "Stale check summary",
+        },
+      });
+      history.setContextLimit(1000);
+
+      for (let i = 0; i < 5; i++) {
+        history.addUserMessage(`message_${i}_${makeContent(80)}`);
+      }
+
+      const prepared = await history.prepareSpeculativeCompaction({
+        phase: "new-turn",
+      });
+      expect(prepared).not.toBeNull();
+
+      history.setContextLimit(1200);
+
+      const result = history.applyPreparedCompaction(prepared!);
+      expect(result).toEqual({ applied: false, reason: "stale" });
+    });
+
+    it("no speculative job below threshold", () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 1000,
+          reserveTokens: 200,
+          speculativeStartRatio: 0.8,
+        },
+      });
+      history.setContextLimit(1000);
+      history.addUserMessage("baseline message");
+      history.updateActualUsage({ totalTokens: 500 });
+
+      expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(false);
+    });
+
+    it("full turn cycle with fire-and-forget compaction", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 1200,
+          reserveTokens: 200,
+          keepRecentTokens: 240,
+          summarizeFn: async () => "Turn cycle summary",
+        },
+      });
+      history.setContextLimit(1200);
+
+      for (let i = 0; i < 8; i++) {
+        history.addUserMessage(`prefill_${i}_${makeContent(80)}`);
+      }
+      history.updateActualUsage({ totalTokens: 1100 });
+
+      expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);
+
+      const preparePromise = history.prepareSpeculativeCompaction({
+        phase: "new-turn",
+      });
+
+      history.addUserMessage("next_turn_user");
+      history.addModelMessages([
+        { role: "assistant", content: "next_turn_assistant" },
+      ]);
+
+      const prepared = await preparePromise;
+      expect(prepared).not.toBeNull();
+
+      const result = history.applyPreparedCompaction(prepared!);
+      expect(result).toEqual({ applied: true, reason: "applied" });
+      expect(history.getSummaries().length).toBeGreaterThanOrEqual(1);
+
+      const llmMessages = history.getMessagesForLLM();
+      const contents = llmMessages.flatMap((message) =>
+        typeof message.content === "string" ? [message.content] : []
+      );
+      expect(
+        contents.some(
+          (content) =>
+            content.includes("next_turn_assistant") ||
+            content.includes("next_turn_user")
+        )
+      ).toBe(true);
+    });
+
+    it("hard limit blocks, compacts, unblocks", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 600,
+          reserveTokens: 100,
+          keepRecentTokens: 120,
+          summarizeFn: async () => "Hard limit summary",
+        },
+      });
+      history.setContextLimit(600);
+
+      for (let i = 0; i < 6; i++) {
+        history.addUserMessage(`hard_${i}_${makeContent(100)}`);
+      }
+      history.updateActualUsage({ totalTokens: 520 });
+
+      expect(history.isAtHardContextLimit()).toBe(true);
+
+      const prepared = await history.prepareSpeculativeCompaction({
+        phase: "new-turn",
+      });
+      expect(prepared).not.toBeNull();
+
+      const result = history.applyPreparedCompaction(prepared!);
+      expect(result).toEqual({ applied: true, reason: "applied" });
+      expect(history.getSummaries().length).toBeGreaterThanOrEqual(1);
+      expect(history.isAtHardContextLimit()).toBe(false);
+    });
+
+    it("rapid messages don't trigger redundant speculative jobs", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 1000,
+          reserveTokens: 200,
+          speculativeStartRatio: 0.7,
+          summarizeFn: async () => "Rapid summary",
+        },
+      });
+      history.setContextLimit(1000);
+
+      history.addUserMessage(`seed_${makeContent(80)}`);
+      history.updateActualUsage({ totalTokens: 760 });
+
+      let jobRunning = false;
+      const maybeStartSpeculativeJob = () => {
+        if (
+          history.shouldStartSpeculativeCompactionForNextTurn() &&
+          !jobRunning
+        ) {
+          jobRunning = true;
+          return history.prepareSpeculativeCompaction({ phase: "new-turn" });
+        }
+        return null;
+      };
+
+      const firstJob = maybeStartSpeculativeJob();
+      expect(firstJob).not.toBeNull();
+
+      history.addUserMessage(`rapid_${makeContent(120)}`);
+
+      const secondJob = maybeStartSpeculativeJob();
+      expect(secondJob).toBeNull();
+
+      const prepared = await firstJob!;
+      expect(prepared).not.toBeNull();
     });
   });
 

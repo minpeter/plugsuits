@@ -877,6 +877,11 @@ export class MessageHistory {
     }
 
     const baseRevision = this.revision;
+    const baseMessageIds = this.messages.map((message) => message.id);
+    const baseSummaryIds = this.summaries.map((summary) => summary.id);
+    const contextLimitAtCreation = this.getContextLimit();
+    const compactionMaxTokensAtCreation =
+      this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
     const clone = this.cloneForSpeculativeCompaction();
     const allowPruning =
       options?.allowPruning ?? options?.phase !== "intermediate-step";
@@ -890,12 +895,11 @@ export class MessageHistory {
 
     return {
       actualUsage: cloneActualUsage(clone.actualUsage),
-      baseMessageIds: this.messages.map((message) => message.id),
+      baseMessageIds,
       baseRevision,
-      baseSummaryIds: this.summaries.map((summary) => summary.id),
-      compactionMaxTokensAtCreation:
-        this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS,
-      contextLimitAtCreation: this.getContextLimit(),
+      baseSummaryIds,
+      compactionMaxTokensAtCreation,
+      contextLimitAtCreation,
       didChange: clone.revision !== baseRevision,
       messages: clone.messages.map(cloneMessage),
       pendingCompaction: clone.pendingCompaction,
