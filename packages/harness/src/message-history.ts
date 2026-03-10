@@ -268,6 +268,16 @@ export interface CompactionSummary {
   tokensBefore: number;
 }
 
+export interface PreparedCompaction {
+  actualUsage: ActualTokenUsage | null;
+  baseRevision: number;
+  didChange: boolean;
+  messages: Message[];
+  pendingCompaction: boolean;
+  phase: "intermediate-step" | "new-turn";
+  summaries: CompactionSummary[];
+}
+
 /**
  * Configuration for the incremental compaction feature.
  */
@@ -564,6 +574,33 @@ function defaultSummarizeFn(
   return Promise.resolve(sanitizeSummaryText(summary));
 }
 
+function cloneActualUsage(
+  usage: ActualTokenUsage | null
+): ActualTokenUsage | null {
+  if (!usage) {
+    return null;
+  }
+
+  return {
+    ...usage,
+    updatedAt: new Date(usage.updatedAt),
+  };
+}
+
+function cloneCompactionSummary(summary: CompactionSummary): CompactionSummary {
+  return {
+    ...summary,
+    createdAt: new Date(summary.createdAt),
+  };
+}
+
+function cloneMessage(message: Message): Message {
+  return {
+    ...message,
+    createdAt: new Date(message.createdAt),
+  };
+}
+
 export class MessageHistory {
   private messages: Message[] = [];
   private readonly maxMessages: number;
@@ -574,6 +611,7 @@ export class MessageHistory {
   private pendingCompaction = false;
   private actualUsage: ActualTokenUsage | null = null;
   private contextLimit = 0;
+  private revision = 0;
 
   constructor(options?: MessageHistoryOptions) {
     const max = options?.maxMessages ?? DEFAULT_MAX_MESSAGES;
@@ -616,6 +654,8 @@ export class MessageHistory {
     this.messages = [];
     this.summaries = [];
     this.actualUsage = null;
+    this.pendingCompaction = false;
+    this.touch();
   }
 
   /**
@@ -644,11 +684,31 @@ export class MessageHistory {
   }
 
   setContextLimit(limit: number): void {
+    if (this.contextLimit === limit) {
+      return;
+    }
     this.contextLimit = limit;
+    this.touch();
   }
 
   getContextLimit(): number {
     return this.contextLimit;
+  }
+
+  private invalidateActualUsage(): void {
+    this.actualUsage = null;
+  }
+
+  private touch(): void {
+    this.revision += 1;
+  }
+
+  private setPendingCompaction(value: boolean): void {
+    if (this.pendingCompaction === value) {
+      return;
+    }
+    this.pendingCompaction = value;
+    this.touch();
   }
 
   updateActualUsage(usage: {
@@ -668,6 +728,7 @@ export class MessageHistory {
       totalTokens: total,
       updatedAt: new Date(),
     };
+    this.touch();
   }
 
   getActualUsage(): Readonly<ActualTokenUsage> | null {
@@ -704,20 +765,30 @@ export class MessageHistory {
    * Useful when switching models with different context limits.
    */
   updateCompaction(config: Partial<CompactionConfig>): void {
+    let didChange = false;
     if (config.enabled !== undefined) {
+      didChange ||= this.compaction.enabled !== config.enabled;
       this.compaction.enabled = config.enabled;
     }
     if (config.maxTokens !== undefined) {
+      didChange ||= this.compaction.maxTokens !== config.maxTokens;
       this.compaction.maxTokens = config.maxTokens;
     }
     if (config.keepRecentTokens !== undefined) {
+      didChange ||= this.compaction.keepRecentTokens !== config.keepRecentTokens;
       this.compaction.keepRecentTokens = config.keepRecentTokens;
     }
     if (config.reserveTokens !== undefined) {
+      didChange ||= this.compaction.reserveTokens !== config.reserveTokens;
       this.compaction.reserveTokens = config.reserveTokens;
     }
     if (config.summarizeFn !== undefined) {
+      didChange ||= this.compaction.summarizeFn !== config.summarizeFn;
       this.compaction.summarizeFn = config.summarizeFn;
+    }
+
+    if (didChange) {
+      this.touch();
     }
   }
 
@@ -731,6 +802,115 @@ export class MessageHistory {
       0
     );
     return messagesTokens + summariesTokens;
+  }
+
+  private getActiveContextLimit(): number {
+    if (this.contextLimit > 0) {
+      return this.contextLimit;
+    }
+
+    return this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
+  }
+
+  private getCurrentUsageTokens(): number {
+    if (this.actualUsage && this.contextLimit > 0) {
+      return this.actualUsage.totalTokens;
+    }
+
+    return this.getEstimatedTokens();
+  }
+
+  shouldStartSpeculativeCompactionForNextTurn(): boolean {
+    if (
+      !(this.compaction.enabled || this.pruning.enabled) ||
+      !this.pendingCompaction ||
+      this.messages.length === 0
+    ) {
+      return false;
+    }
+
+    const reserveTokens = this.getEffectiveReserveTokens({ phase: "new-turn" });
+    const predictiveThreshold = Math.max(
+      0,
+      this.getActiveContextLimit() - reserveTokens * 2
+    );
+
+    return this.getCurrentUsageTokens() >= predictiveThreshold;
+  }
+
+  async prepareSpeculativeCompaction(
+    options?: MessagePreparationOptions
+  ): Promise<PreparedCompaction | null> {
+    if (!(this.compaction.enabled || this.pruning.enabled) || !this.pendingCompaction) {
+      return null;
+    }
+
+    const baseRevision = this.revision;
+    const clone = this.cloneForSpeculativeCompaction();
+    await clone.getMessagesForLLMAsync(options);
+
+    return {
+      actualUsage: cloneActualUsage(clone.actualUsage),
+      baseRevision,
+      didChange: clone.revision !== baseRevision,
+      messages: clone.messages.map(cloneMessage),
+      pendingCompaction: clone.pendingCompaction,
+      phase: options?.phase ?? "new-turn",
+      summaries: clone.summaries.map(cloneCompactionSummary),
+    };
+  }
+
+  applyPreparedCompaction(prepared: PreparedCompaction): {
+    applied: boolean;
+    reason: "applied" | "noop" | "stale";
+  } {
+    if (prepared.baseRevision !== this.revision) {
+      return { applied: false, reason: "stale" };
+    }
+
+    if (!prepared.didChange) {
+      return { applied: false, reason: "noop" };
+    }
+
+    this.messages = prepared.messages.map(cloneMessage);
+    this.summaries = prepared.summaries.map(cloneCompactionSummary);
+    this.pendingCompaction = prepared.pendingCompaction;
+    this.actualUsage = cloneActualUsage(prepared.actualUsage);
+    this.touch();
+
+    return { applied: true, reason: "applied" };
+  }
+
+  wouldExceedContextWithAdditionalMessage(
+    content: string,
+    options?: CompactionCheckOptions
+  ): boolean {
+    if (!(this.compaction.enabled || this.pruning.enabled)) {
+      return false;
+    }
+
+    const reserveTokens = this.getEffectiveReserveTokens(options);
+    const totalTokens =
+      this.getCurrentUsageTokens() + estimateTokens(content) + reserveTokens;
+
+    return totalTokens >= this.getActiveContextLimit();
+  }
+
+  private cloneForSpeculativeCompaction(): MessageHistory {
+    const clone = new MessageHistory({
+      compaction: { ...this.compaction },
+      maxMessages: this.maxMessages,
+      pruning: { ...this.pruning },
+    });
+
+    clone.messages = this.messages.map(cloneMessage);
+    clone.summaries = this.summaries.map(cloneCompactionSummary);
+    clone.pendingCompaction = this.pendingCompaction;
+    clone.actualUsage = cloneActualUsage(this.actualUsage);
+    clone.contextLimit = this.contextLimit;
+    clone.revision = this.revision;
+
+    return clone;
   }
 
   private getEffectiveReserveTokens(options?: CompactionCheckOptions): number {
@@ -818,6 +998,8 @@ export class MessageHistory {
     };
     this.messages.push(message);
     this.enforceLimit();
+    this.invalidateActualUsage();
+    this.touch();
     // Mark that compaction may be needed — actual compaction happens
     // at getMessagesForLLM() or via explicit compact() call
     this.markCompactionNeeded();
@@ -839,6 +1021,8 @@ export class MessageHistory {
     }
     this.messages.push(...created);
     this.enforceLimit();
+    this.invalidateActualUsage();
+    this.touch();
     // Mark that compaction may be needed
     this.markCompactionNeeded();
     return created;
@@ -852,7 +1036,7 @@ export class MessageHistory {
     if (!(this.compaction.enabled || this.pruning.enabled)) {
       return;
     }
-    this.pendingCompaction = true;
+    this.setPendingCompaction(true);
   }
 
   /**
@@ -898,7 +1082,7 @@ export class MessageHistory {
     options?: MessagePreparationOptions
   ): Promise<ModelMessage[]> {
     if (this.pendingCompaction) {
-      this.pendingCompaction = false;
+      this.setPendingCompaction(false);
 
       const allowPruning =
         options?.allowPruning ?? options?.phase !== "intermediate-step";
@@ -949,6 +1133,9 @@ export class MessageHistory {
         };
       }
     }
+
+    this.invalidateActualUsage();
+    this.touch();
 
     return true;
   }
@@ -1081,6 +1268,8 @@ export class MessageHistory {
       this.summaries = [summaryEntry];
       this.messages = messagesToKeep;
       this.ensureNoOrphanedToolResults();
+      this.invalidateActualUsage();
+      this.touch();
 
       return true;
     } catch (error) {

@@ -8,6 +8,7 @@ import {
   type MessageHistory,
   type ModelMessage,
   parseCommand,
+  type PreparedCompaction,
   type RunnableAgent,
   type SkillInfo,
   shouldContinueManualToolLoop,
@@ -19,7 +20,6 @@ import {
   isKeyRelease,
   isKeyRepeat,
   Key,
-  Loader,
   Markdown,
   type MarkdownTheme,
   matchesKey,
@@ -27,6 +27,7 @@ import {
   Spacer,
   Text,
   TUI,
+  visibleWidth,
 } from "@mariozechner/pi-tui";
 import { createAliasAwareAutocompleteProvider } from "./autocomplete";
 import { buildTuiCommandSet } from "./command-set";
@@ -59,6 +60,176 @@ const CTRL_C_EXIT_WINDOW_MS = 500;
 const style = (prefix: string, text: string): string => {
   return `${prefix}${text}${ANSI_RESET}`;
 };
+
+class StatusSpinner extends Text {
+  private readonly frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  private currentFrame = 0;
+  private intervalId: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly spinnerColorFn: (text: string) => string,
+    private readonly messageColorFn: (text: string) => string,
+    private message: string
+  ) {
+    super("", 1, 0);
+    this.start();
+  }
+
+  start(): void {
+    this.updateDisplay();
+    this.intervalId = setInterval(() => {
+      this.currentFrame = (this.currentFrame + 1) % this.frames.length;
+      this.updateDisplay();
+    }, 80);
+  }
+
+  stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+
+  setMessage(message: string): void {
+    this.message = message;
+    this.updateDisplay();
+  }
+
+  render(width: number): string[] {
+    return ["", ...super.render(width)];
+  }
+
+  private updateDisplay(): void {
+    const frame = this.frames[this.currentFrame];
+    this.setText(
+      `${this.spinnerColorFn(frame)} ${this.messageColorFn(this.message)}`
+    );
+    this.tui.requestRender();
+  }
+}
+
+const truncatePlainToWidth = (text: string, maxWidth: number): string => {
+  if (maxWidth <= 0) {
+    return "";
+  }
+
+  if (visibleWidth(text) <= maxWidth) {
+    return text;
+  }
+
+  if (maxWidth === 1) {
+    return "…";
+  }
+
+  let result = "";
+  for (const char of text) {
+    const candidate = `${result}${char}`;
+    if (visibleWidth(candidate) >= maxWidth) {
+      break;
+    }
+    result = candidate;
+  }
+
+  return `${result}…`;
+};
+
+interface FooterStatusEntry {
+  message: string;
+  state: "ready" | "running";
+}
+
+class FooterStatusBar extends Text {
+  private readonly frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  private currentFrame = 0;
+  private intervalId: NodeJS.Timeout | null = null;
+  private entries: FooterStatusEntry[] = [];
+  private rightText: string | undefined;
+
+  constructor(private readonly tui: TUI) {
+    super("", 1, 0);
+    this.start();
+  }
+
+  setEntries(entries: FooterStatusEntry[]): void {
+    this.entries = [...entries];
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  setRightText(text: string | undefined): void {
+    this.rightText = text?.trim() || undefined;
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+
+  render(width: number): string[] {
+    if (this.entries.length === 0 && !this.rightText) {
+      return [];
+    }
+
+    const contentWidth = Math.max(1, width - 2);
+    const lines: string[] = [];
+    const rightTextPlain = this.rightText ?? "";
+    const rightTextStyled = rightTextPlain ? style(ANSI_DIM, rightTextPlain) : "";
+
+    const renderLeftEntry = (
+      entry: FooterStatusEntry,
+      maxWidth: number
+    ): { plain: string; styled: string } => {
+      const prefix = entry.state === "running" ? this.frames[this.currentFrame] : "";
+      const prefixStyle =
+        entry.state === "running" ? style(ANSI_CYAN, prefix) : "";
+      const reservedPrefixWidth = prefix ? visibleWidth(prefix) + 1 : 0;
+      const maxMessageWidth = Math.max(0, maxWidth - reservedPrefixWidth);
+      const message = truncatePlainToWidth(entry.message, maxMessageWidth);
+
+      return {
+        plain: prefix ? `${prefix}${message ? ` ${message}` : ""}` : message,
+        styled: prefix
+          ? `${prefixStyle}${message ? ` ${style(ANSI_DIM, message)}` : ""}`
+          : style(ANSI_DIM, message),
+      };
+    };
+
+    const firstEntry = this.entries[0];
+    if (firstEntry || rightTextStyled) {
+      const maxLeftWidth = rightTextPlain
+        ? Math.max(0, contentWidth - visibleWidth(rightTextPlain) - 1)
+        : contentWidth;
+      const left = firstEntry ? renderLeftEntry(firstEntry, maxLeftWidth) : null;
+      const leftWidth = left ? visibleWidth(left.plain) : 0;
+      const gap = rightTextPlain
+        ? Math.max(1, contentWidth - leftWidth - visibleWidth(rightTextPlain))
+        : 0;
+      const line = `${" ".repeat(1)}${left?.styled ?? ""}${" ".repeat(gap)}${rightTextStyled}`;
+      lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
+    }
+
+    for (const entry of this.entries.slice(1)) {
+      const left = renderLeftEntry(entry, contentWidth);
+      const line = `${" ".repeat(1)}${left.styled}`;
+      lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
+    }
+
+    return lines;
+  }
+
+  private start(): void {
+    this.intervalId = setInterval(() => {
+      this.currentFrame = (this.currentFrame + 1) % this.frames.length;
+      this.invalidate();
+      this.tui.requestRender();
+    }, 80);
+  }
+}
 
 const createDefaultMarkdownTheme = (): MarkdownTheme => {
   return {
@@ -165,6 +336,7 @@ export interface CommandPreprocessHooks {
 export interface AgentTUIConfig {
   agent: RunnableAgent;
   commands?: Command[];
+  footer?: { text?: string };
   header?: { title: string; subtitle?: string };
   messageHistory: MessageHistory;
   onCommandAction?: (action: CommandAction) => void | Promise<void>;
@@ -181,6 +353,15 @@ export interface AgentTUIConfig {
   skills?: SkillInfo[];
   theme?: { markdownTheme?: MarkdownTheme; editorTheme?: EditorTheme };
   toolRenderers?: ToolRendererMap;
+}
+
+interface SpeculativeCompactionJob {
+  discarded: boolean;
+  id: string;
+  phase: "new-turn";
+  prepared: PreparedCompaction | null;
+  promise: Promise<void>;
+  state: "completed" | "failed" | "running";
 }
 
 export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
@@ -200,6 +381,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const chatContainer = new Container();
   const statusContainer = new Container();
   const editorContainer = new Container();
+  const footerContainer = new Container();
+  const footerStatusBar = new FooterStatusBar(tui);
 
   const title = new Text("", 1, 0);
   const help = new Text(
@@ -214,11 +397,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const updateHeader = (): void => {
     const headerTitle = config.header?.title ?? "Agent TUI";
     const subtitle = config.header?.subtitle;
+    const footer = config.footer?.text?.trim();
     title.setText(
       subtitle
         ? `${style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)}\n${style(ANSI_DIM, subtitle)}`
         : style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)
     );
+    footerStatusBar.setRightText(footer);
     tui.requestRender();
   };
 
@@ -238,11 +423,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     })
   );
   editorContainer.addChild(editor);
+  footerContainer.addChild(footerStatusBar);
 
   tui.addChild(headerContainer);
   tui.addChild(chatContainer);
   tui.addChild(statusContainer);
   tui.addChild(editorContainer);
+  tui.addChild(footerContainer);
   tui.setFocus(editor);
 
   let shouldExit = false;
@@ -250,36 +437,202 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   let streamInterruptRequested = false;
   let inputResolver: null | ((value: string | null) => void) = null;
   let lastCtrlCPressAt = 0;
-  let loader: Loader | null = null;
+  let foregroundStatus: StatusSpinner | null = null;
+  const backgroundStatuses = new Map<string, FooterStatusEntry>();
+  const speculativeCompactionJobs: SpeculativeCompactionJob[] = [];
+  let speculativeCompactionJobCounter = 0;
   let commandInputListenerActive = false;
 
-  const clearStatus = (): void => {
-    if (loader) {
-      loader.stop();
-      statusContainer.removeChild(loader);
-      loader = null;
-    }
-    statusContainer.clear();
-    tui.requestRender();
-  };
-
-  const showLoader = (message: string): void => {
-    clearStatus();
-    loader = new Loader(
+  const createStatusSpinner = (message: string): StatusSpinner => {
+    return new StatusSpinner(
       tui,
       (text: string) => style(ANSI_CYAN, text),
       (text: string) => style(ANSI_DIM, text),
       message
     );
-    statusContainer.addChild(loader);
-    loader.start();
+  };
+
+  const renderForegroundStatus = (): void => {
+    statusContainer.clear();
+    if (foregroundStatus) {
+      statusContainer.addChild(foregroundStatus);
+    }
     tui.requestRender();
+  };
+
+  const renderFooterStatuses = (): void => {
+    footerStatusBar.setEntries([...backgroundStatuses.values()]);
+  };
+
+  const clearBackgroundStatus = (id: string): void => {
+    if (!backgroundStatuses.has(id)) {
+      return;
+    }
+    backgroundStatuses.delete(id);
+    renderFooterStatuses();
+  };
+
+  const discardSpeculativeCompactionJob = (
+    job: SpeculativeCompactionJob
+  ): void => {
+    job.discarded = true;
+    clearBackgroundStatus(job.id);
+    const index = speculativeCompactionJobs.indexOf(job);
+    if (index !== -1) {
+      speculativeCompactionJobs.splice(index, 1);
+    }
+  };
+
+  const discardAllSpeculativeCompactionJobs = (): void => {
+    for (const job of [...speculativeCompactionJobs]) {
+      discardSpeculativeCompactionJob(job);
+    }
+  };
+
+  const setBackgroundStatus = (
+    id: string,
+    message: string,
+    state: FooterStatusEntry["state"] = "running"
+  ): void => {
+    backgroundStatuses.set(id, { message, state });
+    renderFooterStatuses();
+  };
+
+  const clearStatus = (): void => {
+    if (!foregroundStatus) {
+      tui.requestRender();
+      return;
+    }
+    foregroundStatus.stop();
+    foregroundStatus = null;
+    renderForegroundStatus();
+  };
+
+  const showLoader = (message: string): void => {
+    if (foregroundStatus) {
+      foregroundStatus.stop();
+    }
+    foregroundStatus = createStatusSpinner(message);
+    renderForegroundStatus();
   };
 
   const clearPromptInput = (): void => {
     editor.setText("");
     tui.setFocus(editor);
     tui.requestRender();
+  };
+
+  const applyReadySpeculativeCompaction = (): boolean => {
+    let applied = false;
+
+    for (let i = speculativeCompactionJobs.length - 1; i >= 0; i--) {
+      const job = speculativeCompactionJobs[i];
+      if (job.discarded || job.state !== "completed" || !job.prepared) {
+        continue;
+      }
+
+      const result = config.messageHistory.applyPreparedCompaction(job.prepared);
+      discardSpeculativeCompactionJob(job);
+
+      if (result.reason === "stale") {
+        continue;
+      }
+
+      if (result.reason === "applied") {
+        discardAllSpeculativeCompactionJobs();
+        addSystemMessage(chatContainer, "Applied prepared compaction.");
+        updateHeader();
+        tui.requestRender();
+        applied = true;
+      }
+      break;
+    }
+
+    return applied;
+  };
+
+  const getLatestRunningSpeculativeCompaction =
+    (): SpeculativeCompactionJob | null => {
+      for (let i = speculativeCompactionJobs.length - 1; i >= 0; i--) {
+        const job = speculativeCompactionJobs[i];
+        if (!job.discarded && job.state === "running") {
+          return job;
+        }
+      }
+      return null;
+    };
+
+  const waitForSpeculativeCompactionIfNeeded = async (
+    content: string
+  ): Promise<void> => {
+    applyReadySpeculativeCompaction();
+
+    const runningJob = getLatestRunningSpeculativeCompaction();
+    if (!runningJob) {
+      return;
+    }
+
+    if (
+      !config.messageHistory.wouldExceedContextWithAdditionalMessage(content, {
+        phase: "new-turn",
+      })
+    ) {
+      return;
+    }
+
+    showLoader("Finalizing context...");
+    try {
+      await runningJob.promise;
+    } finally {
+      clearStatus();
+    }
+
+    applyReadySpeculativeCompaction();
+  };
+
+  const startSpeculativeCompaction = (): void => {
+    if (!config.messageHistory.shouldStartSpeculativeCompactionForNextTurn()) {
+      return;
+    }
+
+    const jobId = `background-compaction-${++speculativeCompactionJobCounter}`;
+    const job: SpeculativeCompactionJob = {
+      discarded: false,
+      id: jobId,
+      phase: "new-turn",
+      prepared: null,
+      promise: Promise.resolve(),
+      state: "running",
+    };
+
+    setBackgroundStatus(jobId, "Background compacting...");
+
+    job.promise = (async () => {
+      try {
+        job.prepared = await config.messageHistory.prepareSpeculativeCompaction({
+          phase: "new-turn",
+        });
+        job.state = "completed";
+
+        if (!job.discarded && job.prepared?.didChange) {
+          setBackgroundStatus(jobId, "Background compaction ready.", "ready");
+          updateHeader();
+          tui.requestRender();
+        }
+      } catch (error) {
+        job.state = "failed";
+        if (!job.discarded) {
+          clearBackgroundStatus(jobId);
+        }
+        console.error("Speculative compaction failed:", error);
+      } finally {
+        if (!job.discarded && !job.prepared?.didChange) {
+          clearBackgroundStatus(jobId);
+        }
+      }
+    })();
+
+    speculativeCompactionJobs.push(job);
   };
 
   const cancelActiveStream = (): boolean => {
@@ -295,6 +648,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const requestExit = (): void => {
     shouldExit = true;
     cancelActiveStream();
+    discardAllSpeculativeCompactionJobs();
     clearStatus();
     if (inputResolver) {
       const resolve = inputResolver;
@@ -467,11 +821,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const prepareMessagesWithCompaction = async (
     phase: "new-turn" | "intermediate-step"
   ): Promise<ModelMessage[]> => {
+    applyReadySpeculativeCompaction();
+
     const willCompact =
       config.messageHistory.isCompactionEnabled() &&
       config.messageHistory.needsCompaction({ phase });
 
     if (willCompact) {
+      discardAllSpeculativeCompactionJobs();
       showLoader("Compacting conversation...");
     }
 
@@ -700,6 +1057,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     if (commandResult.action.type === "new-session") {
+      discardAllSpeculativeCompactionJobs();
       config.messageHistory.clear();
       chatContainer.clear();
       addNewSessionMessage(chatContainer);
@@ -732,9 +1090,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
     if (isSkillCommandResult(commandResult)) {
       addUserMessage(chatContainer, markdownTheme, trimmed);
+      await waitForSpeculativeCompactionIfNeeded(commandResult.skillContent);
       config.messageHistory.addUserMessage(commandResult.skillContent);
       tui.requestRender();
-      await processAgentResponse();
+      const responseState = await processAgentResponse();
+      if (responseState === "completed") {
+        startSpeculativeCompaction();
+      }
       return true;
     }
 
@@ -775,9 +1137,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       addUserMessage(chatContainer, markdownTheme, trimmed);
     }
 
+    await waitForSpeculativeCompactionIfNeeded(contentForModel);
     config.messageHistory.addUserMessage(contentForModel, originalContent);
     tui.requestRender();
-    await processAgentResponse();
+    const responseState = await processAgentResponse();
+    if (responseState === "completed") {
+      startSpeculativeCompaction();
+    }
   };
 
   const processInput = async (input: string): Promise<boolean> => {
@@ -790,6 +1156,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       editor.disableSubmit = true;
       editor.setText("");
       tui.requestRender();
+      applyReadySpeculativeCompaction();
 
       if (isCommand(trimmed)) {
         return await processCommandInput(trimmed);
@@ -829,7 +1196,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       }
     }
   } finally {
+    discardAllSpeculativeCompactionJobs();
     clearStatus();
+    footerStatusBar.stop();
     const pendingResolver: unknown = inputResolver;
     inputResolver = null;
     if (typeof pendingResolver === "function") {

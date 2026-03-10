@@ -1,6 +1,7 @@
 import {
   type Command,
   createAgent,
+  createModelSummarizer,
   MessageHistory,
   SessionManager,
 } from "@ai-sdk-tool/harness";
@@ -11,12 +12,15 @@ import {
   type FriendliAIProvider,
 } from "@friendliai/ai-provider";
 import { createEnv } from "@t3-oss/env-core";
+import type { LanguageModel } from "ai";
 import { defineCommand, runMain } from "citty";
 import { z } from "zod";
 
 const DEFAULT_MODEL_ID = "zai-org/GLM-5";
 const DEFAULT_SYSTEM_PROMPT =
   "You are a minimal FriendliAI example agent. Be concise and helpful.";
+const COMPACTION_CONTEXT_TOKENS = 600;
+const COMPACTION_MAX_OUTPUT_TOKENS = 200;
 const LOCAL_COMMANDS: Command[] = [
   {
     name: "new",
@@ -52,6 +56,24 @@ function resolveModelId(cliModel?: string): string {
   return cliModel?.trim() || env.FRIENDLI_MODEL || DEFAULT_MODEL_ID;
 }
 
+function createCompactionConfig(model: LanguageModel) {
+  return {
+    enabled: true,
+    keepRecentTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+    maxTokens: COMPACTION_CONTEXT_TOKENS,
+    reserveTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+    summarizeFn: createModelSummarizer(model),
+  } as const;
+}
+
+function formatTokens(tokenCount: number): string {
+  if (tokenCount >= 1000) {
+    return `${(tokenCount / 1000).toFixed(1)}k`;
+  }
+
+  return String(tokenCount);
+}
+
 const main = defineCommand({
   meta: {
     name: "minimal-agent",
@@ -70,13 +92,19 @@ const main = defineCommand({
     },
   },
   async run({ args }) {
-    const messageHistory = new MessageHistory();
     const sessionManager = new SessionManager("minimal-agent");
     sessionManager.initialize();
     const selectedModelId = resolveModelId(args.model);
     const friendli = createFriendliProvider();
+    const model = friendli(selectedModelId);
+    const compaction = createCompactionConfig(model);
+    const messageHistory = new MessageHistory({
+      compaction,
+    });
+    messageHistory.setContextLimit(compaction.maxTokens);
+
     const agent = createAgent({
-      model: friendli(selectedModelId),
+      model,
       instructions: DEFAULT_SYSTEM_PROMPT,
     });
 
@@ -99,11 +127,21 @@ const main = defineCommand({
     await createAgentTUI({
       agent,
       commands: LOCAL_COMMANDS,
+      footer: {
+        get text() {
+          const contextUsage = messageHistory.getContextUsage();
+          if (!contextUsage) {
+            return undefined;
+          }
+
+          return `Context: ${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%)`;
+        },
+      },
       messageHistory,
       header: {
         title: "Minimal Agent",
         get subtitle() {
-          return `${selectedModelId} • ${sessionManager.getId()}`;
+          return `${selectedModelId}\nSession: ${sessionManager.getId()}`;
         },
       },
       onCommandAction: (action) => {

@@ -33,6 +33,7 @@ export type {
   ContextUsage,
   Message,
   MessageHistoryOptions,
+  PreparedCompaction,
 } from "./message-history";
 export { MessageHistory } from "./message-history";
 export type { MessageTextOptions } from "./message-text";

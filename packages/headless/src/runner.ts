@@ -27,10 +27,97 @@ export interface HeadlessRunnerConfig {
 export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const emitEvent = config.emitEvent ?? defaultEmitEvent;
   let globalIterationCount = 0;
+  let speculativeCompactionJob:
+    | {
+        discarded: boolean;
+        prepared: Awaited<
+          ReturnType<MessageHistory["prepareSpeculativeCompaction"]>
+        >;
+        promise: Promise<void>;
+        state: "completed" | "failed" | "running";
+      }
+    | null = null;
 
-  const enqueueUserMessage = (
+  const discardSpeculativeCompactionJob = (): void => {
+    if (speculativeCompactionJob) {
+      speculativeCompactionJob.discarded = true;
+      speculativeCompactionJob = null;
+    }
+  };
+
+  const applyReadySpeculativeCompaction = (): void => {
+    if (
+      !speculativeCompactionJob ||
+      speculativeCompactionJob.discarded ||
+      speculativeCompactionJob.state !== "completed" ||
+      !speculativeCompactionJob.prepared
+    ) {
+      return;
+    }
+
+    config.messageHistory.applyPreparedCompaction(
+      speculativeCompactionJob.prepared
+    );
+    speculativeCompactionJob = null;
+  };
+
+  const waitForSpeculativeCompactionIfNeeded = async (
+    content: string
+  ): Promise<void> => {
+    applyReadySpeculativeCompaction();
+
+    if (
+      !speculativeCompactionJob ||
+      speculativeCompactionJob.discarded ||
+      speculativeCompactionJob.state !== "running"
+    ) {
+      return;
+    }
+
+    if (
+      !config.messageHistory.wouldExceedContextWithAdditionalMessage(content, {
+        phase: "new-turn",
+      })
+    ) {
+      return;
+    }
+
+    await speculativeCompactionJob.promise;
+    applyReadySpeculativeCompaction();
+  };
+
+  const startSpeculativeCompaction = (): void => {
+    if (!config.messageHistory.shouldStartSpeculativeCompactionForNextTurn()) {
+      return;
+    }
+
+    discardSpeculativeCompactionJob();
+
+    const job: NonNullable<typeof speculativeCompactionJob> = {
+      discarded: false,
+      prepared: null,
+      promise: Promise.resolve(),
+      state: "running",
+    };
+
+    job.promise = (async () => {
+      try {
+        job.prepared = await config.messageHistory.prepareSpeculativeCompaction({
+          phase: "new-turn",
+        });
+        job.state = "completed";
+      } catch (error) {
+        job.state = "failed";
+        console.error("Speculative compaction failed in headless runner:", error);
+      }
+    })();
+
+    speculativeCompactionJob = job;
+  };
+
+  const enqueueUserMessage = async (
     message: InitialUserMessage | { content: string }
-  ): void => {
+  ): Promise<void> => {
     emitEvent({
       timestamp: new Date().toISOString(),
       type: "user",
@@ -41,6 +128,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           : message.content,
     });
 
+    await waitForSpeculativeCompactionIfNeeded(message.content);
     config.messageHistory.addUserMessage(
       message.content,
       "originalContent" in message ? message.originalContent : undefined
@@ -86,6 +174,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       }
 
       if (!processStreamResult.shouldContinue) {
+        startSpeculativeCompaction();
         return;
       }
 
@@ -94,7 +183,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   };
 
   if (config.initialUserMessage) {
-    enqueueUserMessage(config.initialUserMessage);
+    await enqueueUserMessage(config.initialUserMessage);
   }
 
   await processAgentResponse();
@@ -128,7 +217,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       continue;
     }
 
-    enqueueUserMessage({ content: reminderMessage });
+    await enqueueUserMessage({ content: reminderMessage });
     await processAgentResponse();
   }
 }

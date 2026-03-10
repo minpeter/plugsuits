@@ -1002,4 +1002,179 @@ describe("MessageHistory smart compaction with actual usage", () => {
     expect(history.needsCompaction()).toBe(false);
     expect(history.needsCompaction({ phase: "intermediate-step" })).toBe(true);
   });
+
+  it("invalidates actual usage after message mutations", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 1000,
+        reserveTokens: 100,
+      },
+    });
+    history.setContextLimit(1000);
+    history.addUserMessage("hello");
+    history.updateActualUsage({ totalTokens: 200 });
+
+    expect(history.getActualUsage()?.totalTokens).toBe(200);
+
+    history.addUserMessage("more context");
+
+    expect(history.getActualUsage()).toBeNull();
+    expect(history.getContextUsage()?.source).toBe("estimated");
+  });
+
+  it("invalidates stale actual usage after compaction", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 20,
+        reserveTokens: 10,
+        summarizeFn: async () => "Summary",
+      },
+    });
+    history.setContextLimit(100);
+
+    for (let i = 0; i < 5; i++) {
+      history.addUserMessage("x".repeat(80));
+    }
+
+    history.updateActualUsage({ totalTokens: 95 });
+    expect(history.needsCompaction()).toBe(true);
+
+    await history.compact();
+
+    expect(history.getActualUsage()).toBeNull();
+    expect(history.needsCompaction()).toBe(false);
+    expect(history.getSummaries()).toHaveLength(1);
+  });
+});
+
+describe("MessageHistory speculative compaction", () => {
+  it("prepares speculative compaction without mutating live history", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 20,
+        reserveTokens: 10,
+        summarizeFn: async () => "Prepared summary",
+      },
+    });
+    history.setContextLimit(100);
+
+    for (let i = 0; i < 5; i++) {
+      history.addUserMessage("x".repeat(80));
+    }
+
+    const liveMessageCount = history.getAll().length;
+    const liveSummaryCount = history.getSummaries().length;
+
+    const prepared = await history.prepareSpeculativeCompaction({
+      phase: "new-turn",
+    });
+
+    expect(prepared).not.toBeNull();
+    expect(prepared?.didChange).toBe(true);
+    expect(prepared?.summaries).toHaveLength(1);
+    expect(history.getAll()).toHaveLength(liveMessageCount);
+    expect(history.getSummaries()).toHaveLength(liveSummaryCount);
+  });
+
+  it("drops prepared compaction when the live revision changed", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 20,
+        reserveTokens: 10,
+        summarizeFn: async () => "Prepared summary",
+      },
+    });
+    history.setContextLimit(100);
+
+    for (let i = 0; i < 5; i++) {
+      history.addUserMessage("x".repeat(80));
+    }
+
+    const prepared = await history.prepareSpeculativeCompaction({
+      phase: "new-turn",
+    });
+    if (!prepared) {
+      throw new Error("Expected prepared compaction");
+    }
+
+    history.addUserMessage("new live message");
+
+    expect(history.applyPreparedCompaction(prepared)).toEqual({
+      applied: false,
+      reason: "stale",
+    });
+    expect(history.getSummaries()).toHaveLength(0);
+  });
+
+  it("applies prepared compaction when the live revision matches", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 20,
+        reserveTokens: 10,
+        summarizeFn: async () => "Prepared summary",
+      },
+    });
+    history.setContextLimit(100);
+
+    for (let i = 0; i < 5; i++) {
+      history.addUserMessage("x".repeat(80));
+    }
+
+    const prepared = await history.prepareSpeculativeCompaction({
+      phase: "new-turn",
+    });
+    if (!prepared) {
+      throw new Error("Expected prepared compaction");
+    }
+
+    expect(history.applyPreparedCompaction(prepared)).toEqual({
+      applied: true,
+      reason: "applied",
+    });
+    expect(history.getSummaries()).toHaveLength(1);
+    expect(history.getSummaries()[0].summary).toBe("Prepared summary");
+  });
+
+  it("predicts speculative compaction one turn early", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 1000,
+        reserveTokens: 200,
+      },
+    });
+    history.setContextLimit(1000);
+    history.addUserMessage("hello");
+
+    history.updateActualUsage({ totalTokens: 650 });
+    expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);
+    expect(history.needsCompaction()).toBe(false);
+  });
+
+  it("detects whether an additional message would exceed the context limit", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 600,
+        reserveTokens: 200,
+      },
+    });
+    history.setContextLimit(600);
+    history.addUserMessage("hello");
+    history.updateActualUsage({ totalTokens: 350 });
+
+    expect(history.wouldExceedContextWithAdditionalMessage("short")).toBe(false);
+    expect(
+      history.wouldExceedContextWithAdditionalMessage("x".repeat(220))
+    ).toBe(true);
+  });
 });

@@ -57,6 +57,7 @@ await createAgentTUI({
   agent,           // required — { stream(messages, opts?): Promise<AgentStreamResult> }
   messageHistory,  // required — MessageHistory from @ai-sdk-tool/harness
   header,          // optional — { title: string; subtitle?: string }
+  footer,          // optional — { text?: string }
   commands,        // optional — Command[] (defaults to all registered commands)
   skills,          // optional — SkillInfo[] for editor autocomplete
   toolRenderers,   // optional — ToolRendererMap for custom per-tool rendering
@@ -72,6 +73,7 @@ await createAgentTUI({
 | `agent` | `{ stream(...) }` | yes | Agent with a `stream` method compatible with `AgentStreamResult` |
 | `messageHistory` | `MessageHistory` | yes | Conversation history — the TUI reads and writes to this |
 | `header` | `{ title, subtitle? }` | no | Text shown at the top of the terminal |
+| `footer` | `{ text? }` | no | Text shown below the input editor |
 | `commands` | `Command[]` | no | Slash commands available in the editor; defaults to all registered commands |
 | `skills` | `SkillInfo[]` | no | Skills shown in editor autocomplete |
 | `toolRenderers` | `ToolRendererMap` | no | Custom renderers keyed by tool name |
