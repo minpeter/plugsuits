@@ -36,6 +36,7 @@ import {
 } from "../cli-defs";
 import { getCommands, registerCommand } from "../commands";
 import { createClearCommand } from "../commands/clear";
+import { createCompactCommand } from "../commands/compact";
 import {
   applyModelSelection,
   createModelCommand,
@@ -178,6 +179,7 @@ registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
 registerCommand(createTranslateCommand());
+registerCommand(createCompactCommand(() => messageHistory));
 
 const toModelMessages = (messages: unknown[]): ModelMessage[] => {
   return messages as ModelMessage[];

@@ -38,9 +38,8 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
         break;
       }
 
-      const stream = await config.stream(
-        config.messageHistory.toModelMessages()
-      );
+      const messages = await config.messageHistory.getMessagesForLLMAsync();
+      const stream = await config.stream(messages);
       const processStreamResult = await processStream({
         emitEvent,
         modelId: config.getModelId(),

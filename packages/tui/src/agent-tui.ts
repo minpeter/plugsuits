@@ -474,21 +474,65 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
   };
 
+  const prepareMessagesWithCompaction = async (): Promise<unknown[]> => {
+    const willCompact =
+      config.messageHistory.isCompactionEnabled() &&
+      config.messageHistory.needsCompaction();
+
+    if (willCompact) {
+      showLoader("Compacting conversation...");
+    }
+
+    const summaryIdBefore = config.messageHistory.getSummaries()[0]?.id ?? null;
+    const tokensBefore = willCompact
+      ? config.messageHistory.getEstimatedTokens()
+      : 0;
+
+    try {
+      const messagesForLLM =
+        await config.messageHistory.getMessagesForLLMAsync();
+
+      if (willCompact) {
+        const summaryIdAfter =
+          config.messageHistory.getSummaries()[0]?.id ?? null;
+        const actuallyCompacted = summaryIdAfter !== summaryIdBefore;
+
+        if (actuallyCompacted) {
+          const tokensAfter = config.messageHistory.getEstimatedTokens();
+          const reduction =
+            tokensBefore > 0
+              ? Math.max(0, Math.round((1 - tokensAfter / tokensBefore) * 100))
+              : 0;
+          addSystemMessage(
+            chatContainer,
+            `✓ Compacted: ${tokensBefore.toLocaleString()} → ${tokensAfter.toLocaleString()} tokens (${reduction}% reduction)`
+          );
+          tui.requestRender();
+        }
+      }
+
+      return messagesForLLM;
+    } finally {
+      if (willCompact) {
+        clearStatus();
+      }
+    }
+  };
+
   const runSingleStreamTurn = async (): Promise<
     "completed" | "continue" | "interrupted"
   > => {
+    const messagesForLLM = await prepareMessagesWithCompaction();
+
     showLoader("Working...");
     const streamAbortController = new AbortController();
     activeStreamController = streamAbortController;
     streamInterruptRequested = false;
 
     try {
-      const stream = await config.agent.stream(
-        config.messageHistory.toModelMessages(),
-        {
-          abortSignal: streamAbortController.signal,
-        }
-      );
+      const stream = await config.agent.stream(messagesForLLM, {
+        abortSignal: streamAbortController.signal,
+      });
 
       let hasClearedStreamingLoader = false;
       const clearStreamingLoader = (): void => {
