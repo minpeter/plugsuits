@@ -273,6 +273,8 @@ export interface PreparedCompaction {
   baseMessageIds: string[];
   baseRevision: number;
   baseSummaryIds: string[];
+  compactionMaxTokensAtCreation: number;
+  contextLimitAtCreation: number;
   didChange: boolean;
   messages: Message[];
   pendingCompaction: boolean;
@@ -891,6 +893,9 @@ export class MessageHistory {
       baseMessageIds: this.messages.map((message) => message.id),
       baseRevision,
       baseSummaryIds: this.summaries.map((summary) => summary.id),
+      compactionMaxTokensAtCreation:
+        this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS,
+      contextLimitAtCreation: this.getContextLimit(),
       didChange: clone.revision !== baseRevision,
       messages: clone.messages.map(cloneMessage),
       pendingCompaction: clone.pendingCompaction,
@@ -903,6 +908,14 @@ export class MessageHistory {
     applied: boolean;
     reason: "applied" | "noop" | "stale";
   } {
+    if (
+      prepared.contextLimitAtCreation !== this.getContextLimit() ||
+      prepared.compactionMaxTokensAtCreation !==
+        (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS)
+    ) {
+      return { applied: false, reason: "stale" };
+    }
+
     const hasExactRevisionMatch = prepared.baseRevision === this.revision;
     const hasMatchingSummaryPrefix =
       this.summaries.length === prepared.baseSummaryIds.length &&
@@ -1010,6 +1023,25 @@ export class MessageHistory {
       reserveTokens;
 
     return totalTokens >= threshold;
+  }
+
+  isAtHardContextLimit(
+    additionalTokens?: number,
+    options?: CompactionCheckOptions
+  ): boolean {
+    if (!(this.compaction.enabled || this.pruning.enabled)) {
+      return false;
+    }
+
+    const currentUsageTokens =
+      this.actualUsage?.totalTokens ?? this.getEstimatedTokens();
+    const effectiveReserveTokens = this.getEffectiveReserveTokens(options);
+    const activeContextLimit = this.getActiveContextLimit();
+
+    return (
+      currentUsageTokens + (additionalTokens ?? 0) + effectiveReserveTokens >=
+      activeContextLimit
+    );
   }
 
   /**
