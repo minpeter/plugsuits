@@ -1,0 +1,9 @@
+Headless runner now blocks only at the hard context limit, with bounded retries.
+
+Evidence:
+- blockAtHardContextLimit(additionalTokens, phase) checks isAtHardContextLimit(...) before doing any await.
+- If a running speculative job exists, it awaits that job; otherwise it performs a fresh prepareSpeculativeCompaction({ phase: "new-turn" }).
+- applyPreparedCompaction(...) stale results trigger a single re-fire and the second blocking attempt consumes that replacement job.
+- Blocking attempts are capped at 2; if still above the limit, runner.ts logs the hard-limit warning and proceeds.
+- The test "blocks only when a follow-up hits the hard context limit" covers the blocking path.
+- The stale-path test now also confirms hard-limit rescue re-fires once and resumes with the compacted system summary.
