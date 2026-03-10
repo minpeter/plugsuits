@@ -132,6 +132,7 @@ describe("runHeadless", () => {
       messageHistory: history,
       modelId: "mock-model",
       onTodoReminder: async () => {
+        await Promise.resolve();
         if (streamCallCount === 1) {
           return { hasReminder: true, message: "ok" };
         }
@@ -194,6 +195,7 @@ describe("runHeadless", () => {
       messageHistory: history,
       modelId: "mock-model",
       onTodoReminder: async () => {
+        await Promise.resolve();
         if (streamCallCount === 1) {
           return { hasReminder: true, message: "x".repeat(500) };
         }
