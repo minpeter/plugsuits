@@ -1,8 +1,25 @@
-import { Container, Markdown, type MarkdownTheme } from "@mariozechner/pi-tui";
+import {
+  Container,
+  Markdown,
+  type MarkdownTheme,
+  Spacer,
+  truncateToWidth,
+  visibleWidth,
+} from "@mariozechner/pi-tui";
 import { parsePartialJson } from "ai";
 
 const UNKNOWN_TOOL_NAME = "tool";
 const TRAILING_NEWLINES = /\n+$/;
+const TAB_PATTERN = /\t/g;
+const BACKTICK_FENCE_PATTERN = /`{3,}/g;
+
+const ANSI_RESET = "\x1b[0m";
+const ANSI_BG_GRAY = "\x1b[100m";
+const ANSI_BG_DARK_RED = "\x1b[48;5;88m";
+
+const PENDING_SPINNER_FRAMES = ["-", "\\", "|", "/"] as const;
+const PENDING_MESSAGE = "Executing..";
+const PENDING_MARKER = "__tool_pending_status__";
 
 const safeStringify = (value: unknown): string => {
   if (typeof value === "string") {
@@ -17,8 +34,123 @@ const safeStringify = (value: unknown): string => {
 
 const renderCodeBlock = (language: string, value: unknown): string => {
   const text = safeStringify(value).replace(TRAILING_NEWLINES, "");
-  return `\`\`\`${language}\n${text}\n\`\`\``;
+  const longestFenceRun = Array.from(
+    text.matchAll(BACKTICK_FENCE_PATTERN)
+  ).reduce((max, match) => Math.max(max, match[0].length), 2);
+  const fence = "`".repeat(longestFenceRun + 1);
+  return `${fence}${language}\n${text}\n${fence}`;
 };
+
+const isPlainEmptyObject = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return false;
+  }
+  return Object.keys(value).length === 0;
+};
+
+const applyGrayBackground = (text: string): string => {
+  return `${ANSI_BG_GRAY}${text}${ANSI_RESET}`;
+};
+
+const applyErrorBackground = (text: string): string => {
+  return `${ANSI_BG_DARK_RED}${text}${ANSI_RESET}`;
+};
+
+class TrimmedMarkdown extends Markdown {
+  override render(width: number): string[] {
+    const lines = super.render(width);
+    let end = lines.length;
+    while (end > 0 && lines[end - 1].trim().length === 0) {
+      end -= 1;
+    }
+    return lines.slice(0, end);
+  }
+}
+
+class BackgroundBody {
+  private cachedLines?: string[];
+  private cachedText?: string;
+  private cachedWidth?: number;
+  private backgroundFn: (text: string) => string;
+  private backgroundEnabled = true;
+  private readonly paddingX: number;
+  private text: string;
+
+  constructor(
+    text: string,
+    paddingX: number,
+    backgroundFn: (text: string) => string
+  ) {
+    this.text = text;
+    this.paddingX = paddingX;
+    this.backgroundFn = backgroundFn;
+  }
+
+  setText(text: string): void {
+    this.text = text;
+    this.invalidate();
+  }
+
+  setBackground(backgroundFn: (text: string) => string): void {
+    this.backgroundFn = backgroundFn;
+    this.invalidate();
+  }
+
+  setBackgroundEnabled(enabled: boolean): void {
+    if (this.backgroundEnabled === enabled) {
+      return;
+    }
+    this.backgroundEnabled = enabled;
+    this.invalidate();
+  }
+
+  invalidate(): void {
+    this.cachedText = undefined;
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  render(width: number): string[] {
+    if (
+      this.cachedLines &&
+      this.cachedText === this.text &&
+      this.cachedWidth === width
+    ) {
+      return this.cachedLines;
+    }
+
+    if (!this.text || this.text.trim().length === 0) {
+      this.cachedText = this.text;
+      this.cachedWidth = width;
+      this.cachedLines = [];
+      return [];
+    }
+
+    const normalizedText = this.text.replace(TAB_PATTERN, "   ");
+    const contentWidth = Math.max(1, width - this.paddingX * 2);
+    const leftMargin = " ".repeat(this.paddingX);
+    const rightMargin = " ".repeat(this.paddingX);
+
+    const renderedLines = normalizedText.split("\n").map((line) => {
+      const truncatedLine = truncateToWidth(line, contentWidth, "");
+      const lineWithMargins = `${leftMargin}${truncatedLine}${rightMargin}`;
+      const visLen = visibleWidth(lineWithMargins);
+      const paddedLine = `${lineWithMargins}${" ".repeat(Math.max(0, width - visLen))}`;
+
+      return this.backgroundEnabled
+        ? this.backgroundFn(paddedLine)
+        : paddedLine;
+    });
+
+    this.cachedText = this.text;
+    this.cachedWidth = width;
+    this.cachedLines = renderedLines;
+    return renderedLines;
+  }
+}
 
 export interface ToolRendererMap {
   [toolName: string]: (
@@ -31,13 +163,24 @@ export interface ToolRendererMap {
 export class BaseToolCallView extends Container {
   private readonly callId: string;
   private readonly content: Markdown;
+  private readonly markdownTheme: MarkdownTheme;
   private readonly renderers?: ToolRendererMap;
+  private readonly requestRender: (() => void) | undefined;
+  private readonly showRawToolIo: boolean;
+  private displayMode: "content" | "pretty" = "content";
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
   private output: unknown;
   private outputDenied = false;
   private parsedInput: unknown;
+  private pendingSpinnerFrameIndex = 0;
+  private pendingSpinnerInterval: Timer | null = null;
+  private pendingTemplate: string | null = null;
+  private prettyBlockActive = false;
+  private readBlock: Container | null = null;
+  private readBody: BackgroundBody | null = null;
+  private readHeader: TrimmedMarkdown | null = null;
   private renderedOverride: string | null = null;
   private toolName: string;
 
@@ -45,13 +188,16 @@ export class BaseToolCallView extends Container {
     callId: string,
     toolName: string,
     markdownTheme: MarkdownTheme,
-    _requestRender?: () => void,
-    _showRawToolIo?: boolean,
+    requestRender?: () => void,
+    showRawToolIo?: boolean,
     renderers?: ToolRendererMap
   ) {
     super();
     this.callId = callId;
     this.toolName = toolName;
+    this.markdownTheme = markdownTheme;
+    this.requestRender = requestRender;
+    this.showRawToolIo = showRawToolIo ?? false;
     this.renderers = renderers;
     this.content = new Markdown("", 1, 0, markdownTheme);
     this.addChild(this.content);
@@ -59,12 +205,17 @@ export class BaseToolCallView extends Container {
   }
 
   dispose(): void {
-    return;
+    this.stopPendingSpinner();
   }
 
   async appendInputChunk(chunk: string): Promise<void> {
     this.inputBuffer += chunk;
-    const { value } = await parsePartialJson(this.inputBuffer);
+    const { value, state } = await parsePartialJson(this.inputBuffer);
+    // Suppress transient empty objects during partial parsing to prevent
+    // renderers from briefly showing "(unknown)" headers before real data arrives.
+    if (state !== "successful-parse" && isPlainEmptyObject(value)) {
+      return;
+    }
     this.parsedInput = value;
     this.refresh();
   }
@@ -98,6 +249,125 @@ export class BaseToolCallView extends Container {
     this.renderedOverride = markdown;
   }
 
+  getError(): unknown {
+    return this.error;
+  }
+
+  isOutputDenied(): boolean {
+    return this.outputDenied;
+  }
+
+  /**
+   * Public API for custom tool renderers. Sets a pretty block with Markdown
+   * header and ANSI-backgrounded body. See TUI README for usage examples.
+   */
+  setPrettyBlock(
+    header: string,
+    body: string,
+    options?: {
+      isPending?: boolean;
+      isError?: boolean;
+      useBackground?: boolean;
+    }
+  ): void {
+    this.prettyBlockActive = true;
+    this.ensurePrettyBlockComponents();
+
+    const { readBody, readHeader, readBlock } = this;
+    if (!(readBody && readHeader && readBlock)) {
+      return;
+    }
+
+    this.setDisplayMode("pretty");
+
+    if (options?.isError) {
+      readBody.setBackground(applyErrorBackground);
+    } else {
+      readBody.setBackground(applyGrayBackground);
+    }
+
+    readBody.setBackgroundEnabled(options?.useBackground ?? true);
+    readHeader.setText(header);
+
+    if (options?.isPending) {
+      this.startPendingSpinner(body);
+      return;
+    }
+
+    this.stopPendingSpinner();
+    readBody.setText(body);
+  }
+
+  private ensurePrettyBlockComponents(): void {
+    if (this.readBlock) {
+      return;
+    }
+
+    const header = new TrimmedMarkdown("", 1, 0, this.markdownTheme);
+    const body = new BackgroundBody("", 1, applyGrayBackground);
+    const block = new Container();
+    block.addChild(header);
+    block.addChild(new Spacer(1));
+    block.addChild(body as unknown as InstanceType<typeof Container>);
+
+    this.readHeader = header;
+    this.readBody = body;
+    this.readBlock = block;
+  }
+
+  private setDisplayMode(mode: "content" | "pretty"): void {
+    if (this.displayMode === mode) {
+      return;
+    }
+    this.displayMode = mode;
+    this.clear();
+    if (mode === "pretty" && this.readBlock) {
+      this.addChild(this.readBlock);
+    } else {
+      this.addChild(this.content);
+    }
+  }
+
+  private startPendingSpinner(template: string): void {
+    this.pendingTemplate = template.length > 0 ? template : PENDING_MARKER;
+    this.pendingSpinnerFrameIndex = 0;
+    this.applyPendingSpinnerFrame();
+
+    if (this.pendingSpinnerInterval) {
+      return;
+    }
+
+    this.pendingSpinnerInterval = setInterval(() => {
+      this.pendingSpinnerFrameIndex =
+        (this.pendingSpinnerFrameIndex + 1) % PENDING_SPINNER_FRAMES.length;
+      this.applyPendingSpinnerFrame();
+      this.requestRender?.();
+    }, 80);
+  }
+
+  private stopPendingSpinner(): void {
+    this.pendingTemplate = null;
+    if (!this.pendingSpinnerInterval) {
+      return;
+    }
+    clearInterval(this.pendingSpinnerInterval);
+    this.pendingSpinnerInterval = null;
+  }
+
+  private applyPendingSpinnerFrame(): void {
+    if (!(this.pendingTemplate && this.readBody)) {
+      return;
+    }
+
+    const frame = PENDING_SPINNER_FRAMES[this.pendingSpinnerFrameIndex];
+    const spinnerText = `${frame} ${PENDING_MESSAGE}`;
+    this.readBody.setText(
+      this.pendingTemplate.includes(PENDING_MARKER)
+        ? this.pendingTemplate.replaceAll(PENDING_MARKER, spinnerText)
+        : spinnerText
+    );
+  }
+
   private resolveBestInput(): unknown {
     if (this.finalInput !== undefined) {
       return this.finalInput;
@@ -115,11 +385,7 @@ export class BaseToolCallView extends Container {
   }
 
   private tryRenderWithCustomRenderer(bestInput: unknown): boolean {
-    if (
-      this.output === undefined ||
-      this.outputDenied ||
-      this.error !== undefined
-    ) {
+    if (this.outputDenied) {
       return false;
     }
 
@@ -129,14 +395,43 @@ export class BaseToolCallView extends Container {
     }
 
     this.renderedOverride = null;
+    this.prettyBlockActive = false;
     renderer(this, bestInput, this.output);
-    return this.renderedOverride !== null;
+    return this.renderedOverride !== null || this.prettyBlockActive;
+  }
+
+  private shouldSuppressRawFallback(): boolean {
+    if (this.showRawToolIo) {
+      return false;
+    }
+
+    return (
+      this.finalInput === undefined &&
+      this.output === undefined &&
+      this.error === undefined &&
+      !this.outputDenied &&
+      this.inputBuffer.length > 0
+    );
   }
 
   private refresh(): void {
     const bestInput = this.resolveBestInput();
-    if (this.tryRenderWithCustomRenderer(bestInput) && this.renderedOverride) {
-      this.content.setText(this.renderedOverride);
+
+    if (!this.showRawToolIo && this.tryRenderWithCustomRenderer(bestInput)) {
+      if (this.prettyBlockActive) {
+        return;
+      }
+      if (this.renderedOverride) {
+        this.setDisplayMode("content");
+        this.content.setText(this.renderedOverride);
+        return;
+      }
+    }
+
+    this.stopPendingSpinner();
+    this.setDisplayMode("content");
+
+    if (this.shouldSuppressRawFallback()) {
       return;
     }
 

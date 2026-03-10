@@ -5,6 +5,7 @@ import {
   executeCommand,
   getCommands,
   isCommand,
+  isSkillCommandResult,
   type MessageHistory,
   parseCommand,
   type SkillInfo,
@@ -145,6 +146,9 @@ export interface PreprocessHooks {
 }
 
 export interface CommandPreprocessHooks {
+  addInputListener: (
+    listener: (data: string) => { consume: boolean; data?: string } | undefined
+  ) => () => void;
   clearStatus: () => void;
   editorTheme: EditorTheme;
   handleCtrlCPress: () => void;
@@ -171,6 +175,7 @@ export interface AgentTUIConfig {
     input: string,
     hooks: PreprocessHooks
   ) => Promise<PreprocessResult | undefined>;
+  showRawToolIo?: boolean;
   skills?: SkillInfo[];
   theme?: { markdownTheme?: MarkdownTheme; editorTheme?: EditorTheme };
   toolRenderers?: ToolRendererMap;
@@ -198,7 +203,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
-  tui.setClearOnShrink(true);
+  tui.setClearOnShrink(false);
 
   const headerContainer = new Container();
   const chatContainer = new Container();
@@ -255,6 +260,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   let inputResolver: null | ((value: string | null) => void) = null;
   let lastCtrlCPressAt = 0;
   let loader: Loader | null = null;
+  let commandInputListenerActive = false;
 
   const clearStatus = (): void => {
     if (loader) {
@@ -331,7 +337,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   };
 
   const removeInputListener = tui.addInputListener((data) => {
-    if (isCtrlCInput(data)) {
+    if (isCtrlCInput(data) && !commandInputListenerActive) {
       handleCtrlCPress();
       return { consume: true };
     }
@@ -498,7 +504,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           showReasoning: true,
           showSteps: false,
           showFinishReason: false,
-          showRawToolIo: false,
+          showRawToolIo: config.showRawToolIo ?? false,
           showToolResults: true,
           showSources: false,
           showFiles: false,
@@ -579,6 +585,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     return await config.preprocessCommand(input, {
+      addInputListener: (listener) => {
+        commandInputListenerActive = true;
+        const remove = tui.addInputListener(listener);
+        return () => {
+          remove();
+          commandInputListenerActive = false;
+        };
+      },
       clearStatus,
       tui,
       statusContainer,
@@ -615,6 +629,15 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     const commandResult =
       (await executeLocalCommand(commandInput)) ??
       (await executeCommand(commandInput));
+
+    if (isSkillCommandResult(commandResult)) {
+      addUserMessage(chatContainer, markdownTheme, trimmed);
+      config.messageHistory.addUserMessage(commandResult.skillContent);
+      tui.requestRender();
+      await processAgentResponse();
+      return true;
+    }
+
     handleCommandResult(commandResult);
     return true;
   };
@@ -665,6 +688,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
     try {
       editor.disableSubmit = true;
+      editor.setText("");
+      tui.requestRender();
 
       if (isCommand(trimmed)) {
         return await processCommandInput(trimmed);
@@ -680,7 +705,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       return true;
     } finally {
       editor.disableSubmit = false;
-      editor.setText("");
       tui.setFocus(editor);
       tui.requestRender();
     }

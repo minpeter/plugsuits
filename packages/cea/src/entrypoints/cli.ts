@@ -50,8 +50,9 @@ import { createTranslateCommand } from "../commands/translate";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
 import { isNonEnglish, translateToEnglish } from "../context/translation";
-import { validateProviderConfig } from "../env";
+import { env, validateProviderConfig } from "../env";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
+import { createToolRenderers } from "../interaction/tool-renderers";
 import {
   buildTodoContinuationUserMessage,
   getIncompleteTodos,
@@ -483,9 +484,8 @@ const mainCommand = defineCommand({
           finish(null);
         };
 
-        removeInputListener = hooks.tui.addInputListener((data: string) => {
+        removeInputListener = hooks.addInputListener((data: string) => {
           if (hooks.isCtrlCInput(data)) {
-            hooks.handleCtrlCPress();
             finish(null);
             return { consume: true };
           }
@@ -567,9 +567,8 @@ const mainCommand = defineCommand({
           finish(null);
         };
 
-        removeInputListener = hooks.tui.addInputListener((data: string) => {
+        removeInputListener = hooks.addInputListener((data: string) => {
           if (hooks.isCtrlCInput(data)) {
-            hooks.handleCtrlCPress();
             finish(null);
             return { consume: true };
           }
@@ -641,9 +640,8 @@ const mainCommand = defineCommand({
           finish(null);
         };
 
-        removeInputListener = hooks.tui.addInputListener((data: string) => {
+        removeInputListener = hooks.addInputListener((data: string) => {
           if (hooks.isCtrlCInput(data)) {
-            hooks.handleCtrlCPress();
             finish(null);
             return { consume: true };
           }
@@ -740,9 +738,8 @@ const mainCommand = defineCommand({
           finish(null);
         };
 
-        removeInputListener = hooks.tui.addInputListener((data: string) => {
+        removeInputListener = hooks.addInputListener((data: string) => {
           if (hooks.isCtrlCInput(data)) {
-            hooks.handleCtrlCPress();
             finish(null);
             return { consume: true };
           }
@@ -920,6 +917,8 @@ const mainCommand = defineCommand({
           markdownTheme: createMarkdownTheme(),
           editorTheme: createEditorTheme(),
         },
+        toolRenderers: createToolRenderers(),
+        showRawToolIo: env.DEBUG_SHOW_RAW_TOOL_IO,
         preprocessCommand: createCommandPreprocessor(),
         preprocessUserInput: createTranslationPreprocessor(),
         onSetup: () => {
