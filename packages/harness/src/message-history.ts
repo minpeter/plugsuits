@@ -1173,38 +1173,14 @@ export class MessageHistory {
    * Async version of getMessagesForLLM that performs pending compaction
    * before returning messages. This ensures compaction happens at the
    * point of use rather than fire-and-forget.
+   *
+   * @deprecated Use getMessagesForLLM() instead. This method no longer performs
+   * inline compaction. Compaction is now handled separately via
+   * prepareSpeculativeCompaction() and applyPreparedCompaction().
    */
   async getMessagesForLLMAsync(
-    options?: MessagePreparationOptions
+    _options?: MessagePreparationOptions
   ): Promise<ModelMessage[]> {
-    if (this.pendingCompaction) {
-      this.setPendingCompaction(false);
-
-      const allowPruning =
-        options?.allowPruning ?? options?.phase !== "intermediate-step";
-
-      // Run pruning first if enabled
-      if (allowPruning && this.pruning.enabled) {
-        try {
-          this.performPruning();
-        } catch (error) {
-          console.error("Pruning error in getMessagesForLLMAsync:", error);
-        }
-      }
-
-      // Only run compaction if still needed
-      if (this.compaction.enabled && this.needsCompaction(options)) {
-        try {
-          await this.performCompaction(
-            options?.summarizeFn,
-            options?.onSummaryDelta
-          );
-        } catch (error) {
-          console.error("Compaction error in getMessagesForLLMAsync:", error);
-        }
-      }
-    }
-
     return this.getMessagesForLLM();
   }
 

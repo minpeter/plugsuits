@@ -106,11 +106,16 @@ describe("compaction integration with model-specific configs", () => {
         history.addUserMessage(makeContent(1000));
       }
 
-      // getMessagesForLLMAsync triggers pending compaction
-      const messages = await history.getMessagesForLLMAsync();
+      // Use prepareSpeculativeCompaction + applyPreparedCompaction instead of getMessagesForLLMAsync
+      const prepared = await history.prepareSpeculativeCompaction({
+        phase: "new-turn",
+      });
+      expect(prepared).not.toBeNull();
+      history.applyPreparedCompaction(prepared!);
 
       // Should have compacted and prepended system summary
       expect(history.getSummaries().length).toBeGreaterThanOrEqual(1);
+      const messages = history.getMessagesForLLM();
       expect(messages[0].role).toBe("system");
     });
 
