@@ -2,8 +2,12 @@ export interface CommandContext {
   args: string[];
 }
 
+export interface CommandAction {
+  type: "new-session";
+}
+
 export interface CommandResult {
-  action?: "new-session";
+  action?: CommandAction;
   message?: string;
   success: boolean;
 }

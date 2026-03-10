@@ -47,7 +47,7 @@ describe("Command aliases", () => {
       displayName: "clear (new)",
       aliases: ["new"],
       description: "Start a new session",
-      execute: () => ({ success: true, action: "new-session" }),
+      execute: () => ({ success: true, action: { type: "new-session" } }),
     });
 
     const help = createHelpCommand(() => commandMap);

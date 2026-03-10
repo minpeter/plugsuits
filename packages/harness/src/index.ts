@@ -2,6 +2,7 @@ export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
 export type {
   Command,
+  CommandAction,
   CommandContext,
   CommandRegistryConfig,
   CommandResult,

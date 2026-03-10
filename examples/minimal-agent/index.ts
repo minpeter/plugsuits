@@ -1,4 +1,5 @@
 import {
+  type Command,
   createAgent,
   MessageHistory,
   SessionManager,
@@ -16,6 +17,17 @@ import { z } from "zod";
 const DEFAULT_MODEL_ID = "zai-org/GLM-5";
 const DEFAULT_SYSTEM_PROMPT =
   "You are a minimal FriendliAI example agent. Be concise and helpful.";
+const LOCAL_COMMANDS: Command[] = [
+  {
+    name: "clear",
+    description: "Clear the conversation and start a new session",
+    execute: () => ({
+      success: true,
+      action: { type: "new-session" },
+      message: "Started a new session.",
+    }),
+  },
+];
 
 const env = createEnv({
   server: {
@@ -61,7 +73,7 @@ const main = defineCommand({
   async run({ args }) {
     const messageHistory = new MessageHistory();
     const sessionManager = new SessionManager("minimal-agent");
-    const sessionId = sessionManager.initialize();
+    sessionManager.initialize();
     const selectedModelId = resolveModelId(args.model);
     const friendli = createFriendliProvider();
     const agent = createAgent({
@@ -79,7 +91,7 @@ const main = defineCommand({
 
       await runHeadless({
         agent,
-        sessionId,
+        sessionId: sessionManager.getId(),
         emitEvent,
         initialUserMessage: {
           content: prompt,
@@ -93,10 +105,18 @@ const main = defineCommand({
 
     await createAgentTUI({
       agent,
+      commands: LOCAL_COMMANDS,
       messageHistory,
       header: {
         title: "Minimal Agent",
-        subtitle: `${selectedModelId} • ${sessionId}`,
+        get subtitle() {
+          return `${selectedModelId} • ${sessionManager.getId()}`;
+        },
+      },
+      onCommandAction: (action) => {
+        if (action.type === "new-session") {
+          sessionManager.initialize();
+        }
       },
     });
 

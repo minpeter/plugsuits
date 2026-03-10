@@ -305,17 +305,6 @@ const createCliCommands = (): Command[] => {
   const commands = Array.from(getCommands().values());
 
   return commands.map((command) => {
-    if (command.name === "clear") {
-      return wrapCommand(command, async (context, original) => {
-        const result = await original(context);
-        if (result.success && result.action === "new-session") {
-          sessionManager.initialize();
-          resetMissingLinesFailures();
-        }
-        return result;
-      });
-    }
-
     if (command.name === "model") {
       return wrapCommand(command, async (context, original) => {
         const result = await original(context);
@@ -937,6 +926,12 @@ const mainCommand = defineCommand({
         showRawToolIo: env.DEBUG_SHOW_RAW_TOOL_IO,
         preprocessCommand: createCommandPreprocessor(),
         preprocessUserInput: createTranslationPreprocessor(),
+        onCommandAction: (action) => {
+          if (action.type === "new-session") {
+            sessionManager.initialize();
+            resetMissingLinesFailures();
+          }
+        },
         onSetup: () => {
           setSpinnerOutputEnabled(false);
         },

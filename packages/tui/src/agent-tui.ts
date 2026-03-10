@@ -1,8 +1,8 @@
 import {
   type Command,
+  type CommandAction,
   type CommandResult,
   executeCommand,
-  getCommands,
   isCommand,
   isSkillCommandResult,
   type MessageHistory,
@@ -29,6 +29,7 @@ import {
   TUI,
 } from "@mariozechner/pi-tui";
 import { createAliasAwareAutocompleteProvider } from "./autocomplete";
+import { buildTuiCommandSet } from "./command-set";
 import {
   addChatComponent,
   createInfoMessage,
@@ -166,6 +167,7 @@ export interface AgentTUIConfig {
   commands?: Command[];
   header?: { title: string; subtitle?: string };
   messageHistory: MessageHistory;
+  onCommandAction?: (action: CommandAction) => void | Promise<void>;
   onSetup?: () => void | Promise<void>;
   preprocessCommand?: (
     commandInput: string,
@@ -186,20 +188,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     config.theme?.markdownTheme ?? createDefaultMarkdownTheme();
   const editorTheme = config.theme?.editorTheme ?? createDefaultEditorTheme();
   const skills = config.skills ?? [];
-  const commands = config.commands ?? Array.from(getCommands().values());
-  const commandLookup = new Map<string, Command>();
-  const commandAliasLookup = new Map<string, string>();
-
-  for (const command of commands) {
-    const normalizedName = command.name.toLowerCase();
-    commandLookup.set(normalizedName, command);
-    for (const alias of command.aliases ?? []) {
-      const normalizedAlias = alias.toLowerCase();
-      if (normalizedAlias !== normalizedName) {
-        commandAliasLookup.set(normalizedAlias, normalizedName);
-      }
-    }
-  }
+  const { commands, commandLookup, commandAliasLookup } = buildTuiCommandSet(
+    config.commands
+  );
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
@@ -697,17 +688,34 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     });
   };
 
-  const handleCommandResult = (commandResult: CommandResult | null): void => {
-    if (commandResult?.message) {
-      addSystemMessage(chatContainer, commandResult.message);
+  const handleCommandResult = async (
+    commandResult: CommandResult | null
+  ): Promise<void> => {
+    if (!(commandResult?.success && commandResult.action)) {
+      if (commandResult?.message) {
+        addSystemMessage(chatContainer, commandResult.message);
+      }
+      tui.requestRender();
+      return;
     }
 
-    if (commandResult?.success && commandResult.action === "new-session") {
+    if (commandResult.action.type === "new-session") {
       config.messageHistory.clear();
       chatContainer.clear();
       addNewSessionMessage(chatContainer);
+      await config.onCommandAction?.(commandResult.action);
+      updateHeader();
+
+      if (commandResult.message) {
+        addSystemMessage(chatContainer, commandResult.message);
+      }
+      tui.requestRender();
+      return;
     }
 
+    if (commandResult.message) {
+      addSystemMessage(chatContainer, commandResult.message);
+    }
     tui.requestRender();
   };
 
@@ -730,7 +738,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       return true;
     }
 
-    handleCommandResult(commandResult);
+    await handleCommandResult(commandResult);
     return true;
   };
 
