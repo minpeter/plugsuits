@@ -660,7 +660,12 @@ describe("MessageHistory compaction", () => {
     expect(history.needsCompaction()).toBe(false);
     expect(history.needsCompaction({ phase: "intermediate-step" })).toBe(true);
 
-    await history.getMessagesForLLMAsync({ phase: "intermediate-step" });
+    // Use prepareSpeculativeCompaction + applyPreparedCompaction instead of getMessagesForLLMAsync
+    const prepared = await history.prepareSpeculativeCompaction({
+      phase: "intermediate-step",
+    });
+    expect(prepared).not.toBeNull();
+    history.applyPreparedCompaction(prepared!);
 
     expect(history.getSummaries()).toHaveLength(1);
     expect(history.getSummaries()[0].summary).toBe("Predictive summary");
@@ -1470,5 +1475,28 @@ describe("MessageHistory PreparedCompaction config tracking", () => {
     const result = history.applyPreparedCompaction(prepared);
     expect(result).toEqual({ applied: true, reason: "applied" });
     expect(history.getSummaries()).toHaveLength(1);
+  });
+
+  it("getMessagesForLLMAsync does not call summarizeFn (neutered)", async () => {
+    let callCount = 0;
+    const summarizeFn = async () => {
+      callCount++;
+      return "summary";
+    };
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        reserveTokens: 10,
+        keepRecentTokens: 20,
+        summarizeFn,
+      },
+    });
+    history.setContextLimit(100);
+    history.addUserMessage("a".repeat(200));
+    history.updateActualUsage({ totalTokens: 90 });
+
+    await history.getMessagesForLLMAsync({ phase: "new-turn" });
+    expect(callCount).toBe(0);
   });
 });
