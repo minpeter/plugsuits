@@ -3,7 +3,10 @@ import type {
   ModelMessage,
   RunnableAgent,
 } from "@ai-sdk-tool/harness";
-import { shouldContinueManualToolLoop } from "@ai-sdk-tool/harness";
+import {
+  estimateTokens,
+  shouldContinueManualToolLoop,
+} from "@ai-sdk-tool/harness";
 import { emitEvent as defaultEmitEvent } from "./emit";
 import { processStream } from "./stream-processor";
 import type { TrajectoryEvent } from "./types";
@@ -31,16 +34,15 @@ export interface HeadlessRunnerConfig {
 export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const emitEvent = config.emitEvent ?? defaultEmitEvent;
   let globalIterationCount = 0;
-  let speculativeCompactionJob:
-    | {
-        discarded: boolean;
-        prepared: Awaited<
-          ReturnType<MessageHistory["prepareSpeculativeCompaction"]>
-        >;
-        promise: Promise<void>;
-        state: "completed" | "failed" | "running";
-      }
-    | null = null;
+  let speculativeCompactionJob: {
+    discarded: boolean;
+    prepared: Awaited<
+      ReturnType<MessageHistory["prepareSpeculativeCompaction"]>
+    >;
+    promise: Promise<void>;
+    state: "completed" | "failed" | "running";
+  } | null = null;
+  // No clear path in headless runner — if clear is introduced, add: speculativeCompactionJob = null
 
   const discardSpeculativeCompactionJob = (): void => {
     if (speculativeCompactionJob) {
@@ -49,20 +51,98 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     }
   };
 
-  const applyReadySpeculativeCompaction = (): void => {
+  const applyReadySpeculativeCompaction = (): {
+    applied: boolean;
+    stale: boolean;
+  } => {
     if (
       !speculativeCompactionJob ||
       speculativeCompactionJob.discarded ||
       speculativeCompactionJob.state !== "completed" ||
       !speculativeCompactionJob.prepared
     ) {
+      return { applied: false, stale: false };
+    }
+
+    const result = config.messageHistory.applyPreparedCompaction(
+      speculativeCompactionJob.prepared
+    );
+    discardSpeculativeCompactionJob();
+
+    if (result.reason === "stale") {
+      startSpeculativeCompaction();
+      return { applied: false, stale: true };
+    }
+
+    return { applied: result.reason === "applied", stale: false };
+  };
+
+  const getLatestRunningSpeculativeCompaction = (): NonNullable<
+    typeof speculativeCompactionJob
+  > | null => {
+    if (
+      speculativeCompactionJob &&
+      !speculativeCompactionJob.discarded &&
+      speculativeCompactionJob.state === "running"
+    ) {
+      return speculativeCompactionJob;
+    }
+
+    return null;
+  };
+
+  const blockAtHardContextLimit = async (
+    additionalTokens: number,
+    phase: "new-turn" | "intermediate-step"
+  ): Promise<void> => {
+    if (
+      !config.messageHistory.isAtHardContextLimit(additionalTokens, {
+        phase,
+      })
+    ) {
       return;
     }
 
-    config.messageHistory.applyPreparedCompaction(
-      speculativeCompactionJob.prepared
-    );
-    speculativeCompactionJob = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (
+        !config.messageHistory.isAtHardContextLimit(additionalTokens, {
+          phase,
+        })
+      ) {
+        return;
+      }
+
+      const runningJob = getLatestRunningSpeculativeCompaction();
+      if (runningJob) {
+        await runningJob.promise;
+      } else {
+        const prepared =
+          await config.messageHistory.prepareSpeculativeCompaction({
+            phase: "new-turn",
+          });
+
+        if (prepared) {
+          const result =
+            config.messageHistory.applyPreparedCompaction(prepared);
+          if (result.reason === "stale" && attempt === 0) {
+            startSpeculativeCompaction();
+            continue;
+          }
+        }
+      }
+
+      const readyResult = applyReadySpeculativeCompaction();
+      if (readyResult.stale && attempt === 0) {
+      }
+    }
+
+    if (
+      config.messageHistory.isAtHardContextLimit(additionalTokens, { phase })
+    ) {
+      console.warn(
+        "[compaction] Hard limit still exceeded after 2 compaction attempts. Proceeding with current context."
+      );
+    }
   };
 
   const waitForSpeculativeCompactionIfNeeded = async (
@@ -71,23 +151,14 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     applyReadySpeculativeCompaction();
 
     if (
-      !speculativeCompactionJob ||
-      speculativeCompactionJob.discarded ||
-      speculativeCompactionJob.state !== "running"
-    ) {
-      return;
-    }
-
-    if (
-      !config.messageHistory.wouldExceedContextWithAdditionalMessage(content, {
+      !config.messageHistory.isAtHardContextLimit(estimateTokens(content), {
         phase: "new-turn",
       })
     ) {
       return;
     }
 
-    await speculativeCompactionJob.promise;
-    applyReadySpeculativeCompaction();
+    await blockAtHardContextLimit(estimateTokens(content), "new-turn");
   };
 
   const startSpeculativeCompaction = (): void => {
@@ -115,13 +186,18 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
 
     job.promise = (async () => {
       try {
-        job.prepared = await config.messageHistory.prepareSpeculativeCompaction({
-          phase: "new-turn",
-        });
+        job.prepared = await config.messageHistory.prepareSpeculativeCompaction(
+          {
+            phase: "new-turn",
+          }
+        );
         job.state = "completed";
       } catch (error) {
         job.state = "failed";
-        console.error("Speculative compaction failed in headless runner:", error);
+        console.error(
+          "Speculative compaction failed in headless runner:",
+          error
+        );
       }
     })();
 
@@ -169,9 +245,14 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
 
       let pendingMessages: ModelMessage[] = [];
 
-      const messages = await config.messageHistory.getMessagesForLLMAsync({
-        phase,
-      });
+      const readyCompactionResult = applyReadySpeculativeCompaction();
+      if (readyCompactionResult.stale) {
+        startSpeculativeCompaction();
+      }
+
+      await blockAtHardContextLimit(0, phase);
+
+      const messages = config.messageHistory.getMessagesForLLM();
       startSpeculativeCompaction();
       const stream = await config.agent.stream({ messages });
       const processStreamResult = await processStream({
