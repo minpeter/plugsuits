@@ -58,17 +58,15 @@ const main = defineCommand({
     description: "Minimal FriendliAI-backed agent example",
   },
   args: {
-    headless: {
-      type: "boolean",
-      description: "Run in headless JSONL mode",
-    },
     model: {
       type: "string",
       description: "Override the Friendli model ID",
     },
     prompt: {
+      alias: ["p"],
       type: "string",
-      description: "User prompt (required for --headless)",
+      description:
+        "User prompt. Providing this enters headless mode automatically.",
     },
   },
   async run({ args }) {
@@ -82,14 +80,8 @@ const main = defineCommand({
       instructions: DEFAULT_SYSTEM_PROMPT,
     });
 
-    if (args.headless) {
-      const prompt = args.prompt?.trim();
-      if (!prompt) {
-        console.error("--headless requires --prompt <text>");
-        process.exitCode = 1;
-        return;
-      }
-
+    const prompt = args.prompt?.trim();
+    if (prompt) {
       await runHeadless({
         agent,
         sessionId: sessionManager.getId(),
