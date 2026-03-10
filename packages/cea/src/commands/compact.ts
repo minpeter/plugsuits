@@ -11,11 +11,20 @@ export const createCompactCommand = (
   description: "Force conversation compaction",
   execute: async (): Promise<CommandResult> => {
     const history = getMessageHistory();
+    const summarizeFn = history.getCompactionConfig().summarizeFn;
 
     if (!history.isCompactionEnabled()) {
       return {
         success: false,
         message: "Compaction is not enabled for the current configuration.",
+      };
+    }
+
+    if (!summarizeFn) {
+      return {
+        success: false,
+        message:
+          "Compaction summarizer is not configured for the current model.",
       };
     }
 
@@ -30,7 +39,10 @@ export const createCompactCommand = (
     const tokensBefore = history.getEstimatedTokens();
     const summaryIdBefore = history.getSummaries()[0]?.id ?? null;
 
-    const compacted = await history.compact();
+    const compacted = await history.compact({
+      allowPruning: false,
+      summarizeFn,
+    });
 
     if (!compacted) {
       return {
@@ -49,17 +61,11 @@ export const createCompactCommand = (
         ? Math.max(0, Math.round((1 - tokensAfter / tokensBefore) * 100))
         : 0;
 
-    if (actuallyCompacted) {
-      return {
-        success: true,
-        message: `✓ Compacted: ${tokensBefore.toLocaleString()} → ${tokensAfter.toLocaleString()} tokens (${reduction}% reduction, ${messageCount} → ${messagesAfter} messages)`,
-      };
-    }
-
-    // Pruning-only: compact() returned true but no new summary was created
     return {
       success: true,
-      message: `✓ Pruned: ${tokensBefore.toLocaleString()} → ${tokensAfter.toLocaleString()} tokens (${reduction}% reduction, ${messageCount} → ${messagesAfter} messages)`,
+      message: actuallyCompacted
+        ? `✓ Compacted: ${tokensBefore.toLocaleString()} → ${tokensAfter.toLocaleString()} tokens (${reduction}% reduction, ${messageCount} → ${messagesAfter} messages)`
+        : `Nothing to compact (${tokensBefore.toLocaleString()} tokens, ${messageCount} messages).`,
     };
   },
 });

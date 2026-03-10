@@ -3,5 +3,23 @@
   "extends": ["ultracite/biome/core"],
   "javascript": {
     "globals": ["Bun"]
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "packages/harness/src/index.ts",
+        "packages/tui/src/index.ts",
+        "packages/headless/src/index.ts",
+        "packages/cea/src/context/skill-command-prefix.ts",
+        "packages/cea/src/commands/index.ts"
+      ],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noBarrelFile": "off"
+          }
+        }
+      }
+    }
+  ]
 }

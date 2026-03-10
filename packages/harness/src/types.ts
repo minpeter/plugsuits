@@ -13,6 +13,7 @@ import type {
 
 export type {
   LanguageModel,
+  LanguageModelUsage,
   ModelMessage,
   Tool,
   ToolCallPart,
@@ -53,6 +54,10 @@ export interface AgentStreamResult {
   finishReason: CoreStreamResult["finishReason"];
   fullStream: CoreStreamResult["fullStream"];
   response: CoreStreamResult["response"];
+  /** Aggregated token usage across all steps in this turn. */
+  totalUsage: CoreStreamResult["totalUsage"];
+  /** Token usage for this turn (last step). Resolves after streaming completes. */
+  usage: CoreStreamResult["usage"];
 }
 
 export type AgentFinishReason = Awaited<AgentStreamResult["finishReason"]>;

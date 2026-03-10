@@ -37,7 +37,6 @@ for (let i = 0; i < rawArgs.length; i++) {
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
-const YELLOW = "\x1b[33m";
 const DIM = "\x1b[2m";
 const CYAN = "\x1b[36m";
 const RESET = "\x1b[0m";
@@ -45,7 +44,7 @@ const RESET = "\x1b[0m";
 const pass = (msg: string) => console.log(`  ${GREEN}✓${RESET} ${msg}`);
 const fail = (msg: string) => console.log(`  ${RED}✗${RESET} ${msg}`);
 const info = (msg: string) => console.log(`  ${DIM}${msg}${RESET}`);
-const warn = (msg: string) => console.log(`  ${YELLOW}⚠${RESET} ${msg}`);
+const LEADING_SPACES_REGEX = /^ */;
 
 // ── Test case definition ─────────────────────────────────────
 interface TestCase {
@@ -263,11 +262,24 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (!c.includes("crimson")) return { passed: false, reason: "'crimson' not found" };
-      if (!c.includes("navy")) return { passed: false, reason: "'navy' not found" };
-      if (c.includes("red")) return { passed: false, reason: "'red' still present" };
-      if (c.includes("blue")) return { passed: false, reason: "'blue' still present" };
-      if (lines.length !== 4) return { passed: false, reason: `expected 4 lines, got ${lines.length}` };
+      if (!c.includes("crimson")) {
+        return { passed: false, reason: "'crimson' not found" };
+      }
+      if (!c.includes("navy")) {
+        return { passed: false, reason: "'navy' not found" };
+      }
+      if (c.includes("red")) {
+        return { passed: false, reason: "'red' still present" };
+      }
+      if (c.includes("blue")) {
+        return { passed: false, reason: "'blue' still present" };
+      }
+      if (lines.length !== 4) {
+        return {
+          passed: false,
+          reason: `expected 4 lines, got ${lines.length}`,
+        };
+      }
       return { passed: true, reason: "both lines replaced in single call" };
     },
   },
@@ -283,10 +295,21 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (c.includes("TODO")) return { passed: false, reason: "TODO line still present" };
-      if (!c.includes("step 1: init")) return { passed: false, reason: "'step 1: init' not found" };
-      if (!c.includes("step 3: cleanup")) return { passed: false, reason: "'step 3: cleanup' not found" };
-      if (lines.length !== 5) return { passed: false, reason: `expected 5 lines, got ${lines.length}` };
+      if (c.includes("TODO")) {
+        return { passed: false, reason: "TODO line still present" };
+      }
+      if (!c.includes("step 1: init")) {
+        return { passed: false, reason: "'step 1: init' not found" };
+      }
+      if (!c.includes("step 3: cleanup")) {
+        return { passed: false, reason: "'step 3: cleanup' not found" };
+      }
+      if (lines.length !== 5) {
+        return {
+          passed: false,
+          reason: `expected 5 lines, got ${lines.length}`,
+        };
+      }
       return { passed: true, reason: "1 line expanded to 3 lines" };
     },
   },
@@ -301,32 +324,46 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (!c.includes("line three")) return { passed: false, reason: "'line three' not found" };
-      if (lines[lines.length - 1].trim() !== "line three")
+      if (!c.includes("line three")) {
+        return { passed: false, reason: "'line three' not found" };
+      }
+      if (lines.at(-1)?.trim() !== "line three") {
         return { passed: false, reason: "'line three' not at end" };
-      if (lines.length !== 3) return { passed: false, reason: `expected 3 lines, got ${lines.length}` };
+      }
+      if (lines.length !== 3) {
+        return {
+          passed: false,
+          reason: `expected 3 lines, got ${lines.length}`,
+        };
+      }
       return { passed: true, reason: "appended at EOF" };
     },
   },
   {
     name: "9. Special characters in content",
     fileName: "special.json",
-    fileContent: [
-      '{',
-      '  "name": "old-value",',
-      '  "count": 42',
-      '}',
-    ].join("\n"),
+    fileContent: ["{", '  "name": "old-value",', '  "count": 42', "}"].join(
+      "\n"
+    ),
     prompt: [
       "Read special.json with read_file.",
-      'Replace the line containing \"name\": \"old-value\" with \"name\": \"new-value\".',
+      'Replace the line containing "name": "old-value" with "name": "new-value".',
       "Use edit_file with op='replace', pos=<that line's anchor>, lines=['  \"name\": \"new-value\",'].",
     ].join(" "),
     validate: (c) => {
-      if (c.includes("old-value")) return { passed: false, reason: "'old-value' still present" };
-      if (!c.includes('"new-value"')) return { passed: false, reason: "'new-value' not found" };
-      if (!c.includes('"count": 42')) return { passed: false, reason: "other content was modified" };
-      return { passed: true, reason: "JSON value replaced with special chars intact" };
+      if (c.includes("old-value")) {
+        return { passed: false, reason: "'old-value' still present" };
+      }
+      if (!c.includes('"new-value"')) {
+        return { passed: false, reason: "'new-value' not found" };
+      }
+      if (!c.includes('"count": 42')) {
+        return { passed: false, reason: "other content was modified" };
+      }
+      return {
+        passed: true,
+        reason: "JSON value replaced with special chars intact",
+      };
     },
   },
   {
@@ -340,9 +377,15 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (c.includes("OLD HEADER")) return { passed: false, reason: "'OLD HEADER' still present" };
-      if (lines[0].trim() !== "NEW HEADER") return { passed: false, reason: "first line is not 'NEW HEADER'" };
-      if (!c.includes("body content")) return { passed: false, reason: "body was modified" };
+      if (c.includes("OLD HEADER")) {
+        return { passed: false, reason: "'OLD HEADER' still present" };
+      }
+      if (lines[0].trim() !== "NEW HEADER") {
+        return { passed: false, reason: "first line is not 'NEW HEADER'" };
+      }
+      if (!c.includes("body content")) {
+        return { passed: false, reason: "body was modified" };
+      }
       return { passed: true, reason: "first line replaced" };
     },
   },
@@ -357,9 +400,12 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (c.includes("OLD_FOOTER")) return { passed: false, reason: "'OLD_FOOTER' still present" };
-      if (lines[lines.length - 1].trim() !== "NEW_FOOTER")
+      if (c.includes("OLD_FOOTER")) {
+        return { passed: false, reason: "'OLD_FOOTER' still present" };
+      }
+      if (lines.at(-1)?.trim() !== "NEW_FOOTER") {
         return { passed: false, reason: "last line is not 'NEW_FOOTER'" };
+      }
       return { passed: true, reason: "last line replaced" };
     },
   },
@@ -376,11 +422,24 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (c.includes("bbb")) return { passed: false, reason: "'bbb' still present" };
-      if (c.includes("ccc")) return { passed: false, reason: "'ccc' still present" };
-      if (!c.includes("BBB")) return { passed: false, reason: "'BBB' not found" };
-      if (!c.includes("CCC")) return { passed: false, reason: "'CCC' not found" };
-      if (lines.length !== 4) return { passed: false, reason: `expected 4 lines, got ${lines.length}` };
+      if (c.includes("bbb")) {
+        return { passed: false, reason: "'bbb' still present" };
+      }
+      if (c.includes("ccc")) {
+        return { passed: false, reason: "'ccc' still present" };
+      }
+      if (!c.includes("BBB")) {
+        return { passed: false, reason: "'BBB' not found" };
+      }
+      if (!c.includes("CCC")) {
+        return { passed: false, reason: "'CCC' not found" };
+      }
+      if (lines.length !== 4) {
+        return {
+          passed: false,
+          reason: `expected 4 lines, got ${lines.length}`,
+        };
+      }
       return { passed: true, reason: "two adjacent lines replaced" };
     },
   },
@@ -396,18 +455,26 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (!c.includes("# Author: test")) return { passed: false, reason: "author comment not found" };
-      if (!c.includes("# Date: 2025-01-01")) return { passed: false, reason: "date comment not found" };
+      if (!c.includes("# Author: test")) {
+        return { passed: false, reason: "author comment not found" };
+      }
+      if (!c.includes("# Date: 2025-01-01")) {
+        return { passed: false, reason: "date comment not found" };
+      }
       const defIdx = lines.findIndex((l) => l.startsWith("def main"));
       const authorIdx = lines.findIndex((l) => l.includes("Author"));
-      if (authorIdx >= defIdx) return { passed: false, reason: "comments not before def" };
+      if (authorIdx >= defIdx) {
+        return { passed: false, reason: "comments not before def" };
+      }
       return { passed: true, reason: "2-line block prepended before function" };
     },
   },
   {
     name: "14. Delete range — 3 consecutive lines",
     fileName: "cleanup.txt",
-    fileContent: ["keep1", "remove-a", "remove-b", "remove-c", "keep2"].join("\n"),
+    fileContent: ["keep1", "remove-a", "remove-b", "remove-c", "keep2"].join(
+      "\n"
+    ),
     prompt: [
       "Read cleanup.txt with read_file.",
       "Delete lines 2-4 ('remove-a', 'remove-b', 'remove-c') using a single range replace.",
@@ -416,10 +483,21 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (c.includes("remove")) return { passed: false, reason: "'remove' lines still present" };
-      if (!c.includes("keep1")) return { passed: false, reason: "'keep1' was deleted" };
-      if (!c.includes("keep2")) return { passed: false, reason: "'keep2' was deleted" };
-      if (lines.length !== 2) return { passed: false, reason: `expected 2 lines, got ${lines.length}` };
+      if (c.includes("remove")) {
+        return { passed: false, reason: "'remove' lines still present" };
+      }
+      if (!c.includes("keep1")) {
+        return { passed: false, reason: "'keep1' was deleted" };
+      }
+      if (!c.includes("keep2")) {
+        return { passed: false, reason: "'keep2' was deleted" };
+      }
+      if (lines.length !== 2) {
+        return {
+          passed: false,
+          reason: `expected 2 lines, got ${lines.length}`,
+        };
+      }
       return { passed: true, reason: "3 consecutive lines deleted via range" };
     },
   },
@@ -435,12 +513,29 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (!c.includes("CHANGED")) return { passed: false, reason: "'CHANGED' not found" };
+      if (!c.includes("CHANGED")) {
+        return { passed: false, reason: "'CHANGED' not found" };
+      }
       const changedCount = lines.filter((l) => l.trim() === "CHANGED").length;
       const itemCount = lines.filter((l) => l.trim() === "item").length;
-      if (changedCount !== 1) return { passed: false, reason: `expected 1 CHANGED, got ${changedCount}` };
-      if (itemCount !== 3) return { passed: false, reason: `expected 3 item lines, got ${itemCount}` };
-      if (lines.length !== 4) return { passed: false, reason: `expected 4 lines, got ${lines.length}` };
+      if (changedCount !== 1) {
+        return {
+          passed: false,
+          reason: `expected 1 CHANGED, got ${changedCount}`,
+        };
+      }
+      if (itemCount !== 3) {
+        return {
+          passed: false,
+          reason: `expected 3 item lines, got ${itemCount}`,
+        };
+      }
+      if (lines.length !== 4) {
+        return {
+          passed: false,
+          reason: `expected 4 lines, got ${lines.length}`,
+        };
+      }
       return { passed: true, reason: "only line 3 changed among duplicates" };
     },
   },
@@ -449,7 +544,12 @@ const TEST_CASES: TestCase[] = [
   {
     name: "16. Fix indentation — 2 spaces → 4 spaces",
     fileName: "indent.js",
-    fileContent: ["function foo() {", "  const x = 1;", "  return x;", "}"].join("\n"),
+    fileContent: [
+      "function foo() {",
+      "  const x = 1;",
+      "  return x;",
+      "}",
+    ].join("\n"),
     prompt: [
       "Read indent.js with read_file.",
       "Replace line 2 '  const x = 1;' (2-space indent) with '    const x = 1;' (4-space indent).",
@@ -459,9 +559,15 @@ const TEST_CASES: TestCase[] = [
     validate: (c) => {
       const lines = c.split("\n");
       const line2 = lines[1];
-      if (!line2) return { passed: false, reason: "line 2 missing" };
-      if (line2 === "    const x = 1;") return { passed: true, reason: "indentation fixed to 4 spaces" };
-      if (line2 === "  const x = 1;") return { passed: false, reason: "still 2-space indent" };
+      if (!line2) {
+        return { passed: false, reason: "line 2 missing" };
+      }
+      if (line2 === "    const x = 1;") {
+        return { passed: true, reason: "indentation fixed to 4 spaces" };
+      }
+      if (line2 === "  const x = 1;") {
+        return { passed: false, reason: "still 2-space indent" };
+      }
       return { passed: false, reason: `unexpected line 2: '${line2}'` };
     },
   },
@@ -480,18 +586,29 @@ const TEST_CASES: TestCase[] = [
       "Use edit_file with op='replace', pos=<line2 anchor>, lines=['    def new_method(self):'].",
     ].join(" "),
     validate: (c) => {
-      if (c.includes("old_method")) return { passed: false, reason: "'old_method' still present" };
+      if (c.includes("old_method")) {
+        return { passed: false, reason: "'old_method' still present" };
+      }
       const lines = c.split("\n");
       const methodLine = lines.find((l) => l.includes("new_method"));
-      if (!methodLine) return { passed: false, reason: "'new_method' not found" };
-      if (!methodLine.startsWith("    ")) return { passed: false, reason: "indentation lost" };
-      return { passed: true, reason: "method renamed with indentation preserved" };
+      if (!methodLine) {
+        return { passed: false, reason: "'new_method' not found" };
+      }
+      if (!methodLine.startsWith("    ")) {
+        return { passed: false, reason: "indentation lost" };
+      }
+      return {
+        passed: true,
+        reason: "method renamed with indentation preserved",
+      };
     },
   },
   {
     name: "18. Insert blank line between sections",
     fileName: "sections.txt",
-    fileContent: ["[section-a]", "value-a=1", "[section-b]", "value-b=2"].join("\n"),
+    fileContent: ["[section-a]", "value-a=1", "[section-b]", "value-b=2"].join(
+      "\n"
+    ),
     prompt: [
       "Read sections.txt with read_file.",
       "Insert a blank empty line between 'value-a=1' (line 2) and '[section-b]' (line 3).",
@@ -502,11 +619,22 @@ const TEST_CASES: TestCase[] = [
       const lines = c.split("\n");
       const valAIdx = lines.findIndex((l) => l.includes("value-a=1"));
       const secBIdx = lines.findIndex((l) => l.includes("[section-b]"));
-      if (valAIdx === -1) return { passed: false, reason: "'value-a=1' missing" };
-      if (secBIdx === -1) return { passed: false, reason: "'[section-b]' missing" };
-      if (secBIdx - valAIdx < 2) return { passed: false, reason: "no blank line between sections" };
+      if (valAIdx === -1) {
+        return { passed: false, reason: "'value-a=1' missing" };
+      }
+      if (secBIdx === -1) {
+        return { passed: false, reason: "'[section-b]' missing" };
+      }
+      if (secBIdx - valAIdx < 2) {
+        return { passed: false, reason: "no blank line between sections" };
+      }
       const between = lines[valAIdx + 1];
-      if (between.trim() !== "") return { passed: false, reason: `line between is '${between}', not blank` };
+      if (between.trim() !== "") {
+        return {
+          passed: false,
+          reason: `line between is '${between}', not blank`,
+        };
+      }
       return { passed: true, reason: "blank line inserted between sections" };
     },
   },
@@ -520,9 +648,18 @@ const TEST_CASES: TestCase[] = [
     ].join(" "),
     validate: (c) => {
       const lines = c.trim().split("\n");
-      if (lines.length !== 3) return { passed: false, reason: `expected 3 lines, got ${lines.length}` };
-      if (lines[0].trim() !== "first") return { passed: false, reason: "'first' not on line 1" };
-      if (lines[1].trim() !== "second") return { passed: false, reason: "'second' not on line 2" };
+      if (lines.length !== 3) {
+        return {
+          passed: false,
+          reason: `expected 3 lines, got ${lines.length}`,
+        };
+      }
+      if (lines[0].trim() !== "first") {
+        return { passed: false, reason: "'first' not on line 1" };
+      }
+      if (lines[1].trim() !== "second") {
+        return { passed: false, reason: "'second' not on line 2" };
+      }
       return { passed: true, reason: "blank line deleted" };
     },
   },
@@ -536,10 +673,18 @@ const TEST_CASES: TestCase[] = [
       "Use edit_file with op='replace', pos=<line2 anchor>, lines=['    indented-with-spaces'].",
     ].join(" "),
     validate: (c) => {
-      if (c.includes("\t")) return { passed: false, reason: "tab still present" };
-      if (!c.includes("    indented-with-spaces"))
-        return { passed: false, reason: "'    indented-with-spaces' not found" };
-      if (!c.includes("start")) return { passed: false, reason: "'start' was modified" };
+      if (c.includes("\t")) {
+        return { passed: false, reason: "tab still present" };
+      }
+      if (!c.includes("    indented-with-spaces")) {
+        return {
+          passed: false,
+          reason: "'    indented-with-spaces' not found",
+        };
+      }
+      if (!c.includes("start")) {
+        return { passed: false, reason: "'start' was modified" };
+      }
       return { passed: true, reason: "tab converted to 4 spaces" };
     },
   },
@@ -562,13 +707,26 @@ const TEST_CASES: TestCase[] = [
       "Use edit_file with op='replace', pos=<line4 anchor>, lines=['      new_call();'].",
     ].join(" "),
     validate: (c) => {
-      if (c.includes("old_call")) return { passed: false, reason: "'old_call' still present" };
+      if (c.includes("old_call")) {
+        return { passed: false, reason: "'old_call' still present" };
+      }
       const lines = c.split("\n");
       const callLine = lines.find((l) => l.includes("new_call"));
-      if (!callLine) return { passed: false, reason: "'new_call' not found" };
-      const leadingSpaces = callLine.match(/^ */)?.[0].length ?? 0;
-      if (leadingSpaces !== 6) return { passed: false, reason: `expected 6-space indent, got ${leadingSpaces}` };
-      return { passed: true, reason: "deeply nested line replaced with indent preserved" };
+      if (!callLine) {
+        return { passed: false, reason: "'new_call' not found" };
+      }
+      const leadingSpaces =
+        callLine.match(LEADING_SPACES_REGEX)?.[0].length ?? 0;
+      if (leadingSpaces !== 6) {
+        return {
+          passed: false,
+          reason: `expected 6-space indent, got ${leadingSpaces}`,
+        };
+      }
+      return {
+        passed: true,
+        reason: "deeply nested line replaced with indent preserved",
+      };
     },
   },
 ];
@@ -728,7 +886,9 @@ async function runTestCase(
 
 // ── Main ──────────────────────────────────────────────────────
 const main = async () => {
-  console.log(`\n${BOLD}Headless Edit Operations Test — ${TEST_CASES.length} Types${RESET}\n`);
+  console.log(
+    `\n${BOLD}Headless Edit Operations Test — ${TEST_CASES.length} Types${RESET}\n`
+  );
 
   const testDir = join(tmpdir(), `edit-ops-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
@@ -781,7 +941,9 @@ const main = async () => {
     // Reset file for next test (in case of side effects)
     try {
       rmSync(join(testDir, tc.fileName), { force: true });
-    } catch {}
+    } catch {
+      // Ignore cleanup failures between isolated test cases.
+    }
 
     console.log();
   }
@@ -800,7 +962,9 @@ const main = async () => {
   // Cleanup
   try {
     rmSync(testDir, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    // Ignore cleanup failures at process shutdown.
+  }
 
   if (totalPassed === TEST_CASES.length) {
     console.log(

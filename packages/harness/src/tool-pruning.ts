@@ -47,6 +47,21 @@ const DEFAULT_REPLACEMENT_TEXT = "[output pruned — too large]";
 const DEFAULT_PROTECT_RECENT_TOKENS = 2000;
 const DEFAULT_MIN_SAVINGS_TOKENS = 200;
 
+function isToolResultPart(part: unknown): part is {
+  output: unknown;
+  toolName: string;
+  type: "tool-result";
+} {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    part.type === "tool-result" &&
+    "toolName" in part &&
+    "output" in part
+  );
+}
+
 /**
  * Configuration for tool output pruning.
  */
@@ -162,8 +177,8 @@ export function pruneToolOutputs(
     }
 
     let messagePruned = false;
-    const newContent = msg.content.map((part: any) => {
-      if (part.type !== "tool-result") {
+    const newContent = msg.content.map((part) => {
+      if (!isToolResultPart(part)) {
         return part;
       }
 

@@ -28,6 +28,7 @@ const GLM5_CONFIG = {
   reserveTokens: 64_000,
   keepRecentTokens: Math.floor(202_752 * 0.3), // 60825
 } as const;
+const SUMMARY_ID_REGEX = /^summary_/;
 
 // ─── Helpers ───
 
@@ -65,7 +66,7 @@ describe("compaction integration with model-specific configs", () => {
   describe("test-8k model (contextLength=8192, maxOutput=1024)", () => {
     // Trigger threshold: totalTokens > maxTokens - reserveTokens = 8192 - 1024 = 7168
 
-    it("does NOT trigger compaction below threshold", async () => {
+    it("does NOT trigger compaction below threshold", () => {
       const history = createHistory(TEST_8K_CONFIG);
 
       // Add 7 messages of ~1000 tokens each = ~7000 tokens (below 7168)
@@ -118,7 +119,7 @@ describe("compaction integration with model-specific configs", () => {
 
       const messages: string[] = [];
       for (let i = 0; i < 10; i++) {
-        const content = `msg_${i}_` + makeContent(990);
+        const content = `msg_${i}_${makeContent(990)}`;
         messages.push(content);
         history.addUserMessage(content);
       }
@@ -140,7 +141,7 @@ describe("compaction integration with model-specific configs", () => {
       expect(remaining.length).toBeLessThanOrEqual(3);
 
       // Last remaining must be the most recent message
-      const lastRemaining = remainingContents[remainingContents.length - 1];
+      const lastRemaining = remainingContents.at(-1);
       expect(lastRemaining).toContain("msg_9_");
     });
 
@@ -180,7 +181,7 @@ describe("compaction integration with model-specific configs", () => {
       expect(summaries.length).toBeGreaterThanOrEqual(1);
 
       const summary = summaries[0];
-      expect(summary.id).toMatch(/^summary_/);
+      expect(summary.id).toMatch(SUMMARY_ID_REGEX);
       expect(summary.tokensBefore).toBeGreaterThan(0);
       expect(summary.summaryTokens).toBeGreaterThan(0);
       // Summary tokens should be much less than original
@@ -302,7 +303,9 @@ describe("compaction integration with model-specific configs", () => {
       });
 
       // Add messages: user, assistant(tool-call), tool(result), user, assistant
-      history.addUserMessage("First message with enough content to exceed limits easily");
+      history.addUserMessage(
+        "First message with enough content to exceed limits easily"
+      );
       history.addModelMessages([
         {
           role: "assistant" as const,
@@ -322,7 +325,10 @@ describe("compaction integration with model-specific configs", () => {
               type: "tool-result" as const,
               toolCallId: "call_1",
               toolName: "read_file",
-              output: { type: "text" as const, value: "file contents that are long enough" },
+              output: {
+                type: "text" as const,
+                value: "file contents that are long enough",
+              },
             },
           ],
         },
@@ -350,7 +356,10 @@ describe("compaction integration with model-specific configs", () => {
       let receivedPreviousSummary: string | undefined;
       let callCount = 0;
 
-      const customSummarizeFn = async (messages: any[], previousSummary?: string) => {
+      const customSummarizeFn = (
+        _messages: unknown[],
+        previousSummary?: string
+      ) => {
         callCount++;
         receivedPreviousSummary = previousSummary;
         return `Summary #${callCount}${previousSummary ? ` (updated from: ${previousSummary.slice(0, 50)})` : ""}`;
@@ -398,7 +407,10 @@ describe("compaction integration with model-specific configs", () => {
 
     it("merges multiple summaries into one after compaction", async () => {
       let callCount = 0;
-      const customSummarizeFn = async (messages: any[], previousSummary?: string) => {
+      const customSummarizeFn = (
+        _messages: unknown[],
+        _previousSummary?: string
+      ) => {
         callCount++;
         return `Iteration ${callCount}`;
       };
@@ -461,7 +473,7 @@ describe("compaction integration with model-specific configs", () => {
 
     it("backwards compatible — summarizeFn without previousSummary still works", async () => {
       // Simulate a user who defined summarizeFn with only 1 parameter
-      const oldStyleSummarizeFn = async (messages: any[]) => {
+      const oldStyleSummarizeFn = (messages: unknown[]) => {
         return `Old-style summary of ${messages.length} messages`;
       };
 
@@ -502,7 +514,9 @@ describe("compaction integration with model-specific configs", () => {
       history.clear();
 
       // Add Latin text of same character count
-      const latinText = "x".repeat("안녕하세요 이것은 한국어 테스트입니다".length);
+      const latinText = "x".repeat(
+        "안녕하세요 이것은 한국어 테스트입니다".length
+      );
       history.addUserMessage(latinText);
       const latinTokens = history.getEstimatedTokens();
 

@@ -213,6 +213,11 @@ export interface ProcessStreamResult {
   currentReasoning: string;
   currentText: string;
   shouldContinue: boolean;
+  usage: {
+    completionTokens?: number;
+    promptTokens?: number;
+    totalTokens?: number;
+  } | null;
 }
 
 const STREAM_RESPONSE_TIMEOUT_MS = 30_000;
@@ -290,10 +295,12 @@ export const processStream = async (
 
   try {
     let timeoutId: ReturnType<typeof setTimeout>;
-    const [response, finishReason] = await Promise.race([
-      Promise.all([stream.response, stream.finishReason]).finally(() => {
-        clearTimeout(timeoutId);
-      }),
+    const [response, finishReason, usage] = await Promise.race([
+      Promise.all([stream.response, stream.finishReason, stream.usage]).finally(
+        () => {
+          clearTimeout(timeoutId);
+        }
+      ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
           () => reject(new Error("Stream response timeout")),
@@ -321,6 +328,7 @@ export const processStream = async (
       shouldContinue: shouldContinue(finishReason),
       currentText,
       currentReasoning,
+      usage: usage ?? null,
     };
   } catch (error) {
     emitEvent({
@@ -334,6 +342,7 @@ export const processStream = async (
       shouldContinue: true,
       currentText,
       currentReasoning,
+      usage: null,
     };
   }
 };

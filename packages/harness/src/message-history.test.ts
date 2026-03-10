@@ -233,8 +233,14 @@ describe("MessageHistory enforceLimit", () => {
     history.addUserMessage("two");
 
     expect(history.toModelMessages()).toHaveLength(2);
-    expect(history.toModelMessages()[0]).toEqual({ role: "user", content: "one" });
-    expect(history.toModelMessages()[1]).toEqual({ role: "user", content: "two" });
+    expect(history.toModelMessages()[0]).toEqual({
+      role: "user",
+      content: "one",
+    });
+    expect(history.toModelMessages()[1]).toEqual({
+      role: "user",
+      content: "two",
+    });
   });
 
   it("handles maxMessages = 1 by keeping only the last message", () => {
@@ -295,7 +301,9 @@ describe("MessageHistory enforceLimit", () => {
   });
 
   it("throws RangeError for NaN maxMessages", () => {
-    expect(() => new MessageHistory({ maxMessages: NaN })).toThrow(RangeError);
+    expect(() => new MessageHistory({ maxMessages: Number.NaN })).toThrow(
+      RangeError
+    );
   });
 
   it("throws RangeError for non-integer maxMessages", () => {
@@ -303,7 +311,9 @@ describe("MessageHistory enforceLimit", () => {
   });
 
   it("throws RangeError for Infinity maxMessages", () => {
-    expect(() => new MessageHistory({ maxMessages: Infinity })).toThrow(RangeError);
+    expect(
+      () => new MessageHistory({ maxMessages: Number.POSITIVE_INFINITY })
+    ).toThrow(RangeError);
   });
 });
 
@@ -375,15 +385,19 @@ describe("MessageHistory compaction", () => {
 
     // Add enough messages to potentially trigger compaction
     for (let i = 0; i < 10; i++) {
-      history.addUserMessage(`This is a long message ${i} with enough content to trigger token limits`);
-      history.addModelMessages([{
-        role: "assistant",
-        content: `This is a long assistant response ${i} with sufficient content to contribute to token count`,
-      }]);
+      history.addUserMessage(
+        `This is a long message ${i} with enough content to trigger token limits`
+      );
+      history.addModelMessages([
+        {
+          role: "assistant",
+          content: `This is a long assistant response ${i} with sufficient content to contribute to token count`,
+        },
+      ]);
     }
 
     // Wait for async compaction
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const result = await history.compact();
     // Result depends on whether thresholds were exceeded
@@ -403,17 +417,23 @@ describe("MessageHistory compaction", () => {
 
     // Add messages
     history.addUserMessage("First message that should be summarized");
-    history.addModelMessages([{ role: "assistant", content: "First response" }]);
+    history.addModelMessages([
+      { role: "assistant", content: "First response" },
+    ]);
     history.addUserMessage("Recent message to keep");
-    history.addModelMessages([{ role: "assistant", content: "Recent response" }]);
+    history.addModelMessages([
+      { role: "assistant", content: "Recent response" },
+    ]);
 
     // Manual compaction
     await history.compact();
 
     // Recent messages should still be accessible
     const messages = history.getAll();
-    const contents = messages.map(m => m.modelMessage.content);
-    expect(contents.some(c => typeof c === "string" && c.includes("Recent"))).toBe(true);
+    const contents = messages.map((m) => m.modelMessage.content);
+    expect(
+      contents.some((c) => typeof c === "string" && c.includes("Recent"))
+    ).toBe(true);
   });
 
   it("getEstimatedTokens returns 0 for empty history", () => {
@@ -446,10 +466,24 @@ describe("MessageHistory compaction", () => {
     });
 
     // Add long messages to ensure they exceed keepRecentTokens and trigger compaction
-    history.addUserMessage("Message one with enough text to count and exceed token limits");
-    history.addModelMessages([{ role: "assistant", content: "Response one with content that is long enough" }]);
-    history.addUserMessage("Message two with enough text to count and exceed token limits");
-    history.addModelMessages([{ role: "assistant", content: "Response two with content that is long enough" }]);
+    history.addUserMessage(
+      "Message one with enough text to count and exceed token limits"
+    );
+    history.addModelMessages([
+      {
+        role: "assistant",
+        content: "Response one with content that is long enough",
+      },
+    ]);
+    history.addUserMessage(
+      "Message two with enough text to count and exceed token limits"
+    );
+    history.addModelMessages([
+      {
+        role: "assistant",
+        content: "Response two with content that is long enough",
+      },
+    ]);
 
     await history.compact();
 
@@ -472,8 +506,15 @@ describe("MessageHistory compaction", () => {
     });
 
     // Add long messages to ensure compaction actually happens
-    history.addUserMessage("Old message to be summarized with sufficient length to trigger");
-    history.addModelMessages([{ role: "assistant", content: "Old response with enough content to count" }]);
+    history.addUserMessage(
+      "Old message to be summarized with sufficient length to trigger"
+    );
+    history.addModelMessages([
+      {
+        role: "assistant",
+        content: "Old response with enough content to count",
+      },
+    ]);
 
     // Force compaction
     await history.compact();
@@ -530,7 +571,99 @@ describe("MessageHistory compaction", () => {
     ]);
 
     // Should not throw and should return boolean results
-    expect(results.every(r => typeof r === "boolean")).toBe(true);
+    expect(results.every((r) => typeof r === "boolean")).toBe(true);
+  });
+
+  it("skips pruning during intermediate steps", async () => {
+    const largeOutput = "x".repeat(5000);
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 50_000,
+        reserveTokens: 1000,
+        summarizeFn: async () => "Intermediate step summary",
+      },
+      pruning: {
+        enabled: true,
+        protectRecentTokens: 10,
+        minSavingsTokens: 10,
+      },
+    });
+
+    history.addUserMessage("read the file");
+    history.addModelMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call_read_file",
+            toolName: "read_file",
+            input: {},
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_read_file",
+            toolName: "read_file",
+            output: { type: "text", value: largeOutput },
+          },
+        ],
+      },
+    ]);
+
+    await history.getMessagesForLLMAsync({ phase: "intermediate-step" });
+
+    const toolMessage = history
+      .getAll()
+      .find((message) => message.modelMessage.role === "tool");
+
+    expect(toolMessage).toBeDefined();
+    if (!(toolMessage && Array.isArray(toolMessage.modelMessage.content))) {
+      throw new Error("Expected tool message content");
+    }
+
+    const firstPart = toolMessage.modelMessage.content[0];
+    if (
+      firstPart.type !== "tool-result" ||
+      typeof firstPart.output !== "object" ||
+      firstPart.output === null ||
+      !("value" in firstPart.output)
+    ) {
+      throw new Error("Expected tool-result output");
+    }
+
+    expect(firstPart.output).toEqual({ type: "text", value: largeOutput });
+  });
+
+  it("compacts earlier during intermediate steps", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 1000,
+        reserveTokens: 100,
+        keepRecentTokens: 200,
+        summarizeFn: async () => "Predictive summary",
+      },
+    });
+
+    history.addUserMessage("x".repeat(1700));
+    history.addModelMessages([
+      { role: "assistant", content: "y".repeat(1400) },
+    ]);
+    history.addUserMessage("z".repeat(100));
+
+    expect(history.needsCompaction()).toBe(false);
+    expect(history.needsCompaction({ phase: "intermediate-step" })).toBe(true);
+
+    await history.getMessagesForLLMAsync({ phase: "intermediate-step" });
+
+    expect(history.getSummaries()).toHaveLength(1);
+    expect(history.getSummaries()[0].summary).toBe("Predictive summary");
   });
 
   it("respects maxMessages even with compaction enabled", () => {
@@ -658,7 +791,8 @@ describe("MessageHistory enforceLimit - tool sequence validity", () => {
     const msgs = history.toModelMessages();
     // Every tool message must have a preceding assistant message
     const hasOrphanedTool = msgs.some(
-      (m, i) => m.role === "tool" && (i === 0 || msgs[i - 1].role !== "assistant")
+      (m, i) =>
+        m.role === "tool" && (i === 0 || msgs[i - 1].role !== "assistant")
     );
     expect(hasOrphanedTool).toBe(false);
   });
@@ -688,7 +822,10 @@ describe("MessageHistory enforceLimit - tool sequence validity", () => {
             type: "tool-result" as const,
             toolCallId: "call_3",
             toolName: "read_file",
-            output: { type: "text" as const, value: "export default function main() {}" },
+            output: {
+              type: "text" as const,
+              value: "export default function main() {}",
+            },
           },
         ],
       },
@@ -699,5 +836,170 @@ describe("MessageHistory enforceLimit - tool sequence validity", () => {
     expect(msgs).toHaveLength(4);
     expect(msgs[2].role).toBe("assistant");
     expect(msgs[3].role).toBe("tool");
+  });
+});
+
+describe("MessageHistory actual usage tracking", () => {
+  it("starts with no actual usage", () => {
+    const history = new MessageHistory();
+    expect(history.getActualUsage()).toBeNull();
+  });
+
+  it("stores usage after updateActualUsage", () => {
+    const history = new MessageHistory();
+    history.updateActualUsage({
+      promptTokens: 1000,
+      completionTokens: 200,
+      totalTokens: 1200,
+    });
+
+    const usage = history.getActualUsage();
+    expect(usage).not.toBeNull();
+    expect(usage?.promptTokens).toBe(1000);
+    expect(usage?.completionTokens).toBe(200);
+    expect(usage?.totalTokens).toBe(1200);
+    expect(usage?.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("computes totalTokens from prompt+completion when not provided", () => {
+    const history = new MessageHistory();
+    history.updateActualUsage({
+      promptTokens: 500,
+      completionTokens: 100,
+    });
+
+    expect(history.getActualUsage()?.totalTokens).toBe(600);
+  });
+
+  it("accepts AI SDK inputTokens/outputTokens usage shape", () => {
+    const history = new MessageHistory();
+    history.updateActualUsage({
+      inputTokens: 700,
+      outputTokens: 80,
+    });
+
+    expect(history.getActualUsage()?.promptTokens).toBe(700);
+    expect(history.getActualUsage()?.completionTokens).toBe(80);
+    expect(history.getActualUsage()?.totalTokens).toBe(780);
+  });
+
+  it("defaults to 0 for undefined fields", () => {
+    const history = new MessageHistory();
+    history.updateActualUsage({});
+
+    expect(history.getActualUsage()?.totalTokens).toBe(0);
+    expect(history.getActualUsage()?.promptTokens).toBe(0);
+    expect(history.getActualUsage()?.completionTokens).toBe(0);
+  });
+
+  it("clears actual usage on clear()", () => {
+    const history = new MessageHistory();
+    history.updateActualUsage({ totalTokens: 5000 });
+    history.clear();
+
+    expect(history.getActualUsage()).toBeNull();
+  });
+});
+
+describe("MessageHistory context usage", () => {
+  it("returns null when contextLimit is not set", () => {
+    const history = new MessageHistory();
+    expect(history.getContextUsage()).toBeNull();
+  });
+
+  it("returns estimated usage when no actual usage available", () => {
+    const history = new MessageHistory();
+    history.setContextLimit(10_000);
+    history.addUserMessage("hello world");
+
+    const usage = history.getContextUsage();
+    expect(usage).not.toBeNull();
+    expect(usage?.source).toBe("estimated");
+    expect(usage?.limit).toBe(10_000);
+    expect(usage?.used).toBeGreaterThan(0);
+    expect(usage?.remaining).toBeLessThan(10_000);
+  });
+
+  it("returns actual usage when available", () => {
+    const history = new MessageHistory();
+    history.setContextLimit(200_000);
+    history.updateActualUsage({
+      promptTokens: 30_000,
+      completionTokens: 500,
+      totalTokens: 30_500,
+    });
+
+    const usage = history.getContextUsage();
+    expect(usage).not.toBeNull();
+    expect(usage?.source).toBe("actual");
+    expect(usage?.used).toBe(30_500);
+    expect(usage?.remaining).toBe(169_500);
+    expect(usage?.percentage).toBe(15);
+  });
+
+  it("clamps percentage to 100", () => {
+    const history = new MessageHistory();
+    history.setContextLimit(1000);
+    history.updateActualUsage({ totalTokens: 1500 });
+
+    const usage = history.getContextUsage();
+    expect(usage?.percentage).toBe(100);
+    expect(usage?.remaining).toBe(0);
+  });
+});
+
+describe("MessageHistory smart compaction with actual usage", () => {
+  it("uses actual usage for needsCompaction when available", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100_000,
+        reserveTokens: 10_000,
+      },
+    });
+    history.setContextLimit(100_000);
+    history.addUserMessage("hello");
+
+    history.updateActualUsage({ totalTokens: 50_000 });
+    expect(history.needsCompaction()).toBe(false);
+
+    history.updateActualUsage({ totalTokens: 95_000 });
+    expect(history.needsCompaction()).toBe(true);
+  });
+
+  it("falls back to estimated when no actual usage or contextLimit", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        keepRecentTokens: 50,
+        reserveTokens: 20,
+      },
+    });
+
+    for (let i = 0; i < 10; i++) {
+      history.addUserMessage(
+        `Message ${i} with substantial content to fill up token space`
+      );
+    }
+
+    const result = history.needsCompaction();
+    expect(typeof result).toBe("boolean");
+  });
+
+  it("applies intermediate-step multiplier to reserve with actual usage", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100_000,
+        reserveTokens: 10_000,
+      },
+    });
+    history.setContextLimit(100_000);
+    history.addUserMessage("hello");
+
+    history.updateActualUsage({ totalTokens: 82_000 });
+    expect(history.needsCompaction()).toBe(false);
+    expect(history.needsCompaction({ phase: "intermediate-step" })).toBe(true);
   });
 });

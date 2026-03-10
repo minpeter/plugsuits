@@ -76,6 +76,9 @@ const headlessCommand = defineCommand({
     const messageHistory = new MessageHistory({
       compaction: agentManager.buildCompactionConfig(),
     });
+    messageHistory.setContextLimit(
+      agentManager.getModelTokenLimits().contextLength
+    );
 
     const preparedPrompt = agentManager.isTranslationEnabled()
       ? await translateToEnglish(config.prompt, agentManager)

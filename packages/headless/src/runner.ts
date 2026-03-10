@@ -22,6 +22,8 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   let globalIterationCount = 0;
 
   const processAgentResponse = async (): Promise<void> => {
+    let phase: "new-turn" | "intermediate-step" = "new-turn";
+
     while (true) {
       globalIterationCount += 1;
 
@@ -38,7 +40,9 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
         break;
       }
 
-      const messages = await config.messageHistory.getMessagesForLLMAsync();
+      const messages = await config.messageHistory.getMessagesForLLMAsync({
+        phase,
+      });
       const stream = await config.stream(messages);
       const processStreamResult = await processStream({
         emitEvent,
@@ -51,9 +55,15 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
         stream,
       });
 
+      if (processStreamResult.usage) {
+        config.messageHistory.updateActualUsage(processStreamResult.usage);
+      }
+
       if (!processStreamResult.shouldContinue) {
         return;
       }
+
+      phase = "intermediate-step";
     }
   };
 

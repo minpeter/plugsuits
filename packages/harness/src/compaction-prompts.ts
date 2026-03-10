@@ -69,12 +69,6 @@ Rules:
  */
 export interface ModelSummarizerOptions {
   /**
-   * Custom system prompt for the summarization model.
-   * If not provided, DEFAULT_SUMMARIZATION_PROMPT is used.
-   */
-  prompt?: string;
-
-  /**
    * Custom system prompt for iterative compaction (when updating an existing summary).
    * If not provided, ITERATIVE_SUMMARIZATION_PROMPT is used.
    */
@@ -85,6 +79,94 @@ export interface ModelSummarizerOptions {
    * @default 1024
    */
   maxOutputTokens?: number;
+  /**
+   * Custom system prompt for the summarization model.
+   * If not provided, DEFAULT_SUMMARIZATION_PROMPT is used.
+   */
+  prompt?: string;
+}
+
+function isSummarizationTextPart(part: unknown): part is {
+  text: string;
+  type: "text";
+} {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    part.type === "text" &&
+    "text" in part &&
+    typeof part.text === "string"
+  );
+}
+
+function isSummarizationToolCallPart(part: unknown): part is {
+  input: unknown;
+  toolName: string;
+  type: "tool-call";
+} {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    part.type === "tool-call" &&
+    "toolName" in part &&
+    typeof part.toolName === "string" &&
+    "input" in part
+  );
+}
+
+function isSummarizationToolResultPart(part: unknown): part is {
+  output: unknown;
+  toolName: string;
+  type: "tool-result";
+} {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    part.type === "tool-result" &&
+    "toolName" in part &&
+    typeof part.toolName === "string" &&
+    "output" in part
+  );
+}
+
+function formatToolCallPart(part: {
+  input: unknown;
+  toolName: string;
+}): string {
+  const inputStr = JSON.stringify(part.input);
+  const truncatedInput =
+    inputStr.length > 200 ? `${inputStr.slice(0, 200)}...` : inputStr;
+  return `[tool-call: ${part.toolName}(${truncatedInput})]`;
+}
+
+function formatToolResultPart(part: {
+  output: unknown;
+  toolName: string;
+}): string {
+  const outputStr =
+    typeof part.output === "string" ? part.output : JSON.stringify(part.output);
+  const truncatedOutput =
+    outputStr.length > 300 ? `${outputStr.slice(0, 300)}...` : outputStr;
+  return `[tool-result: ${part.toolName} → ${truncatedOutput}]`;
+}
+
+function formatContentPartForSummarization(part: unknown): string {
+  if (isSummarizationTextPart(part)) {
+    return part.text;
+  }
+
+  if (isSummarizationToolCallPart(part)) {
+    return formatToolCallPart(part);
+  }
+
+  if (isSummarizationToolResultPart(part)) {
+    return formatToolResultPart(part);
+  }
+
+  return "";
 }
 
 /**
@@ -101,38 +183,9 @@ function formatMessageForSummarization(message: ModelMessage): string {
     return `[${role}]: (empty)`;
   }
 
-  const parts: string[] = [];
-  for (const part of message.content) {
-    if (typeof part === "object" && part !== null) {
-      if (part.type === "text") {
-        parts.push((part as { type: "text"; text: string }).text);
-      } else if (part.type === "tool-call") {
-        const tc = part as {
-          type: "tool-call";
-          toolName: string;
-          input: unknown;
-        };
-        const inputStr = JSON.stringify(tc.input);
-        const truncatedInput =
-          inputStr.length > 200 ? `${inputStr.slice(0, 200)}...` : inputStr;
-        parts.push(`[tool-call: ${tc.toolName}(${truncatedInput})]`);
-      } else if (part.type === "tool-result") {
-        const tr = part as {
-          type: "tool-result";
-          toolName: string;
-          output: unknown;
-        };
-        const outputStr =
-          typeof tr.output === "string"
-            ? tr.output
-            : JSON.stringify(tr.output);
-        const truncatedOutput =
-          outputStr.length > 300 ? `${outputStr.slice(0, 300)}...` : outputStr;
-        parts.push(`[tool-result: ${tr.toolName} → ${truncatedOutput}]`);
-      }
-    }
-  }
-
+  const parts = message.content
+    .map(formatContentPartForSummarization)
+    .filter(Boolean);
   return `[${role}]: ${parts.join(" ")}`;
 }
 
@@ -141,12 +194,18 @@ function formatMessageForSummarization(message: ModelMessage): string {
  * Formats the conversation history into a readable form.
  * When previousSummary is provided, includes it for iterative compaction.
  */
-function buildSummarizationInput(messages: ModelMessage[], previousSummary?: string): string {
+function buildSummarizationInput(
+  messages: ModelMessage[],
+  previousSummary?: string
+): string {
   const formatted = messages.map(formatMessageForSummarization);
 
   if (previousSummary) {
     // Escape closing tags to prevent prompt injection via previous LLM outputs
-    const escapedSummary = previousSummary.replace(/<\/previous-summary>/gi, '[/previous-summary]');
+    const escapedSummary = previousSummary.replace(
+      /<\/previous-summary>/gi,
+      "[/previous-summary]"
+    );
     return `<previous-summary>\n${escapedSummary}\n</previous-summary>\n\nUpdate the above summary by incorporating the following new conversation:\n\n${formatted.join("\n\n")}`;
   }
 
@@ -180,10 +239,14 @@ export function createModelSummarizer(
   options?: ModelSummarizerOptions
 ): (messages: ModelMessage[], previousSummary?: string) => Promise<string> {
   const systemPrompt = options?.prompt ?? DEFAULT_SUMMARIZATION_PROMPT;
-  const iterativePrompt = options?.iterativePrompt ?? ITERATIVE_SUMMARIZATION_PROMPT;
+  const iterativePrompt =
+    options?.iterativePrompt ?? ITERATIVE_SUMMARIZATION_PROMPT;
   const maxOutputTokens = options?.maxOutputTokens ?? 1024;
 
-  return async (messages: ModelMessage[], previousSummary?: string): Promise<string> => {
+  return async (
+    messages: ModelMessage[],
+    previousSummary?: string
+  ): Promise<string> => {
     if (messages.length === 0) {
       return "## Summary\nNo conversation history to summarize.\n\n## Context\n- (none)\n\n## Current State\n- (none)";
     }

@@ -4,15 +4,17 @@
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
-    "build": "bun run --cwd packages/harness build && bun run --cwd packages/tui build && bun run --cwd packages/headless build && bun run --cwd packages/cea build",
+    "build": "turbo run build",
     "dev": "bun run --cwd packages/cea dev",
     "test": "bun test packages/harness/src packages/tui/src packages/headless/src packages/cea/src",
-    "typecheck": "tsc --noEmit",
-    "check": "bun run --cwd packages/cea check",
-    "lint": "bun run --cwd packages/cea lint",
+    "typecheck": "bun run typecheck:root && turbo run typecheck",
+    "typecheck:root": "tsc --noEmit -p tsconfig.root.json",
+    "check": "bunx ultracite check .",
+    "lint": "bunx ultracite fix .",
     "start": "bun run --cwd packages/cea start",
     "headless": "bun run --cwd packages/cea headless",
     "test:headless-edit": "bun run scripts/test-headless-edit-ops.ts",
@@ -35,6 +37,9 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8"
+    "@biomejs/biome": "2.4.4",
+    "@changesets/cli": "^2.29.8",
+    "turbo": "^2.5.6",
+    "ultracite": "^7.2.4"
   }
 }

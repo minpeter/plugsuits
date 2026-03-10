@@ -273,21 +273,20 @@ export class BaseToolCallView extends Container {
     this.prettyBlockActive = true;
     this.ensurePrettyBlockComponents();
 
-    const { readBody, readHeader, readBlock } = this;
-    if (!(readBody && readHeader && readBlock)) {
+    if (!(this.readBody && this.readHeader && this.readBlock)) {
       return;
     }
 
     this.setDisplayMode("pretty");
 
     if (options?.isError) {
-      readBody.setBackground(applyErrorBackground);
+      this.readBody.setBackground(applyErrorBackground);
     } else {
-      readBody.setBackground(applyGrayBackground);
+      this.readBody.setBackground(applyGrayBackground);
     }
 
-    readBody.setBackgroundEnabled(options?.useBackground ?? true);
-    readHeader.setText(header);
+    this.readBody.setBackgroundEnabled(options?.useBackground ?? true);
+    this.readHeader.setText(header);
 
     if (options?.isPending) {
       this.startPendingSpinner(body);
@@ -295,7 +294,7 @@ export class BaseToolCallView extends Container {
     }
 
     this.stopPendingSpinner();
-    readBody.setText(body);
+    this.readBody.setText(body);
   }
 
   private ensurePrettyBlockComponents(): void {

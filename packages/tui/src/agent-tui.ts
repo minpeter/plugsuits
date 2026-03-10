@@ -474,10 +474,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
   };
 
-  const prepareMessagesWithCompaction = async (): Promise<unknown[]> => {
+  const prepareMessagesWithCompaction = async (
+    phase: "new-turn" | "intermediate-step"
+  ): Promise<unknown[]> => {
     const willCompact =
       config.messageHistory.isCompactionEnabled() &&
-      config.messageHistory.needsCompaction();
+      config.messageHistory.needsCompaction({ phase });
 
     if (willCompact) {
       showLoader("Compacting conversation...");
@@ -489,8 +491,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       : 0;
 
     try {
-      const messagesForLLM =
-        await config.messageHistory.getMessagesForLLMAsync();
+      const messagesForLLM = await config.messageHistory.getMessagesForLLMAsync(
+        { phase }
+      );
 
       if (willCompact) {
         const summaryIdAfter =
@@ -519,10 +522,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
   };
 
-  const runSingleStreamTurn = async (): Promise<
-    "completed" | "continue" | "interrupted"
-  > => {
-    const messagesForLLM = await prepareMessagesWithCompaction();
+  const runSingleStreamTurn = async (
+    phase: "new-turn" | "intermediate-step"
+  ): Promise<"completed" | "continue" | "interrupted"> => {
+    const messagesForLLM = await prepareMessagesWithCompaction(phase);
 
     showLoader("Working...");
     const streamAbortController = new AbortController();
@@ -559,9 +562,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
       clearStreamingLoader();
 
-      const [response, finishReason] = await Promise.all([
+      const [response, finishReason, usage] = await Promise.all([
         stream.response,
         stream.finishReason,
+        stream.usage,
       ]);
 
       if (streamInterruptRequested || streamAbortController.signal.aborted) {
@@ -581,9 +585,29 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       }
 
       config.messageHistory.addModelMessages(response.messages);
-      return shouldContinueManualToolLoop(finishReason)
-        ? "continue"
-        : "completed";
+      config.messageHistory.updateActualUsage(usage);
+      updateHeader();
+
+      if (shouldContinueManualToolLoop(finishReason)) {
+        return "continue";
+      }
+
+      if (finishReason !== "stop") {
+        addChatComponent(
+          chatContainer,
+          new Text(
+            style(
+              ANSI_RED,
+              `■ response ended abnormally (finish reason: ${finishReason})`
+            ),
+            1,
+            0
+          )
+        );
+        tui.requestRender();
+      }
+
+      return "completed";
     } catch (error) {
       if (streamInterruptRequested || streamAbortController.signal.aborted) {
         addChatComponent(
@@ -614,9 +638,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const processAgentResponse = async (): Promise<
     "completed" | "interrupted"
   > => {
+    let phase: "new-turn" | "intermediate-step" = "new-turn";
+
     while (true) {
-      const turnStatus = await runSingleStreamTurn();
+      const turnStatus = await runSingleStreamTurn(phase);
       if (turnStatus === "continue") {
+        phase = "intermediate-step";
         continue;
       }
       return turnStatus;

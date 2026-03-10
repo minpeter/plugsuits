@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { ModelMessage, ToolResultPart } from "ai";
+import type { ModelMessage } from "ai";
 import { pruneToolOutputs } from "./tool-pruning";
 
 // ─── Helpers ───
@@ -122,7 +122,10 @@ describe("pruneToolOutputs", () => {
       const prunedTool = result.messages[2];
       expect(prunedTool.role).toBe("tool");
       const content = prunedTool.content as any[];
-      expect(content[0].output).toEqual({ type: "text", value: "[output pruned — too large]" });
+      expect(content[0].output).toEqual({
+        type: "text",
+        value: "[output pruned — too large]",
+      });
     });
 
     it("preserves tool output within protection window", () => {
@@ -141,7 +144,10 @@ describe("pruneToolOutputs", () => {
       // recent_tool should be protected, old_tool should be pruned
       expect(result.prunedCount).toBe(1);
       const firstTool = result.messages[0].content as any[];
-      expect(firstTool[0].output).toEqual({ type: "text", value: "[output pruned — too large]" });
+      expect(firstTool[0].output).toEqual({
+        type: "text",
+        value: "[output pruned — too large]",
+      });
       const lastTool = result.messages[2].content as any[];
       expect(lastTool[0].output).toEqual(largeOutputWrapped);
     });
@@ -186,7 +192,10 @@ describe("pruneToolOutputs", () => {
       const criticalContent = result.messages[0].content as any[];
       expect(criticalContent[0].output).toEqual(largeOutputWrapped);
       const regularContent = result.messages[1].content as any[];
-      expect(regularContent[0].output).toEqual({ type: "text", value: "[output pruned — too large]" });
+      expect(regularContent[0].output).toEqual({
+        type: "text",
+        value: "[output pruned — too large]",
+      });
     });
   });
 
@@ -262,7 +271,10 @@ describe("pruneToolOutputs", () => {
 
       expect(result.prunedCount).toBe(1);
       const content = result.messages[0].content as any[];
-      expect(content[0].output).toEqual({ type: "text", value: "[output pruned — too large]" });
+      expect(content[0].output).toEqual({
+        type: "text",
+        value: "[output pruned — too large]",
+      });
       expect(content[1].output).toEqual(smallOutputWrapped);
     });
   });
@@ -295,7 +307,10 @@ describe("pruneToolOutputs", () => {
 
       expect(result.prunedCount).toBe(1);
       const content = result.messages[0].content as any[];
-      expect(content[0].output).toEqual({ type: "text", value: "[output pruned — too large]" });
+      expect(content[0].output).toEqual({
+        type: "text",
+        value: "[output pruned — too large]",
+      });
     });
   });
 

@@ -44,6 +44,21 @@ function getLastUserText(messages: ModelMessage[]): string {
 function createEchoStream(messages: ModelMessage[]): AgentStreamResult {
   const userText = getLastUserText(messages) || "(empty input)";
   const reply = `Echo: ${userText}`;
+  const usage = Promise.resolve({
+    inputTokens: 0,
+    inputTokenDetails: {
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      noCacheTokens: 0,
+    },
+    outputTokens: 0,
+    outputTokenDetails: {
+      reasoningTokens: 0,
+      textTokens: 0,
+    },
+    raw: undefined,
+    totalTokens: 0,
+  }) as AgentStreamResult["usage"];
 
   return {
     fullStream: new ReadableStream<unknown>({
@@ -60,6 +75,8 @@ function createEchoStream(messages: ModelMessage[]): AgentStreamResult {
       modelId: "mock-echo",
       messages: [{ role: "assistant", content: reply }],
     } as unknown) as AgentStreamResult["response"],
+    totalUsage: usage as AgentStreamResult["totalUsage"],
+    usage,
   };
 }
 

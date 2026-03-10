@@ -11,3 +11,4 @@ __pycache__
 .cea
 .sisyphus/
 *.tsbuildinfo
+.turbo

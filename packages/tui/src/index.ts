@@ -1,4 +1,3 @@
-// biome-ignore lint/performance/noBarrelFile: package public entrypoint must aggregate exports.
 export * from "./agent-tui";
 export * from "./autocomplete";
 export * from "./colors";

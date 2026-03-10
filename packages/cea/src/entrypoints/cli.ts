@@ -285,6 +285,9 @@ const buildAgentStreamWithTodoContinuation = () => {
 
 const updateCompactionForCurrentModel = (): void => {
   messageHistory.updateCompaction(agentManager.buildCompactionConfig());
+  messageHistory.setContextLimit(
+    agentManager.getModelTokenLimits().contextLength
+  );
 };
 
 const wrapCommand = (
@@ -405,7 +408,7 @@ const mainCommand = defineCommand({
     }
     agentManager.setToolFallbackMode(config.toolFallbackMode);
     agentManager.setTranslationEnabled(config.translateUserPrompts);
-    messageHistory.updateCompaction(agentManager.buildCompactionConfig());
+    updateCompactionForCurrentModel();
 
     const showReasoningModeSelector = async (
       hooks: CommandPreprocessHooks
@@ -912,7 +915,20 @@ const mainCommand = defineCommand({
         header: {
           title: "Code Editing Agent",
           get subtitle() {
-            return `${agentManager.getProvider()}/${agentManager.getModelId()}\nSession: ${sessionManager.getId()}`;
+            const modelInfo = `${agentManager.getProvider()}/${agentManager.getModelId()}`;
+            const sessionInfo = `Session: ${sessionManager.getId()}`;
+            const contextUsage = messageHistory.getContextUsage();
+            if (!contextUsage) {
+              return `${modelInfo}\n${sessionInfo}`;
+            }
+            const formatTokens = (n: number): string => {
+              if (n >= 1000) {
+                return `${(n / 1000).toFixed(1)}k`;
+              }
+              return String(n);
+            };
+            const contextInfo = `Context: ${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%)`;
+            return `${modelInfo} | ${contextInfo}\n${sessionInfo}`;
           },
         },
         theme: {

@@ -16,7 +16,6 @@ configureCommandRegistry({
   },
 });
 
-// biome-ignore lint/performance/noBarrelFile: backward-compatible command entrypoint intentionally re-exports harness APIs.
 export {
   type Command,
   type CommandContext,

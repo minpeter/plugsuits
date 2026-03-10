@@ -401,14 +401,14 @@ const TEST_CASES: TestCase[] = [
     prompt: [
       "Read path.cfg with read_file.",
       "Replace line 1 using edit_file with edits: [{ op: 'replace', pos: '<line1 anchor>', lines: ['path = \"C:\\\\Users\\\\admin\\\\file.txt\"'] }].",
-      'The file should contain a Windows-style path with backslashes: C:\\Users\\admin\\file.txt.',
+      "The file should contain a Windows-style path with backslashes: C:\\Users\\admin\\file.txt.",
     ].join(" "),
     validate: (content) => {
       const lines = content.replace(/\r/g, "").trimEnd().split("\n");
       const line1 = lines[0] ?? "";
       // Accept either single or double backslashes — both are valid model interpretations
-      const hasSingleBS = line1.includes('C:\\Users\\admin\\file.txt');
-      const hasDoubleBS = line1.includes('C:\\\\Users\\\\admin\\\\file.txt');
+      const hasSingleBS = line1.includes("C:\\Users\\admin\\file.txt");
+      const hasDoubleBS = line1.includes("C:\\\\Users\\\\admin\\\\file.txt");
       const hasPath = hasSingleBS || hasDoubleBS;
       const hasQuotes = line1.includes('"');
       if (hasPath && hasQuotes) {
@@ -457,7 +457,6 @@ const TEST_CASES: TestCase[] = [
       "Expected line 2 to be exactly 180 characters.",
     ].join(" "),
     validate: (content) => {
-      const expected = "L".repeat(180);
       const lines = content.replace(/\r/g, "").trimEnd().split("\n");
       if (!lines[1]) {
         return { passed: false, reason: "line 2 is missing" };
@@ -474,7 +473,10 @@ const TEST_CASES: TestCase[] = [
           reason: "line 2 content does not match expected repeated-L string",
         };
       }
-      return { passed: true, reason: `long line replaced (${lines[1].length} chars)` };
+      return {
+        passed: true,
+        reason: `long line replaced (${lines[1].length} chars)`,
+      };
     },
   },
   {

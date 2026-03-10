@@ -3,6 +3,7 @@ import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-util
 import {
   type CompactionConfig,
   createAgent,
+  createModelSummarizer,
   type AgentStreamOptions as HarnessAgentStreamOptions,
   type AgentStreamResult as HarnessAgentStreamResult,
 } from "@ai-sdk-tool/harness";
@@ -387,11 +388,15 @@ export class AgentManager {
       this.modelId,
       this.provider
     );
+    const summarizeFn = createModelSummarizer(
+      this.getProviderModel(this.modelId, this.provider)
+    );
     return {
       enabled: true,
       maxTokens: contextLength,
       reserveTokens: effectiveOutputTokens,
       keepRecentTokens: Math.floor(contextLength * 0.3),
+      summarizeFn,
       ...overrides,
     };
   }

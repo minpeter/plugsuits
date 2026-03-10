@@ -56,6 +56,8 @@ export function createAgent(config: AgentConfig): Agent {
         finishReason: result.finishReason,
         fullStream: result.fullStream,
         response: result.response,
+        usage: result.usage,
+        totalUsage: result.totalUsage,
       };
     },
   };

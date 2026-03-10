@@ -1,4 +1,4 @@
-// biome-ignore lint/performance/noBarrelFile: package public entrypoint must aggregate exports.
+export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
 export type {
   Command,
@@ -26,8 +26,10 @@ export {
 } from "./compaction-prompts";
 export { runAgentLoop } from "./loop";
 export type {
+  ActualTokenUsage,
   CompactionConfig,
   CompactionSummary,
+  ContextUsage,
   Message,
   MessageHistoryOptions,
 } from "./message-history";

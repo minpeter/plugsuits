@@ -119,13 +119,13 @@ describe("compaction-prompts", () => {
 
       // The system prompt should contain our custom prompt
       const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const systemMessages = callPrompt.filter(
-        (m: any) => m.role === "system"
-      );
+      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
       expect(systemMessages.length).toBeGreaterThan(0);
       const systemContent = systemMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -193,7 +193,9 @@ describe("compaction-prompts", () => {
       expect(userMessages.length).toBeGreaterThan(0);
       const userContent = userMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -245,7 +247,9 @@ describe("compaction-prompts", () => {
       const userMessages = callPrompt.filter((m: any) => m.role === "user");
       const userContent = userMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -301,7 +305,8 @@ describe("compaction-prompts", () => {
 
   describe("createModelSummarizer with previousSummary", () => {
     it("uses iterative prompt when previousSummary is provided", async () => {
-      const expectedSummary = "## Summary\nUpdated summary with merged context.";
+      const expectedSummary =
+        "## Summary\nUpdated summary with merged context.";
       const mockModel = createMockModel(expectedSummary);
       const summarizer = createModelSummarizer(mockModel);
 
@@ -321,7 +326,9 @@ describe("compaction-prompts", () => {
       const systemMessages = callPrompt.filter((m: any) => m.role === "system");
       const systemContent = systemMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -334,7 +341,9 @@ describe("compaction-prompts", () => {
       const userMessages = callPrompt.filter((m: any) => m.role === "user");
       const userContent = userMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -350,9 +359,7 @@ describe("compaction-prompts", () => {
       const mockModel = createMockModel("## Summary\nFresh summary.");
       const summarizer = createModelSummarizer(mockModel);
 
-      const messages = makeMessages(
-        { role: "user", content: "Hello" }
-      );
+      const messages = makeMessages({ role: "user", content: "Hello" });
 
       await summarizer(messages);
 
@@ -360,7 +367,9 @@ describe("compaction-prompts", () => {
       const systemMessages = callPrompt.filter((m: any) => m.role === "system");
       const systemContent = systemMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -379,9 +388,7 @@ describe("compaction-prompts", () => {
         iterativePrompt: customIterativePrompt,
       });
 
-      const messages = makeMessages(
-        { role: "user", content: "New message" }
-      );
+      const messages = makeMessages({ role: "user", content: "New message" });
 
       await summarizer(messages, "Previous summary text");
 
@@ -389,7 +396,9 @@ describe("compaction-prompts", () => {
       const systemMessages = callPrompt.filter((m: any) => m.role === "system");
       const systemContent = systemMessages
         .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
+          if (typeof m.content === "string") {
+            return m.content;
+          }
           if (Array.isArray(m.content)) {
             return m.content.map((p: any) => p.text ?? "").join("");
           }
@@ -404,7 +413,10 @@ describe("compaction-prompts", () => {
       const summarizeFn = createModelSummarizer(mockModel);
 
       // Verify it matches the updated signature
-      const fn: (messages: ModelMessage[], previousSummary?: string) => Promise<string> = summarizeFn;
+      const fn: (
+        messages: ModelMessage[],
+        previousSummary?: string
+      ) => Promise<string> = summarizeFn;
 
       const result = await fn(
         [{ role: "user", content: "test" } as ModelMessage],
