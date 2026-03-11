@@ -15,7 +15,6 @@
     "check": "bunx ultracite check .",
     "lint": "bunx ultracite fix .",
     "start": "bun run --cwd packages/cea start",
-    "headless": "bun run --cwd packages/cea headless",
     "test:headless-edit": "bun run scripts/test-headless-edit-ops.ts",
     "test:headless-edit-edge": "bun run scripts/test-headless-edit-edge-cases.ts",
     "changeset": "changeset",

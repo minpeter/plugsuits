@@ -58,7 +58,7 @@ describe("AgentManager compaction config", () => {
     agentManager.resetForTesting();
   });
 
-  it("uses a 75% speculative compaction start threshold with the compact test model", () => {
+  it("uses a 60% speculative compaction start threshold with the compact test model", () => {
     agentManager.setProvider("friendli");
     agentManager.setModelId("test-compact");
 
@@ -72,7 +72,7 @@ describe("AgentManager compaction config", () => {
     expect(agentManager.getModelTokenLimits().maxCompletionTokens).toBe(20_480);
     expect(compaction.reserveTokens).toBe(512);
     expect(compaction.keepRecentTokens).toBe(Math.floor(20_480 * 0.3));
-    expect(compaction.speculativeStartRatio).toBe(0.75);
+    expect(compaction.speculativeStartRatio).toBe(0.6);
     expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);
     expect(history.needsCompaction()).toBe(false);
   });

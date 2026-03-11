@@ -918,7 +918,7 @@ async function runTestCase(
     "cea",
     "src",
     "entrypoints",
-    "headless.ts"
+    "main.ts"
   );
   const headlessArgs = [
     "run",

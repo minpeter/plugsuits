@@ -197,7 +197,8 @@ const getCompactionReserveTokens = (
 
   const model = getFriendliModelById(modelId);
   return (
-    model?.compactionReserveTokens ?? getEffectiveMaxOutputTokens(modelId, provider)
+    model?.compactionReserveTokens ??
+    getEffectiveMaxOutputTokens(modelId, provider)
   );
 };
 
@@ -410,7 +411,7 @@ export class AgentManager {
       maxTokens: contextLength,
       reserveTokens: compactionReserveTokens,
       keepRecentTokens: Math.floor(contextLength * 0.3),
-      speculativeStartRatio: 0.75,
+      speculativeStartRatio: 0.6,
       summarizeFn,
       ...overrides,
     };

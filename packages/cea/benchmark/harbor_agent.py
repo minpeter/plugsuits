@@ -246,7 +246,7 @@ class CodeEditingAgent(BaseInstalledAgent):
             ),
             ExecInput(
                 command=(
-                    f"/root/.bun/bin/bun /agent/packages/cea/src/entrypoints/headless.ts -p {escaped_instruction} {model_arg} {flags_str} "
+                    f"/root/.bun/bin/bun /agent/packages/cea/src/entrypoints/main.ts -p {escaped_instruction} {model_arg} {flags_str} "
                     f"2>&1 | tee /logs/agent/output.jsonl"
                 ),
                 env=env,

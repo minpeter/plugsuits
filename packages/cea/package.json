@@ -30,9 +30,8 @@
     "pss": "cli.js"
   },
   "scripts": {
-    "start": "bun run src/entrypoints/cli.ts",
-    "headless": "bun run src/entrypoints/headless.ts",
-    "dev": "bun run --watch src/entrypoints/cli.ts",
+    "start": "bun run src/entrypoints/main.ts",
+    "dev": "bun run --watch src/entrypoints/main.ts",
     "build": "tsc && cp -r src/tools/**/*.txt dist/tools/",
     "test": "bun test",
     "typecheck": "tsc --noEmit",

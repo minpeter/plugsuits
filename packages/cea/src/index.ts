@@ -1,3 +1,3 @@
 #!/usr/bin/env bun
 
-import "./entrypoints/cli";
+import "./entrypoints/main";

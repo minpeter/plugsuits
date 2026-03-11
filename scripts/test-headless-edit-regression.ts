@@ -111,7 +111,7 @@ function createHeadlessArgs(): string[] {
     "cea",
     "src",
     "entrypoints",
-    "headless.ts"
+    "main.ts"
   );
 
   return ["run", headlessScript, "-p", PROMPT, "--no-translate", ...extraArgs];

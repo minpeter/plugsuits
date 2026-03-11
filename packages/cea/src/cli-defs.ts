@@ -43,25 +43,9 @@ export const sharedArgsDef = {
   },
 } satisfies ArgsDef;
 
-export const headlessArgsDef = {
-  ...sharedArgsDef,
-  prompt: {
-    type: "string",
-    alias: "p",
-    description: "Prompt text",
-    required: true,
-  },
-  "max-iterations": {
-    type: "string",
-    description: "Maximum number of iterations",
-  },
-} satisfies ArgsDef;
-
 const hasValue = (value: string | undefined): value is string => {
   return typeof value === "string" && !value.startsWith("--");
 };
-
-const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 
 export const normalizeRawArgs = (rawArgs: string[]): string[] => {
   const normalized: string[] = [];
@@ -144,37 +128,5 @@ export const resolveSharedConfig = (args: SharedArgs): SharedConfig => {
       explicitReasoningMode ?? (args.think ? ("on" as const) : null),
     toolFallbackMode: args["toolcall-mode"] ?? DEFAULT_TOOL_FALLBACK_MODE,
     translateUserPrompts: args.translate ?? true,
-  };
-};
-
-export interface HeadlessConfig extends SharedConfig {
-  maxIterations: number | undefined;
-  prompt: string;
-}
-
-export interface HeadlessArgs extends SharedArgs {
-  "max-iterations"?: string;
-  prompt: string;
-}
-
-const parsePositiveInt = (value: string | undefined): number | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  if (!POSITIVE_INTEGER_PATTERN.test(trimmed)) {
-    return undefined;
-  }
-
-  const parsed = Number.parseInt(trimmed, 10);
-  return parsed > 0 ? parsed : undefined;
-};
-
-export const resolveHeadlessConfig = (args: HeadlessArgs): HeadlessConfig => {
-  return {
-    ...resolveSharedConfig(args),
-    prompt: args.prompt,
-    maxIterations: parsePositiveInt(args["max-iterations"]),
   };
 };

@@ -9,6 +9,7 @@ import {
   SessionManager,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
+import { emitEvent, runHeadless } from "@ai-sdk-tool/headless";
 import {
   type CommandPreprocessHooks,
   createAgentTUI,
@@ -98,7 +99,9 @@ const formatTokens = (n: number): string => {
 };
 
 const formatContextUsage = (
-  contextUsage: NonNullable<MessageHistory["getContextUsage"] extends () => infer T ? T : never>
+  contextUsage: NonNullable<
+    MessageHistory["getContextUsage"] extends () => infer T ? T : never
+  >
 ): string => {
   if (contextUsage.source === "estimated" && contextUsage.used === 0) {
     return `Context: ?/${formatTokens(contextUsage.limit)} (?)`;
@@ -392,11 +395,22 @@ const mainCommand = defineCommand({
     version: "2.0.0",
     description: "Code Editing Agent",
   },
-  args: sharedArgsDef,
+  args: {
+    ...sharedArgsDef,
+    prompt: {
+      type: "string",
+      alias: "p",
+      description:
+        "User prompt. Providing this enters headless mode automatically.",
+    },
+    "max-iterations": {
+      type: "string",
+      description: "Maximum number of iterations (headless mode only)",
+    },
+  },
   async run({ args }) {
     validateProviderConfig();
     await initializeTools();
-    const skills: SkillInfo[] = await loadAllSkills();
     setSpinnerOutputEnabled(false);
     sessionManager.initialize();
 
@@ -413,6 +427,81 @@ const mainCommand = defineCommand({
     agentManager.setToolFallbackMode(config.toolFallbackMode);
     agentManager.setTranslationEnabled(config.translateUserPrompts);
     updateCompactionForCurrentModel();
+
+    const promptArg = (
+      args as SharedArgs & { prompt?: string; "max-iterations"?: string }
+    ).prompt?.trim();
+    if (promptArg) {
+      agentManager.setHeadlessMode(true);
+      const headlessStartedAt = Date.now();
+
+      const preparedPrompt = agentManager.isTranslationEnabled()
+        ? await translateToEnglish(promptArg, agentManager)
+        : { translated: false, text: promptArg };
+
+      if (preparedPrompt.error) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          sessionId: sessionManager.getId(),
+          error: `[translation] Failed to translate input: ${preparedPrompt.error}. Using original text.`,
+        });
+      }
+
+      const maxIterationsRaw = (
+        args as SharedArgs & { "max-iterations"?: string }
+      )["max-iterations"]?.trim();
+      const maxIterations = maxIterationsRaw
+        ? (() => {
+            const n = Number.parseInt(maxIterationsRaw, 10);
+            return n > 0 ? n : undefined;
+          })()
+        : undefined;
+
+      try {
+        await runHeadless({
+          agent: {
+            stream: (opts) => agentManager.stream(opts.messages),
+          },
+          sessionId: sessionManager.getId(),
+          emitEvent,
+          initialUserMessage: {
+            content: preparedPrompt.text,
+            eventContent: promptArg,
+            originalContent: preparedPrompt.originalText,
+          },
+          maxIterations,
+          messageHistory,
+          modelId: agentManager.getModelId(),
+          onTodoReminder: async () => {
+            const incompleteTodos = await getIncompleteTodos();
+            if (incompleteTodos.length === 0) {
+              return { hasReminder: false, message: null };
+            }
+            return {
+              hasReminder: true,
+              message: buildTodoContinuationUserMessage(incompleteTodos),
+            };
+          },
+        });
+      } catch (error) {
+        emitEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          sessionId: sessionManager.getId(),
+          error: error instanceof Error ? error.message : String(error),
+        });
+        exitWithCleanup(1);
+      }
+
+      cleanup();
+      console.error(
+        `[headless] Completed in ${((Date.now() - headlessStartedAt) / 1000).toFixed(2)}s`
+      );
+      process.exit(0);
+    }
+
+    const skills: SkillInfo[] = await loadAllSkills();
 
     const showReasoningModeSelector = async (
       hooks: CommandPreprocessHooks

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
-  type HeadlessArgs,
   normalizeRawArgs,
-  resolveHeadlessConfig,
   resolveSharedConfig,
   type SharedArgs,
 } from "./cli-defs";
@@ -207,53 +205,5 @@ describe("resolveSharedConfig", () => {
   it("defaults translate to true when undefined", () => {
     const args: SharedArgs = {};
     expect(resolveSharedConfig(args).translateUserPrompts).toBe(true);
-  });
-});
-
-describe("resolveHeadlessConfig", () => {
-  it("passes through prompt", () => {
-    const args: HeadlessArgs = { prompt: "hello" };
-    expect(resolveHeadlessConfig(args).prompt).toBe("hello");
-  });
-
-  it("parses valid positive max-iterations", () => {
-    const args: HeadlessArgs = { prompt: "hello", "max-iterations": "50" };
-    expect(resolveHeadlessConfig(args).maxIterations).toBe(50);
-  });
-
-  it("returns undefined for non-numeric max-iterations", () => {
-    const args: HeadlessArgs = { prompt: "hello", "max-iterations": "abc" };
-    expect(resolveHeadlessConfig(args).maxIterations).toBeUndefined();
-  });
-
-  it("returns undefined for negative max-iterations", () => {
-    const args: HeadlessArgs = { prompt: "hello", "max-iterations": "-5" };
-    expect(resolveHeadlessConfig(args).maxIterations).toBeUndefined();
-  });
-
-  it("returns undefined when max-iterations is absent", () => {
-    const args: HeadlessArgs = { prompt: "hello" };
-    expect(resolveHeadlessConfig(args).maxIterations).toBeUndefined();
-  });
-
-  it("inherits shared config behavior", () => {
-    const args: HeadlessArgs = {
-      prompt: "run",
-      model: "foo",
-      provider: "friendli",
-      think: true,
-      "toolcall-mode": "qwen3coder",
-      translate: false,
-    };
-
-    expect(resolveHeadlessConfig(args)).toEqual({
-      prompt: "run",
-      maxIterations: undefined,
-      model: "foo",
-      provider: "friendli",
-      reasoningMode: "on",
-      toolFallbackMode: "qwen3coder",
-      translateUserPrompts: false,
-    });
   });
 });
