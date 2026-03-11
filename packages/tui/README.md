@@ -128,10 +128,16 @@ import { BaseToolCallView, type ToolRendererMap } from "@ai-sdk-tool/tui";
 // Custom renderer for a specific tool
 const toolRenderers: ToolRendererMap = {
   read_file: (view, input, output) => {
+    if (view.getError() !== undefined || view.isOutputDenied()) {
+      return;
+    }
     const path = (input as { path: string }).path;
     view.setRenderedOverride(`read: ${path}`);
   },
   shell_execute: (view, input) => {
+    if (view.getError() !== undefined || view.isOutputDenied()) {
+      return;
+    }
     const cmd = (input as { command: string }).command;
     view.setRenderedOverride(`$ ${cmd}`);
   },

@@ -70,6 +70,9 @@ import { BaseToolCallView, type ToolRendererMap } from "@ai-sdk-tool/tui";
 
 const renderers: ToolRendererMap = {
   read_file: (view, input, output) => {
+    if (view.getError() !== undefined || view.isOutputDenied()) {
+      return;
+    }
     view.setRenderedOverride(`read: ${(input as { path: string }).path}`);
   },
 };
@@ -140,6 +143,9 @@ import { createAgentTUI, type ToolRendererMap } from "@ai-sdk-tool/tui";
 
 const toolRenderers: ToolRendererMap = {
   shell_execute: (view, input) => {
+    if (view.getError() !== undefined || view.isOutputDenied()) {
+      return;
+    }
     const cmd = (input as { command: string }).command;
     view.setRenderedOverride(`$ ${cmd}`);
   },
