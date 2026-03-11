@@ -64,7 +64,10 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       return { applied: false, stale: false };
     }
 
-    const result = config.messageHistory.applyPreparedCompaction(
+    const result: {
+      applied: boolean;
+      reason: "applied" | "noop" | "stale" | "rejected";
+    } = config.messageHistory.applyPreparedCompaction(
       speculativeCompactionJob.prepared
     );
     discardSpeculativeCompactionJob();
@@ -72,6 +75,13 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     if (result.reason === "stale") {
       startSpeculativeCompaction();
       return { applied: false, stale: true };
+    }
+
+    if (result.reason === "rejected") {
+      console.error(
+        "[compaction] Compaction rejected: summary would not reduce tokens"
+      );
+      return { applied: false, stale: false };
     }
 
     return { applied: result.reason === "applied", stale: false };

@@ -390,6 +390,7 @@ export function applyReadySpeculativeCompactionCore(params: {
   discardJob: (job: SpeculativeCompactionJob) => void;
   jobs: SpeculativeCompactionJob[];
   onStale: () => void;
+  onRejected?: () => void;
 }): { applied: boolean; stale: boolean } {
   let applied = false;
   let stale = false;
@@ -414,6 +415,7 @@ export function applyReadySpeculativeCompactionCore(params: {
     }
 
     if (result.reason === "rejected") {
+      params.onRejected?.();
       continue;
     }
 
@@ -480,6 +482,10 @@ export async function blockAtHardContextLimitCore(params: {
           if (retryPrepared) {
             params.applyPreparedCompaction(retryPrepared);
           }
+          break;
+        }
+        // Treat "rejected" as terminal - no retry with different phase
+        if (result.reason === "rejected") {
           break;
         }
       }
@@ -613,6 +619,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     renderFooterStatuses();
   };
 
+  const setBackgroundStatus = (id: string, text: string): void => {
+    backgroundStatuses.set(id, { message: text, state: "ready" });
+    renderFooterStatuses();
+  };
+
   const discardSpeculativeCompactionJob = (
     job: SpeculativeCompactionJob
   ): void => {
@@ -666,6 +677,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       discardJob: discardSpeculativeCompactionJob,
       discardAllJobs: discardAllSpeculativeCompactionJobs,
       onStale: () => startSpeculativeCompaction(),
+      onRejected: () => {
+        setBackgroundStatus(
+          "compaction-rejected",
+          "Compaction skipped (no token reduction)"
+        );
+        setTimeout(() => clearBackgroundStatus("compaction-rejected"), 3000);
+      },
     });
 
     if (result.applied) {

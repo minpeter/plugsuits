@@ -175,6 +175,44 @@ describe("agent-tui compaction core", () => {
     expect(jobs[0]?.discarded).toBe(true);
   });
 
+  it("calls onRejected callback when compaction is rejected", () => {
+    const jobs = [
+      {
+        discarded: false,
+        id: "rejected-1",
+        phase: "new-turn" as const,
+        prepared: createPreparedCompaction("rejected-1"),
+        promise: Promise.resolve(),
+        state: "completed" as const,
+      },
+    ];
+
+    let refireCalls = 0;
+    let rejectedCalls = 0;
+
+    const result = applyReadySpeculativeCompactionCore({
+      jobs,
+      applyPreparedCompaction: () => ({ applied: false, reason: "rejected" }),
+      discardJob: (job) => {
+        job.discarded = true;
+      },
+      discardAllJobs: () => {
+        throw new Error("should not discard all jobs for rejected result");
+      },
+      onStale: () => {
+        refireCalls += 1;
+      },
+      onRejected: () => {
+        rejectedCalls += 1;
+      },
+    });
+
+    expect(result).toEqual({ applied: false, stale: false });
+    expect(refireCalls).toBe(0);
+    expect(rejectedCalls).toBe(1);
+    expect(jobs[0]?.discarded).toBe(true);
+  });
+
   it("discards all speculative jobs for /clear behavior", () => {
     const jobs = [
       {
