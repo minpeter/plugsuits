@@ -3,8 +3,8 @@ import { generateText, type ModelMessage } from "ai";
 type GenerateTextModel = Parameters<typeof generateText>[0]["model"];
 
 /**
- * Default structured summarization prompt.
- * Designed to be general-purpose: works for coding agents, roleplay, Q&A, etc.
+ * @deprecated Use DEFAULT_COMPACTION_USER_PROMPT instead.
+ * Legacy system prompt for standalone summarization calls.
  */
 export const DEFAULT_SUMMARIZATION_PROMPT = `You are a conversation summarizer. Given a conversation history, produce a structured summary that preserves the essential context needed to continue the conversation naturally.
 
@@ -32,8 +32,8 @@ Rules:
 - Keep the total summary under 500 words`;
 
 /**
- * Prompt extension for iterative compaction when a previous summary exists.
- * Instructs the model to update/merge the previous summary with new conversation content.
+ * @deprecated Iterative compaction is now handled within the user-turn prompt.
+ * Legacy system prompt for iterative summarization.
  */
 export const ITERATIVE_SUMMARIZATION_PROMPT = `You are a conversation summarizer performing an iterative update. You have a previous summary of earlier conversation, and new conversation messages to incorporate.
 
@@ -65,183 +65,72 @@ Rules:
 - Keep the total summary under 500 words`;
 
 /**
- * Options for createModelSummarizer.
+ * Default compaction prompt injected as a user turn into the existing conversation.
+ * The model uses its existing context (system prompt + conversation history) to produce
+ * a structured summary, preserving full awareness of tool calls, code, and decisions.
  */
+export const DEFAULT_COMPACTION_USER_PROMPT = `Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
+This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing development work without losing context.
+
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+
+1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
+   - The user's explicit requests and intents
+   - Your approach to addressing the user's requests
+   - Key decisions, technical concepts and code patterns
+   - Specific details like:
+     - file names
+     - full code snippets
+     - function signatures
+     - file edits
+   - Errors that you ran into and how you fixed them
+   - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+
+Your summary should include the following sections:
+
+1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail
+2. Key Technical Concepts: List all important technical concepts, technologies, and frameworks discussed.
+3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Pay special attention to the most recent messages and include full code snippets where applicable and include a summary of why this file read or edit is important.
+4. Errors and fixes: List all errors that you ran into, and how you fixed them. Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
+6. All user messages: List ALL user messages that are not tool results. These are critical for understanding the users' feedback and changing intent.
+7. Pending Tasks: Outline any pending tasks that you have explicitly been asked to work on.
+8. Current Work: Describe in detail precisely what was being worked on immediately before this summary request, paying special attention to the most recent messages from both user and assistant. Include file names and code snippets where applicable.
+9. Optional Next Step: List the next step that you will take that is related to the most recent work you were doing. IMPORTANT: ensure that this step is DIRECTLY in line with the user's most recent explicit requests, and the task you were working on immediately before this summary request. If your last task was concluded, then only list next steps if they are explicitly in line with the users request. Do not start on tangential requests or really old requests that were already completed without confirming with the user first.
+                       If there is a next step, include direct quotes from the most recent conversation showing exactly what task you were working on and where you left off. This should be verbatim to ensure there's no drift in task interpretation.
+
+There may be additional summarization instructions provided in the included context. If so, remember to follow these instructions when creating the above summary.
+
+IMPORTANT: Do NOT use any tools. You MUST respond with ONLY the <summary>...</summary> block as your text output.`;
+
 export interface ModelSummarizerOptions {
+  instructions?: string | (() => string | Promise<string>);
   /**
-   * Custom system prompt for iterative compaction (when updating an existing summary).
-   * If not provided, ITERATIVE_SUMMARIZATION_PROMPT is used.
+   * @deprecated No longer used. Iterative compaction is handled within the user turn.
    */
   iterativePrompt?: string;
 
-  /**
-   * Maximum tokens for the summary output.
-   * @default 1024
-   */
   maxOutputTokens?: number;
-  /**
-   * Custom system prompt for the summarization model.
-   * If not provided, DEFAULT_SUMMARIZATION_PROMPT is used.
-   */
+
   prompt?: string;
 }
 
-function isSummarizationTextPart(part: unknown): part is {
-  text: string;
-  type: "text";
-} {
-  return (
-    typeof part === "object" &&
-    part !== null &&
-    "type" in part &&
-    part.type === "text" &&
-    "text" in part &&
-    typeof part.text === "string"
-  );
+const SUMMARY_TAG_REGEX = /<summary>([\s\S]*?)<\/summary>/;
+const PREVIOUS_SUMMARY_CLOSE_TAG_REGEX = /<\/previous-summary>/gi;
+
+function extractSummaryFromResponse(text: string): string {
+  const match = text.match(SUMMARY_TAG_REGEX);
+  return match ? match[1].trim() : text.trim();
 }
 
-function isSummarizationToolCallPart(part: unknown): part is {
-  input: unknown;
-  toolName: string;
-  type: "tool-call";
-} {
-  return (
-    typeof part === "object" &&
-    part !== null &&
-    "type" in part &&
-    part.type === "tool-call" &&
-    "toolName" in part &&
-    typeof part.toolName === "string" &&
-    "input" in part
-  );
-}
-
-function isSummarizationToolResultPart(part: unknown): part is {
-  output: unknown;
-  toolName: string;
-  type: "tool-result";
-} {
-  return (
-    typeof part === "object" &&
-    part !== null &&
-    "type" in part &&
-    part.type === "tool-result" &&
-    "toolName" in part &&
-    typeof part.toolName === "string" &&
-    "output" in part
-  );
-}
-
-function formatToolCallPart(part: {
-  input: unknown;
-  toolName: string;
-}): string {
-  const inputStr = JSON.stringify(part.input);
-  const truncatedInput =
-    inputStr.length > 200 ? `${inputStr.slice(0, 200)}...` : inputStr;
-  return `[tool-call: ${part.toolName}(${truncatedInput})]`;
-}
-
-function formatToolResultPart(part: {
-  output: unknown;
-  toolName: string;
-}): string {
-  const outputStr =
-    typeof part.output === "string" ? part.output : JSON.stringify(part.output);
-  const truncatedOutput =
-    outputStr.length > 300 ? `${outputStr.slice(0, 300)}...` : outputStr;
-  return `[tool-result: ${part.toolName} → ${truncatedOutput}]`;
-}
-
-function formatContentPartForSummarization(part: unknown): string {
-  if (isSummarizationTextPart(part)) {
-    return part.text;
-  }
-
-  if (isSummarizationToolCallPart(part)) {
-    return formatToolCallPart(part);
-  }
-
-  if (isSummarizationToolResultPart(part)) {
-    return formatToolResultPart(part);
-  }
-
-  return "";
-}
-
-/**
- * Extract text content from a ModelMessage for building the summarization input.
- */
-function formatMessageForSummarization(message: ModelMessage): string {
-  const role = message.role;
-
-  if (typeof message.content === "string") {
-    return `[${role}]: ${message.content}`;
-  }
-
-  if (!Array.isArray(message.content)) {
-    return `[${role}]: (empty)`;
-  }
-
-  const parts = message.content
-    .map(formatContentPartForSummarization)
-    .filter(Boolean);
-  return `[${role}]: ${parts.join(" ")}`;
-}
-
-/**
- * Build the user message content for the summarization call.
- * Formats the conversation history into a readable form.
- * When previousSummary is provided, includes it for iterative compaction.
- */
-function buildSummarizationInput(
-  messages: ModelMessage[],
-  previousSummary?: string
-): string {
-  const formatted = messages.map(formatMessageForSummarization);
-
-  if (previousSummary) {
-    // Escape closing tags to prevent prompt injection via previous LLM outputs
-    const escapedSummary = previousSummary.replace(
-      /<\/previous-summary>/gi,
-      "[/previous-summary]"
-    );
-    return `<previous-summary>\n${escapedSummary}\n</previous-summary>\n\nUpdate the above summary by incorporating the following new conversation:\n\n${formatted.join("\n\n")}`;
-  }
-
-  return `Summarize the following conversation:\n\n${formatted.join("\n\n")}`;
-}
-
-/**
- * Create a model-based summarizer function that uses AI SDK's generateText
- * to produce structured summaries of conversation history.
- *
- * @example
- * ```ts
- * import { createModelSummarizer } from "@ai-sdk-tool/harness";
- * import { openai } from "@ai-sdk/openai";
- *
- * const history = new MessageHistory({
- *   compaction: {
- *     enabled: true,
- *     maxTokens: 8192,
- *     summarizeFn: createModelSummarizer(openai("gpt-4o-mini")),
- *   },
- * });
- * ```
- *
- * @param model - An AI SDK compatible model (LanguageModelV2)
- * @param options - Optional configuration for the summarizer
- * @returns A summarize function compatible with CompactionConfig.summarizeFn
- */
 export function createModelSummarizer(
   model: GenerateTextModel,
   options?: ModelSummarizerOptions
 ): (messages: ModelMessage[], previousSummary?: string) => Promise<string> {
-  const systemPrompt = options?.prompt ?? DEFAULT_SUMMARIZATION_PROMPT;
-  const iterativePrompt =
-    options?.iterativePrompt ?? ITERATIVE_SUMMARIZATION_PROMPT;
-  const maxOutputTokens = options?.maxOutputTokens ?? 1024;
+  const compactionPrompt = options?.prompt ?? DEFAULT_COMPACTION_USER_PROMPT;
+  const maxOutputTokens = options?.maxOutputTokens ?? 4096;
+  const instructionsSource = options?.instructions;
 
   return async (
     messages: ModelMessage[],
@@ -251,24 +140,38 @@ export function createModelSummarizer(
       return "## Summary\nNo conversation history to summarize.\n\n## Context\n- (none)\n\n## Current State\n- (none)";
     }
 
-    const userContent = buildSummarizationInput(messages, previousSummary);
-    // Use iterative prompt when updating an existing summary
-    const activePrompt = previousSummary ? iterativePrompt : systemPrompt;
+    let userTurnContent: string;
+    if (previousSummary) {
+      const escapedSummary = previousSummary.replace(
+        PREVIOUS_SUMMARY_CLOSE_TAG_REGEX,
+        "[/previous-summary]"
+      );
+      userTurnContent = `<previous-summary>\n${escapedSummary}\n</previous-summary>\n\n${compactionPrompt}`;
+    } else {
+      userTurnContent = compactionPrompt;
+    }
+
+    const systemPrompt =
+      typeof instructionsSource === "function"
+        ? await instructionsSource()
+        : instructionsSource;
 
     const result = await generateText({
       model,
-      system: activePrompt,
-      messages: [{ role: "user" as const, content: userContent }],
+      ...(systemPrompt ? { system: systemPrompt } : {}),
+      messages: [
+        ...messages,
+        { role: "user" as const, content: userTurnContent },
+      ],
       maxOutputTokens,
     });
 
     const text = result.text.trim();
 
-    // If the model returned empty, produce a minimal fallback
     if (!text) {
       return "## Summary\nConversation summary generation failed.\n\n## Context\n- (none)\n\n## Current State\n- (none)";
     }
 
-    return text;
+    return extractSummaryFromResponse(text);
   };
 }

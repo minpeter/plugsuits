@@ -582,16 +582,16 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   tui.addChild(footerContainer);
   tui.setFocus(editor);
 
-  const shouldExit = false;
-  const activeStreamController: AbortController | null = null;
-  const streamInterruptRequested = false;
-  const inputResolver: null | ((value: string | null) => void) = null;
-  const lastCtrlCPressAt = 0;
+  let shouldExit = false;
+  let activeStreamController: AbortController | null = null;
+  let streamInterruptRequested = false;
+  let inputResolver: null | ((value: string | null) => void) = null;
+  let lastCtrlCPressAt = 0;
   let foregroundStatus: StatusSpinner | null = null;
   const backgroundStatuses = new Map<string, FooterStatusEntry>();
   const speculativeCompactionJobs: SpeculativeCompactionJob[] = [];
-  const speculativeCompactionJobCounter = 0;
-  const commandInputListenerActive = false;
+  let speculativeCompactionJobCounter = 0;
+  let commandInputListenerActive = false;
 
   const createStatusSpinner = (message: string): StatusSpinner => {
     return new StatusSpinner(
@@ -622,8 +622,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     renderFooterStatuses();
   };
 
-  const setBackgroundStatus = (id: string, text: string): void => {
-    backgroundStatuses.set(id, { message: text, state: "ready" });
+  const setBackgroundStatus = (
+    id: string,
+    text: string,
+    state: "ready" | "running" = "ready"
+  ): void => {
+    backgroundStatuses.set(id, { message: text, state });
     renderFooterStatuses();
   };
 
@@ -669,27 +673,37 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     tui.requestRender();
   };
 
+  const addCompactionNotice = (message: string): void => {
+    addChatComponent(chatContainer, new Text(style(ANSI_DIM, message), 1, 0));
+    tui.requestRender();
+  };
+
   const applyReadySpeculativeCompaction = (): {
     applied: boolean;
     stale: boolean;
   } => {
+    let appliedTokenDelta = 0;
     const result = applyReadySpeculativeCompactionCore({
       jobs: speculativeCompactionJobs,
-      applyPreparedCompaction: (prepared) =>
-        config.messageHistory.applyPreparedCompaction(prepared),
+      applyPreparedCompaction: (prepared) => {
+        appliedTokenDelta = prepared.tokenDelta;
+        return config.messageHistory.applyPreparedCompaction(prepared);
+      },
       discardJob: discardSpeculativeCompactionJob,
       discardAllJobs: discardAllSpeculativeCompactionJobs,
       onStale: () => startSpeculativeCompaction(),
       onRejected: () => {
-        setBackgroundStatus(
-          "compaction-rejected",
-          "Compaction skipped (no token reduction)"
-        );
-        setTimeout(() => clearBackgroundStatus("compaction-rejected"), 3000);
+        addCompactionNotice("↻ Compaction skipped (no token reduction)");
       },
     });
 
     if (result.applied) {
+      const saved = Math.abs(appliedTokenDelta);
+      const usage = config.messageHistory.getContextUsage();
+      const after = usage ? `${usage.used}` : "?";
+      const detail =
+        saved > 0 ? `−${saved} tokens (now ${after})` : "restructured";
+      addCompactionNotice(`↻ Compacted: ${detail}`);
       updateHeader();
       tui.requestRender();
     }
@@ -720,6 +734,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       showLoader("Compacting...");
     }
 
+    let lastAppliedDelta = 0;
+    let didApply = false;
+    let lastReason = "noop" as string;
     await blockAtHardContextLimitCore({
       additionalTokens,
       phase,
@@ -730,18 +747,35 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         config.messageHistory.prepareSpeculativeCompaction({
           phase: attemptPhase,
         }),
-      applyPreparedCompaction: (prepared) =>
-        config.messageHistory.applyPreparedCompaction(prepared),
+      applyPreparedCompaction: (prepared) => {
+        lastAppliedDelta = prepared.tokenDelta;
+        const result = config.messageHistory.applyPreparedCompaction(prepared);
+        lastReason = result.reason;
+        if (result.reason === "applied") {
+          didApply = true;
+        }
+        return result;
+      },
       applyReadySpeculativeCompaction,
       warnHardLimitStillExceeded: () => {
-        console.warn(
-          "[compaction] Hard limit still exceeded after 2 compaction attempts. Proceeding with current context."
+        addCompactionNotice(
+          "↻ Compaction: hard limit still exceeded after retries"
         );
       },
     });
 
     if (needsBlocking) {
       clearStatus();
+      if (didApply) {
+        const saved = Math.abs(lastAppliedDelta);
+        const usage = config.messageHistory.getContextUsage();
+        const after = usage ? `${usage.used}` : "?";
+        const detail =
+          saved > 0 ? `−${saved} tokens (now ${after})` : "restructured";
+        addCompactionNotice(`↻ Compacted: ${detail}`);
+      } else if (lastReason === "rejected") {
+        addCompactionNotice("↻ Compaction skipped (no token reduction)");
+      }
     }
     updateHeader();
     tui.requestRender();
@@ -779,6 +813,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       state: "running",
     };
 
+    setBackgroundStatus(jobId, "Compacting...", "running");
+
     job.promise = (async () => {
       try {
         job.prepared = await config.messageHistory.prepareSpeculativeCompaction(
@@ -788,12 +824,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         );
         job.state = "completed";
 
-        if (!job.discarded && job.prepared?.didChange) {
+        if (!job.discarded) {
+          clearBackgroundStatus(jobId);
           updateHeader();
           tui.requestRender();
         }
       } catch (error) {
         job.state = "failed";
+        clearBackgroundStatus(jobId);
         console.error("Speculative compaction failed:", error);
       }
     })();

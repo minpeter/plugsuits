@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { MessageHistory } from "@ai-sdk-tool/harness";
+import {
+  computeSpeculativeStartRatio,
+  MessageHistory,
+} from "@ai-sdk-tool/harness";
 import { agentManager, selectTranslationReasoningMode } from "./agent";
 
 describe("AgentManager translation state", () => {
@@ -58,21 +61,29 @@ describe("AgentManager compaction config", () => {
     agentManager.resetForTesting();
   });
 
-  it("uses a 60% speculative compaction start threshold with the compact test model", () => {
+  it("uses dynamically computed speculative ratio based on context and reserve", () => {
     agentManager.setProvider("friendli");
     agentManager.setModelId("test-compact");
 
     const compaction = agentManager.buildCompactionConfig();
+    const contextLength = agentManager.getModelTokenLimits().contextLength;
     const history = new MessageHistory({ compaction });
-    history.setContextLimit(agentManager.getModelTokenLimits().contextLength);
+    history.setContextLimit(contextLength);
     history.addUserMessage("hello");
-    history.updateActualUsage({ totalTokens: 15_500 });
+
+    const expectedRatio = computeSpeculativeStartRatio(
+      contextLength,
+      compaction.reserveTokens
+    );
 
     expect(compaction.maxTokens).toBe(20_480);
     expect(agentManager.getModelTokenLimits().maxCompletionTokens).toBe(20_480);
     expect(compaction.reserveTokens).toBe(512);
     expect(compaction.keepRecentTokens).toBe(Math.floor(20_480 * 0.3));
-    expect(compaction.speculativeStartRatio).toBe(0.6);
+    expect(compaction.speculativeStartRatio).toBe(expectedRatio);
+    expect(expectedRatio).toBeCloseTo(0.775, 3);
+
+    history.updateActualUsage({ totalTokens: 16_000 });
     expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);
     expect(history.needsCompaction()).toBe(false);
   });

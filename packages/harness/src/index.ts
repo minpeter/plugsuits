@@ -22,6 +22,7 @@ export {
 export type { ModelSummarizerOptions } from "./compaction-prompts";
 export {
   createModelSummarizer,
+  DEFAULT_COMPACTION_USER_PROMPT,
   DEFAULT_SUMMARIZATION_PROMPT,
   ITERATIVE_SUMMARIZATION_PROMPT,
 } from "./compaction-prompts";
@@ -35,7 +36,11 @@ export type {
   MessageHistoryOptions,
   PreparedCompaction,
 } from "./message-history";
-export { estimateTokens, MessageHistory } from "./message-history";
+export {
+  computeSpeculativeStartRatio,
+  estimateTokens,
+  MessageHistory,
+} from "./message-history";
 export type { MessageTextOptions } from "./message-text";
 export {
   getLastMessageText,

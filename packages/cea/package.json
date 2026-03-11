@@ -32,7 +32,7 @@
   "scripts": {
     "start": "bun run src/entrypoints/main.ts",
     "dev": "bun run --watch src/entrypoints/main.ts",
-    "build": "tsc && cp -r src/tools/**/*.txt dist/tools/",
+    "build": "tsc && cp src/tools/execute/*.txt dist/tools/execute/ && cp src/tools/explore/*.txt dist/tools/explore/ && cp src/tools/modify/*.txt dist/tools/modify/ && cp src/tools/planning/*.txt dist/tools/planning/ && rm -rf dist/skills && cp -r src/skills dist/skills",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "bunx ultracite check",

@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
   type CompactionConfig,
+  computeSpeculativeStartRatio,
   createAgent,
   createModelSummarizer,
   type AgentStreamOptions as HarnessAgentStreamOptions,
@@ -404,14 +405,18 @@ export class AgentManager {
       this.provider
     );
     const summarizeFn = createModelSummarizer(
-      this.getProviderModel(this.modelId, this.provider)
+      this.getProviderModel(this.modelId, this.provider),
+      { instructions: () => this.getInstructions() }
     );
     return {
       enabled: true,
       maxTokens: contextLength,
       reserveTokens: compactionReserveTokens,
       keepRecentTokens: Math.floor(contextLength * 0.3),
-      speculativeStartRatio: 0.6,
+      speculativeStartRatio: computeSpeculativeStartRatio(
+        contextLength,
+        compactionReserveTokens
+      ),
       summarizeFn,
       ...overrides,
     };

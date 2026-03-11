@@ -91,6 +91,7 @@ const main = defineCommand({
   },
   args: {
     model: {
+      alias: ["m"],
       type: "string",
       description: "Override the Friendli model ID",
     },

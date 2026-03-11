@@ -177,9 +177,14 @@ describe("process-manager", () => {
   }, 10_000);
 
   it("does not use spawnSync", async () => {
-    const source = await Bun.file(
-      new URL("./process-manager.ts", import.meta.url)
-    ).text();
+    const tsUrl = new URL("./process-manager.ts", import.meta.url);
+    const jsUrl = new URL("./process-manager.js", import.meta.url);
+    let source: string;
+    try {
+      source = await Bun.file(tsUrl).text();
+    } catch {
+      source = await Bun.file(jsUrl).text();
+    }
 
     expect(source.includes("spawnSync")).toBe(false);
   });

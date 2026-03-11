@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { AssistantModelMessage, TextPart, ToolCallPart } from "ai";
-import { MessageHistory } from "./message-history";
+import {
+  computeSpeculativeStartRatio,
+  MessageHistory,
+} from "./message-history";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -1534,5 +1537,114 @@ describe("MessageHistory PreparedCompaction config tracking", () => {
 
     await history.getMessagesForLLMAsync({ phase: "new-turn" });
     expect(callCount).toBe(0);
+  });
+});
+
+describe("computeSpeculativeStartRatio", () => {
+  const FALLBACK = 0.6;
+  const MIN = 0.15;
+
+  it("clamps to floor for small contexts with no reserve", () => {
+    expect(computeSpeculativeStartRatio(1024)).toBe(0.15);
+    expect(computeSpeculativeStartRatio(8192)).toBe(0.5);
+  });
+
+  it("returns reserve-aware ratio for medium contexts", () => {
+    expect(computeSpeculativeStartRatio(20_480, 512)).toBeCloseTo(0.775, 3);
+    expect(computeSpeculativeStartRatio(32_768, 8192)).toBe(0.625);
+  });
+
+  it("clamps to maximum for large contexts with small reserve", () => {
+    expect(computeSpeculativeStartRatio(128_000, 512)).toBe(0.95);
+    expect(computeSpeculativeStartRatio(300_000, 512)).toBe(0.95);
+    expect(computeSpeculativeStartRatio(1_000_000, 512)).toBe(0.95);
+  });
+
+  it("produces lower ratios when reserve is large", () => {
+    const smallReserve = computeSpeculativeStartRatio(200_000, 512);
+    const largeReserve = computeSpeculativeStartRatio(200_000, 64_000);
+    expect(largeReserve).toBeLessThan(smallReserve);
+  });
+
+  it("guarantees speculative fires before hard compaction", () => {
+    const scenarios = [
+      { ctx: 20_480, reserve: 512 },
+      { ctx: 200_000, reserve: 64_000 },
+      { ctx: 128_000, reserve: 64_000 },
+      { ctx: 32_768, reserve: 8192 },
+      { ctx: 300_000, reserve: 64_000 },
+      { ctx: 1_000_000, reserve: 64_000 },
+    ];
+    for (const { ctx, reserve } of scenarios) {
+      const ratio = computeSpeculativeStartRatio(ctx, reserve);
+      const specAt = Math.floor(ctx * ratio);
+      const hardAt = ctx - reserve;
+      expect(specAt).toBeLessThan(hardAt);
+    }
+  });
+
+  it("handles edge cases", () => {
+    expect(computeSpeculativeStartRatio(0)).toBe(FALLBACK);
+    expect(computeSpeculativeStartRatio(-1)).toBe(FALLBACK);
+    expect(computeSpeculativeStartRatio(Number.NaN)).toBe(FALLBACK);
+    expect(computeSpeculativeStartRatio(Number.POSITIVE_INFINITY)).toBe(
+      FALLBACK
+    );
+    expect(computeSpeculativeStartRatio(20_480, Number.NaN)).toBe(FALLBACK);
+  });
+
+  it("monotonically increases with context length (fixed reserve)", () => {
+    const sizes = [1024, 8192, 20_480, 32_768, 128_000, 300_000, 1_000_000];
+    const reserve = 8192;
+    for (let i = 1; i < sizes.length; i++) {
+      expect(
+        computeSpeculativeStartRatio(sizes[i], reserve)
+      ).toBeGreaterThanOrEqual(
+        computeSpeculativeStartRatio(sizes[i - 1], reserve)
+      );
+    }
+  });
+
+  it("handles extreme reserve (85% of context)", () => {
+    const ctx = 100_000;
+    const reserve = 85_000;
+    const ratio = computeSpeculativeStartRatio(ctx, reserve);
+    const specAt = Math.floor(ctx * ratio);
+    const hardAt = ctx - reserve;
+    expect(ratio).toBeLessThanOrEqual(MIN);
+    expect(specAt).toBeLessThan(hardAt);
+  });
+
+  it("handles reserve = contextLength - 1", () => {
+    const ctx = 100_000;
+    const reserve = ctx - 1;
+    const ratio = computeSpeculativeStartRatio(ctx, reserve);
+    const specAt = Math.floor(ctx * ratio);
+    const hardAt = ctx - reserve;
+    expect(ratio).toBeLessThan(MIN);
+    expect(specAt).toBeLessThan(hardAt);
+  });
+
+  it("normalizes negative reserveTokens to 0", () => {
+    const ctx = 20_480;
+    const ratioNeg = computeSpeculativeStartRatio(ctx, -5000);
+    const ratioZero = computeSpeculativeStartRatio(ctx, 0);
+    expect(ratioNeg).toBe(ratioZero);
+  });
+
+  it("clamps ratio strictly below hard threshold (boundary equality defense)", () => {
+    const scenarios = [
+      { ctx: 8192, reserve: 4096 },
+      { ctx: 20_480, reserve: 16_384 },
+      { ctx: 128_000, reserve: 64_000 },
+      { ctx: 200_000, reserve: 64_000 },
+      { ctx: 100_000, reserve: 99_999 },
+    ];
+    for (const { ctx, reserve } of scenarios) {
+      const ratio = computeSpeculativeStartRatio(ctx, reserve);
+      const specAt = Math.floor(ctx * ratio);
+      const hardAt = ctx - Math.max(0, Math.min(reserve, ctx - 1));
+      expect(specAt).toBeLessThan(hardAt);
+    }
   });
 });

@@ -49,6 +49,56 @@ export function estimateTokens(text: string): number {
   return Math.ceil(cjkTokens + nonCjkTokens);
 }
 
+const SPECULATIVE_BUFFER_TOKENS = 4096;
+const FALLBACK_SPECULATIVE_RATIO = 0.6;
+const MAX_SPECULATIVE_RATIO = 0.95;
+const MIN_SPECULATIVE_RATIO = 0.15;
+
+/**
+ * Compute the speculative compaction start ratio for a given context window.
+ *
+ * Tuned for medium-to-large contexts (20k+ tokens). The fixed 4096-token
+ * headroom buffer becomes meaningless for tiny windows (e.g. 600 tokens),
+ * where the fallback heuristic in {@link shouldStartSpeculativeCompactionForNextTurn}
+ * (`contextLimit - 2 * reserveTokens`) is more appropriate.
+ *
+ * For sub-8k contexts, prefer omitting `speculativeStartRatio` from the
+ * compaction config and letting the fallback take over.
+ */
+export function computeSpeculativeStartRatio(
+  contextLength: number,
+  reserveTokens = 0
+): number {
+  if (
+    !(Number.isFinite(contextLength) && Number.isFinite(reserveTokens)) ||
+    contextLength <= 0
+  ) {
+    return FALLBACK_SPECULATIVE_RATIO;
+  }
+
+  // Normalize reserveTokens: clamp to [0, contextLength - 1]
+  const normalizedReserve = Math.max(
+    0,
+    Math.min(reserveTokens, contextLength - 1)
+  );
+
+  const ratio =
+    (contextLength - normalizedReserve - SPECULATIVE_BUFFER_TOKENS) /
+    contextLength;
+
+  // Final clamp: ratio must satisfy floor(ctx * ratio) < (ctx - reserve).
+  // -1 ensures strict inequality; applied AFTER min/max to override MIN_SPECULATIVE_RATIO.
+  const hardThresholdRatio =
+    (contextLength - normalizedReserve - 1) / contextLength;
+
+  const clamped = Math.max(
+    MIN_SPECULATIVE_RATIO,
+    Math.min(MAX_SPECULATIVE_RATIO, ratio)
+  );
+
+  return Math.min(clamped, hardThresholdRatio);
+}
+
 /**
  * Extract text content from a message for token estimation.
  */
@@ -324,6 +374,9 @@ export interface CompactionConfig {
    *
    * If omitted or invalid, the fallback heuristic is used:
    * `maxTokens - 2 * reserveTokens`.
+   *
+   * For sub-8k contexts, omit this field and let the fallback heuristic
+   * handle it. See {@link computeSpeculativeStartRatio} for details.
    */
   speculativeStartRatio?: number;
 
