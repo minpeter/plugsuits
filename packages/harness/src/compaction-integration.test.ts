@@ -683,6 +683,115 @@ describe("compaction integration with model-specific configs", () => {
     });
   });
 
+  describe("aggressive compaction mode", () => {
+    const aggressiveConfig = {
+      enabled: true,
+      maxTokens: 1000,
+      reserveTokens: 100,
+      keepRecentTokens: 220,
+    } as const;
+
+    it("compact({aggressive: true}) with 10 message pairs compacts all messages", async () => {
+      const history = createHistoryManual(aggressiveConfig);
+
+      for (let i = 0; i < 10; i++) {
+        history.addUserMessage(`u_${i}_${makeContent(80)}`);
+        history.addModelMessages([
+          { role: "assistant", content: `a_${i}_${makeContent(80)}` },
+        ]);
+      }
+      enableCompaction(history, aggressiveConfig);
+
+      const compacted = await history.compact({
+        aggressive: true,
+        summarizeFn: async () => "Aggressive all summary",
+      });
+
+      expect(compacted).toBe(true);
+      expect(history.getAll()).toHaveLength(0);
+      expect(history.getSummaries()).toHaveLength(1);
+      expect(history.getSummaries()[0].firstKeptMessageId).toBe("end");
+      expect(history.getSummaries()[0].id).toMatch(SUMMARY_ID_REGEX);
+    });
+
+    it("aggressive mode summarizes trailing tool_call/tool_result too", async () => {
+      const history = createHistoryManual(aggressiveConfig);
+      history.addUserMessage(`lead_${makeContent(120)}`);
+      history.addModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_aggressive_end",
+              toolName: "read_file",
+              input: { path: "tail.ts" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_aggressive_end",
+              toolName: "read_file",
+              output: { type: "text", value: makeContent(100) },
+            },
+          ],
+        },
+      ]);
+      enableCompaction(history, aggressiveConfig);
+
+      const compacted = await history.compact({
+        aggressive: true,
+        summarizeFn: async () => "Aggressive tool pair summary",
+      });
+
+      expect(compacted).toBe(true);
+      expect(history.getAll()).toHaveLength(0);
+      expect(history.getSummaries()).toHaveLength(1);
+      expect(history.getSummaries()[0].firstKeptMessageId).toBe("end");
+    });
+
+    it("aggressive mode with one message returns false", async () => {
+      const history = createHistoryManual(aggressiveConfig);
+      history.addUserMessage(`solo_${makeContent(120)}`);
+      enableCompaction(history, aggressiveConfig);
+
+      const compacted = await history.compact({
+        aggressive: true,
+        summarizeFn: async () => "should not run",
+      });
+
+      expect(compacted).toBe(false);
+      expect(history.getSummaries()).toHaveLength(0);
+      expect(history.getAll()).toHaveLength(1);
+    });
+
+    it("aggressive rejected when summary is larger and sets lastCompactionRejected", async () => {
+      const history = createHistoryManual(aggressiveConfig);
+      for (let i = 0; i < 10; i++) {
+        history.addUserMessage(`u_${i}_${makeContent(80)}`);
+        history.addModelMessages([
+          { role: "assistant", content: `a_${i}_${makeContent(80)}` },
+        ]);
+      }
+      enableCompaction(history, aggressiveConfig);
+      const before = history.getAll();
+
+      const compacted = await history.compact({
+        aggressive: true,
+        summarizeFn: async () => makeContent(4000),
+      });
+
+      expect(compacted).toBe(false);
+      expect(history.lastCompactionRejected).toBe(true);
+      expect(history.getAll()).toEqual(before);
+      expect(history.getSummaries()).toHaveLength(0);
+    });
+  });
+
   describe("non-blocking compaction integration", () => {
     it("messages survive during in-flight compaction", async () => {
       const history = new MessageHistory({

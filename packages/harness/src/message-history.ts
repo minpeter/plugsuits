@@ -386,6 +386,7 @@ interface CompactionCheckOptions {
 type SummaryDeltaCallback = (delta: string) => void | Promise<void>;
 
 type CompactOptions = CompactionCheckOptions & {
+  aggressive?: boolean;
   allowPruning?: boolean;
   onSummaryDelta?: SummaryDeltaCallback;
   summarizeFn?: (
@@ -1115,7 +1116,8 @@ export class MessageHistory {
 
     const compacted = await this.performCompaction(
       options?.summarizeFn,
-      options?.onSummaryDelta
+      options?.onSummaryDelta,
+      options?.aggressive ?? false
     );
     return pruned || compacted;
   }
@@ -1251,13 +1253,67 @@ export class MessageHistory {
     return true;
   }
 
+  private calculateCompactionSplitIndex(aggressive: boolean): number | null {
+    return aggressive
+      ? this.calculateAggressiveCompactionSplitIndex()
+      : this.calculateDefaultCompactionSplitIndex();
+  }
+
+  private calculateDefaultCompactionSplitIndex(): number | null {
+    const keepRecentTokens =
+      this.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT;
+
+    let keptTokens = 0;
+    let splitIndex = this.messages.length;
+
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const msgTokens = estimateTokens(
+        extractMessageText(this.messages[i].modelMessage)
+      );
+
+      if (keptTokens + msgTokens > keepRecentTokens) {
+        splitIndex = i + 1;
+        break;
+      }
+
+      keptTokens += msgTokens;
+
+      if (i === 0) {
+        splitIndex = 0;
+      }
+    }
+
+    if (splitIndex === 0) {
+      if (this.messages.length <= 1) {
+        return null;
+      }
+      splitIndex = Math.max(1, Math.floor(this.messages.length / 2));
+    }
+
+    if (splitIndex >= this.messages.length) {
+      return null;
+    }
+
+    splitIndex = adjustSplitIndexForToolPairs(this.messages, splitIndex);
+    if (splitIndex >= this.messages.length || splitIndex <= 0) {
+      return null;
+    }
+
+    return splitIndex;
+  }
+
+  private calculateAggressiveCompactionSplitIndex(): number | null {
+    return this.messages.length > 1 ? this.messages.length : null;
+  }
+
   private async performCompaction(
     summarizeFnOverride?: (
       messages: ModelMessage[],
       previousSummary?: string,
       onSummaryDelta?: SummaryDeltaCallback
     ) => Promise<string>,
-    onSummaryDelta?: SummaryDeltaCallback
+    onSummaryDelta?: SummaryDeltaCallback,
+    aggressive = false
   ): Promise<boolean> {
     this._lastCompactionRejected = false;
 
@@ -1268,60 +1324,15 @@ export class MessageHistory {
     this.compactionInProgress = true;
 
     try {
-      // Calculate tokens from the end to find what to keep
-      const keepRecentTokens =
-        this.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT;
-
-      let keptTokens = 0;
-      let splitIndex = this.messages.length;
-
-      // Walk backwards to find where to split
-      for (let i = this.messages.length - 1; i >= 0; i--) {
-        const msgTokens = estimateTokens(
-          extractMessageText(this.messages[i].modelMessage)
-        );
-
-        if (keptTokens + msgTokens > keepRecentTokens) {
-          splitIndex = i + 1;
-          break;
-        }
-
-        keptTokens += msgTokens;
-
-        if (i === 0) {
-          splitIndex = 0;
-        }
-      }
-
-      // Edge case: all messages fit in keepRecentTokens
-      if (splitIndex === 0) {
-        // Don't force splitIndex to 1 blindly.
-        // If we have only 1 message, there's nothing to summarize.
-        if (this.messages.length <= 1) {
-          return false;
-        }
-        // Need to summarize at least something — find a reasonable split
-        // Summarize the first half
-        splitIndex = Math.max(1, Math.floor(this.messages.length / 2));
-      }
-
-      // If all messages would be kept, nothing to compact
-      if (splitIndex >= this.messages.length) {
-        return false;
-      }
-
-      // Adjust split index to preserve tool-call/tool-result pairs
-      splitIndex = adjustSplitIndexForToolPairs(this.messages, splitIndex);
-
-      // Re-check after adjustment
-      if (splitIndex >= this.messages.length || splitIndex <= 0) {
+      const splitIndex = this.calculateCompactionSplitIndex(aggressive);
+      if (splitIndex === null) {
         return false;
       }
 
       // Messages to summarize (before splitIndex)
       const messagesToSummarize = this.messages.slice(0, splitIndex);
       // Messages to keep as-is (splitIndex onwards)
-      const messagesToKeep = this.messages.slice(splitIndex);
+      const messagesToKeep = aggressive ? [] : this.messages.slice(splitIndex);
 
       if (messagesToSummarize.length === 0) {
         return false;
@@ -1329,7 +1340,9 @@ export class MessageHistory {
 
       // Get the first kept message ID
       const firstKeptMessageId =
-        messagesToKeep.length > 0 ? messagesToKeep[0].id : "end";
+        aggressive || messagesToKeep.length === 0
+          ? "end"
+          : messagesToKeep[0].id;
 
       // Combine existing summaries into previousSummary for iterative compaction
       // The iterative compaction invariant guarantees at most one summary entry.
