@@ -37,7 +37,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
     "@changesets/cli": "^2.30.0",
-    "turbo": "^2.8.15",
+    "turbo": "^2.8.16",
     "ultracite": "^7.2.5"
   }
 }
