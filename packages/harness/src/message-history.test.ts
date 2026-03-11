@@ -1452,6 +1452,35 @@ describe("MessageHistory PreparedCompaction config tracking", () => {
     expect(result).toEqual({ applied: false, reason: "stale" });
   });
 
+  it("applyPreparedCompaction rejects stale compaction when keepRecentTokens changes", async () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 1000,
+        keepRecentTokens: 100,
+        reserveTokens: 100,
+        summarizeFn: async () => "summary",
+      },
+    });
+    history.setContextLimit(1000);
+
+    for (let i = 0; i < 5; i++) {
+      history.addUserMessage(`msg_${i}_${"x".repeat(100)}`);
+    }
+
+    const prepared = await history.prepareSpeculativeCompaction({
+      phase: "new-turn",
+    });
+    expect(prepared).not.toBeNull();
+
+    // Change keepRecentTokens — prepared compaction used old value
+    history.updateCompaction({ keepRecentTokens: 500 });
+
+    // biome-ignore lint/style/noNonNullAssertion: asserted non-null above
+    const result = history.applyPreparedCompaction(prepared!);
+    expect(result).toEqual({ applied: false, reason: "stale" });
+  });
+
   it("applyPreparedCompaction applies successfully when no config changes", async () => {
     const history = new MessageHistory({
       compaction: {

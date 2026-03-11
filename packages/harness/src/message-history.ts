@@ -276,6 +276,7 @@ export interface PreparedCompaction {
   compactionMaxTokensAtCreation: number;
   contextLimitAtCreation: number;
   didChange: boolean;
+  keepRecentTokensAtCreation: number;
   messages: Message[];
   pendingCompaction: boolean;
   phase: "intermediate-step" | "new-turn";
@@ -882,6 +883,7 @@ export class MessageHistory {
     const contextLimitAtCreation = this.getContextLimit();
     const compactionMaxTokensAtCreation =
       this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
+    const keepRecentTokensAtCreation = this.compaction.keepRecentTokens ?? 0;
     const clone = this.cloneForSpeculativeCompaction();
     const allowPruning =
       options?.allowPruning ?? options?.phase !== "intermediate-step";
@@ -901,6 +903,7 @@ export class MessageHistory {
       compactionMaxTokensAtCreation,
       contextLimitAtCreation,
       didChange: clone.revision !== baseRevision,
+      keepRecentTokensAtCreation,
       messages: clone.messages.map(cloneMessage),
       pendingCompaction: clone.pendingCompaction,
       phase: options?.phase ?? "new-turn",
@@ -915,7 +918,9 @@ export class MessageHistory {
     if (
       prepared.contextLimitAtCreation !== this.getContextLimit() ||
       prepared.compactionMaxTokensAtCreation !==
-        (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS)
+        (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS) ||
+      prepared.keepRecentTokensAtCreation !==
+        (this.compaction.keepRecentTokens ?? 0)
     ) {
       return { applied: false, reason: "stale" };
     }
