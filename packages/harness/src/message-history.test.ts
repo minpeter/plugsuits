@@ -1029,7 +1029,7 @@ describe("MessageHistory smart compaction with actual usage", () => {
     expect(history.getContextUsage()?.source).toBe("estimated");
   });
 
-  it("invalidates stale actual usage after compaction", async () => {
+  it("adjusts actual usage downward after compaction", async () => {
     const history = new MessageHistory({
       compaction: {
         enabled: true,
@@ -1050,7 +1050,10 @@ describe("MessageHistory smart compaction with actual usage", () => {
 
     await history.compact();
 
-    expect(history.getActualUsage()).toBeNull();
+    const usage = history.getActualUsage();
+    expect(usage).not.toBeNull();
+    expect(usage!.totalTokens).toBeLessThan(95);
+    expect(usage!.totalTokens).toBeGreaterThanOrEqual(0);
     expect(history.needsCompaction()).toBe(false);
     expect(history.getSummaries()).toHaveLength(1);
   });
