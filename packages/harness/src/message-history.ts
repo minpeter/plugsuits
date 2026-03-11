@@ -281,6 +281,7 @@ export interface PreparedCompaction {
   pendingCompaction: boolean;
   phase: "intermediate-step" | "new-turn";
   summaries: CompactionSummary[];
+  tokenDelta: number;
 }
 
 /**
@@ -622,6 +623,7 @@ export class MessageHistory {
   private readonly compaction: CompactionConfig;
   private readonly pruning: PruningConfig;
   private summaries: CompactionSummary[] = [];
+  private _lastCompactionRejected = false;
   private compactionInProgress = false;
   private pendingCompaction = false;
   private actualUsage: ActualTokenUsage | null = null;
@@ -664,6 +666,10 @@ export class MessageHistory {
 
   getSummaries(): CompactionSummary[] {
     return [...this.summaries];
+  }
+
+  get lastCompactionRejected(): boolean {
+    return this._lastCompactionRejected;
   }
 
   clear(): void {
@@ -713,6 +719,20 @@ export class MessageHistory {
 
   private invalidateActualUsage(): void {
     this.actualUsage = null;
+  }
+
+  private adjustActualUsageAfterReduction(estimatedTokensSaved: number): void {
+    if (!this.actualUsage || estimatedTokensSaved <= 0) {
+      return;
+    }
+    this.actualUsage = {
+      ...this.actualUsage,
+      totalTokens: Math.max(
+        0,
+        this.actualUsage.totalTokens - estimatedTokensSaved
+      ),
+      updatedAt: new Date(),
+    };
   }
 
   private touch(): void {
@@ -885,6 +905,7 @@ export class MessageHistory {
       this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
     const keepRecentTokensAtCreation = this.compaction.keepRecentTokens ?? 0;
     const clone = this.cloneForSpeculativeCompaction();
+    const preCompactionTokens = clone.actualUsage?.totalTokens ?? 0;
     const allowPruning =
       options?.allowPruning ?? options?.phase !== "intermediate-step";
     await clone.compact({
@@ -894,6 +915,7 @@ export class MessageHistory {
       phase: options?.phase,
     });
     clone.setPendingCompaction(false);
+    const postCompactionTokens = clone.actualUsage?.totalTokens ?? 0;
 
     return {
       actualUsage: cloneActualUsage(clone.actualUsage),
@@ -908,6 +930,7 @@ export class MessageHistory {
       pendingCompaction: clone.pendingCompaction,
       phase: options?.phase ?? "new-turn",
       summaries: clone.summaries.map(cloneCompactionSummary),
+      tokenDelta: Math.max(0, preCompactionTokens - postCompactionTokens),
     };
   }
 
@@ -961,7 +984,7 @@ export class MessageHistory {
     this.summaries = prepared.summaries.map(cloneCompactionSummary);
     this.pendingCompaction =
       appendedMessages.length > 0 ? true : prepared.pendingCompaction;
-    this.actualUsage = cloneActualUsage(prepared.actualUsage);
+    this.adjustActualUsageAfterReduction(prepared.tokenDelta);
     this.touch();
 
     return { applied: true, reason: "applied" };
@@ -1216,7 +1239,7 @@ export class MessageHistory {
       }
     }
 
-    this.invalidateActualUsage();
+    this.adjustActualUsageAfterReduction(result.prunedTokens);
     this.touch();
 
     return true;
@@ -1230,6 +1253,8 @@ export class MessageHistory {
     ) => Promise<string>,
     onSummaryDelta?: SummaryDeltaCallback
   ): Promise<boolean> {
+    this._lastCompactionRejected = false;
+
     if (this.messages.length === 0) {
       return false;
     }
@@ -1345,12 +1370,22 @@ export class MessageHistory {
         summaryTokens,
       };
 
+      const totalTokensReplaced =
+        summaryEntry.tokensBefore +
+        this.summaries.reduce((sum, s) => sum + s.summaryTokens, 0);
+      if (summaryEntry.summaryTokens >= totalTokensReplaced) {
+        this._lastCompactionRejected = true;
+        return false;
+      }
+
       // Replace all previous summaries with the new one (iterative compaction)
       // The new summary already incorporates previous context via previousSummary parameter
       this.summaries = [summaryEntry];
       this.messages = messagesToKeep;
       this.ensureNoOrphanedToolResults();
-      this.invalidateActualUsage();
+      this.adjustActualUsageAfterReduction(
+        summaryEntry.tokensBefore - summaryEntry.summaryTokens
+      );
       this.touch();
 
       return true;

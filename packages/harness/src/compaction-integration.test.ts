@@ -465,8 +465,8 @@ describe("compaction integration with model-specific configs", () => {
       });
 
       // First compaction
-      for (let i = 0; i < 5; i++) {
-        history.addUserMessage(`First batch message ${i}: ${"a".repeat(300)}`);
+      for (let i = 0; i < 12; i++) {
+        history.addUserMessage(`First batch message ${i}: ${"a".repeat(360)}`);
       }
       await history.compact();
 
@@ -474,8 +474,8 @@ describe("compaction integration with model-specific configs", () => {
       expect(firstSummary).toContain("Previous conversation summary:");
 
       // Second compaction — should include previous context
-      for (let i = 0; i < 5; i++) {
-        history.addUserMessage(`Second batch message ${i}: ${"b".repeat(300)}`);
+      for (let i = 0; i < 12; i++) {
+        history.addUserMessage(`Second batch message ${i}: ${"b".repeat(360)}`);
       }
       await history.compact();
 
@@ -515,6 +515,171 @@ describe("compaction integration with model-specific configs", () => {
       const result2 = await history.compact();
       expect(result2).toBe(true);
       expect(history.getSummaries()).toHaveLength(1);
+    });
+  });
+
+  describe("compaction rejection when summary is not smaller", () => {
+    const rejectionConfig = {
+      enabled: true,
+      maxTokens: 1000,
+      reserveTokens: 100,
+      keepRecentTokens: 220,
+    } as const;
+
+    it("rejects when summarizeFn returns larger summary", async () => {
+      const history = createHistoryManual(rejectionConfig);
+      history.addUserMessage(`old_1_${makeContent(120)}`);
+      history.addUserMessage(`old_2_${makeContent(120)}`);
+      history.addUserMessage(`keep_${makeContent(60)}`);
+      enableCompaction(history, rejectionConfig);
+
+      const before = history.getAll();
+      const compacted = await history.compact({
+        summarizeFn: async () => makeContent(500),
+      });
+
+      expect(compacted).toBe(false);
+      expect(history.getAll()).toEqual(before);
+      expect(history.lastCompactionRejected).toBe(true);
+      expect(history.getSummaries()).toHaveLength(0);
+    });
+
+    it("rejects when summarizeFn returns equal-size summary (inclusive >=)", async () => {
+      const history = createHistoryManual(rejectionConfig);
+      history.addUserMessage(`old_1_${makeContent(100)}`);
+      history.addUserMessage(`old_2_${makeContent(100)}`);
+      history.addUserMessage(`keep_${makeContent(60)}`);
+      enableCompaction(history, rejectionConfig);
+
+      const compacted = await history.compact({
+        summarizeFn: async () => makeContent(200),
+      });
+
+      expect(compacted).toBe(false);
+      expect(history.lastCompactionRejected).toBe(true);
+      expect(history.getSummaries()).toHaveLength(0);
+    });
+
+    it("allows compaction when summarizeFn returns smaller summary", async () => {
+      const history = createHistoryManual(rejectionConfig);
+      history.addUserMessage(`old_1_${makeContent(120)}`);
+      history.addUserMessage(`old_2_${makeContent(120)}`);
+      history.addUserMessage(`keep_${makeContent(60)}`);
+      enableCompaction(history, rejectionConfig);
+
+      const compacted = await history.compact({
+        summarizeFn: async () => makeContent(80),
+      });
+
+      expect(compacted).toBe(true);
+      expect(history.lastCompactionRejected).toBe(false);
+      expect(history.getSummaries()).toHaveLength(1);
+    });
+
+    it("iterative compaction accepts when new summary is smaller than old summary + replaced messages", async () => {
+      const history = createHistoryManual(rejectionConfig);
+
+      history.addUserMessage(`seed_1_${makeContent(300)}`);
+      history.addUserMessage(`seed_2_${makeContent(300)}`);
+      history.addUserMessage(`seed_keep_${makeContent(80)}`);
+      enableCompaction(history, rejectionConfig);
+
+      const first = await history.compact({
+        summarizeFn: async () => makeContent(500),
+      });
+      expect(first).toBe(true);
+      expect(history.lastCompactionRejected).toBe(false);
+      expect(history.getSummaries()).toHaveLength(1);
+
+      history.addUserMessage(`iter_1_${makeContent(300)}`);
+      history.addUserMessage(`iter_keep_${makeContent(80)}`);
+
+      const second = await history.compact({
+        summarizeFn: async () => makeContent(400),
+      });
+
+      expect(second).toBe(true);
+      expect(history.lastCompactionRejected).toBe(false);
+      expect(history.getSummaries()).toHaveLength(1);
+      expect(history.getSummaries()[0].summaryTokens).toBe(400);
+    });
+
+    it("iterative compaction rejects when new summary is >= old summary + replaced messages", async () => {
+      const history = createHistoryManual(rejectionConfig);
+
+      history.addUserMessage(`seed_1_${makeContent(300)}`);
+      history.addUserMessage(`seed_2_${makeContent(300)}`);
+      history.addUserMessage(`seed_keep_${makeContent(80)}`);
+      enableCompaction(history, rejectionConfig);
+
+      const first = await history.compact({
+        summarizeFn: async () => makeContent(500),
+      });
+      expect(first).toBe(true);
+      expect(history.getSummaries()).toHaveLength(1);
+
+      history.addUserMessage(`iter_1_${makeContent(300)}`);
+      history.addUserMessage(`iter_keep_${makeContent(80)}`);
+
+      const second = await history.compact({
+        summarizeFn: async () => makeContent(900),
+      });
+
+      expect(second).toBe(false);
+      expect(history.lastCompactionRejected).toBe(true);
+      expect(history.getSummaries()).toHaveLength(1);
+      expect(history.getSummaries()[0].summaryTokens).toBe(500);
+    });
+
+    it("returns true when pruning succeeds even if compaction is rejected", async () => {
+      const history = new MessageHistory({
+        compaction: {
+          enabled: true,
+          maxTokens: 220,
+          reserveTokens: 20,
+          keepRecentTokens: 200,
+        },
+        pruning: {
+          enabled: true,
+          protectRecentTokens: 40,
+          minSavingsTokens: 20,
+        },
+      });
+
+      history.addUserMessage(`context_a_${makeContent(160)}`);
+      history.addModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_reject_after_prune",
+              toolName: "read_file",
+              input: { path: "big.txt" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_reject_after_prune",
+              toolName: "read_file",
+              output: { type: "text", value: makeContent(400) },
+            },
+          ],
+        },
+      ]);
+      history.addUserMessage(`context_b_${makeContent(140)}`);
+      history.addUserMessage(`tail_${makeContent(80)}`);
+
+      const result = await history.compact({
+        summarizeFn: async () => makeContent(2000),
+      });
+
+      expect(result).toBe(true);
+      expect(history.lastCompactionRejected).toBe(true);
     });
   });
 
