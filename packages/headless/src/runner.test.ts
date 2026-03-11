@@ -364,6 +364,7 @@ describe("runHeadless", () => {
           streamCallCount >= 1 && !compactionApplied && prepareCallCount < 2
         );
       },
+      // biome-ignore lint/suspicious/noEmptyBlockStatements: mock stub
       updateActualUsage() {},
     } as unknown as MessageHistory;
 
@@ -389,13 +390,16 @@ describe("runHeadless", () => {
       },
       messageHistory: history,
       modelId: "mock-model",
-      onTodoReminder: async () => {
+      onTodoReminder: () => {
         if (streamCallCount === 1) {
           hardLimitActive = true;
-          return { hasReminder: true, message: "x".repeat(500) };
+          return Promise.resolve({
+            hasReminder: true,
+            message: "x".repeat(500),
+          });
         }
 
-        return { hasReminder: false, message: null };
+        return Promise.resolve({ hasReminder: false, message: null });
       },
       sessionId: "session-stale-refire",
     });

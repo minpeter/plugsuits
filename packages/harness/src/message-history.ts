@@ -1182,6 +1182,7 @@ export class MessageHistory {
    * inline compaction. Compaction is now handled separately via
    * prepareSpeculativeCompaction() and applyPreparedCompaction().
    */
+  // biome-ignore lint/suspicious/useAwait: deprecated method kept async for backward compatibility
   async getMessagesForLLMAsync(
     _options?: MessagePreparationOptions
   ): Promise<ModelMessage[]> {

@@ -423,6 +423,7 @@ export function applyReadySpeculativeCompactionCore(params: {
   return { applied, stale };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: hard-limit blocking requires multiple retry branches
 export async function blockAtHardContextLimitCore(params: {
   additionalTokens: number;
   applyPreparedCompaction: (prepared: PreparedCompaction) => {

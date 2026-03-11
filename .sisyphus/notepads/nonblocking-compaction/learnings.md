@@ -71,3 +71,5 @@
 - Updated the legacy-named compaction test away from `getMessagesForLLMAsync()` wording to explicit prepare/apply flow to reflect neutered async behavior.
 - Found and fixed a real snapshot race bug: `prepareSpeculativeCompaction()` now captures `baseMessageIds`, `baseSummaryIds`, `contextLimitAtCreation`, and `compactionMaxTokensAtCreation` BEFORE async compaction work; this prevents falsely accepting snapshots that were created before tail appends.
 - Verification: source suite `683 pass / 0 fail`, harness suite `158 pass / 0 fail`, targeted integration suite `24 pass / 0 fail`, typecheck `5/5` packages successful.
+
+- 2026-03-11 audit: nonblocking-compaction plan verified against work/harness-cea-decoupling. Must Have 9/9 satisfied, Must NOT Have 7/7 satisfied, evidence files present 12/12, and no forbidden loop/compact/headless type diffs were introduced by this task set.

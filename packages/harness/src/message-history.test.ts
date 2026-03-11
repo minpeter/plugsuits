@@ -665,6 +665,7 @@ describe("MessageHistory compaction", () => {
       phase: "intermediate-step",
     });
     expect(prepared).not.toBeNull();
+    // biome-ignore lint/style/noNonNullAssertion: asserted non-null above
     history.applyPreparedCompaction(prepared!);
 
     expect(history.getSummaries()).toHaveLength(1);
@@ -1385,7 +1386,9 @@ describe("MessageHistory PreparedCompaction config tracking", () => {
       phase: "new-turn",
     });
     expect(prepared).not.toBeNull();
+    // biome-ignore lint/style/noNonNullAssertion: asserted non-null above
     expect(prepared!.contextLimitAtCreation).toBe(800);
+    // biome-ignore lint/style/noNonNullAssertion: asserted non-null above
     expect(prepared!.compactionMaxTokensAtCreation).toBe(1000);
   });
 
@@ -1479,6 +1482,7 @@ describe("MessageHistory PreparedCompaction config tracking", () => {
 
   it("getMessagesForLLMAsync does not call summarizeFn (neutered)", async () => {
     let callCount = 0;
+    // biome-ignore lint/suspicious/useAwait: must return Promise<string> per API contract
     const summarizeFn = async () => {
       callCount++;
       return "summary";

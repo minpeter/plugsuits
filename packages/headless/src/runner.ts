@@ -94,20 +94,18 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const blockAtHardContextLimit = async (
     additionalTokens: number,
     phase: "new-turn" | "intermediate-step"
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: hard-limit blocking logic requires multiple retry branches
   ): Promise<void> => {
     if (
-      !config.messageHistory.isAtHardContextLimit(additionalTokens, {
-        phase,
-      })
+      !config.messageHistory.isAtHardContextLimit(additionalTokens, { phase })
     ) {
       return;
     }
 
+    // Maximum 2 blocking attempts to avoid infinite loops
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (
-        !config.messageHistory.isAtHardContextLimit(additionalTokens, {
-          phase,
-        })
+        !config.messageHistory.isAtHardContextLimit(additionalTokens, { phase })
       ) {
         return;
       }
@@ -116,6 +114,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       if (runningJob) {
         await runningJob.promise;
       } else {
+        // No running job — prepare and apply directly
         const prepared =
           await config.messageHistory.prepareSpeculativeCompaction({
             phase: "new-turn",
@@ -125,15 +124,15 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           const result =
             config.messageHistory.applyPreparedCompaction(prepared);
           if (result.reason === "stale" && attempt === 0) {
+            // Stale on direct apply — start a fresh speculative job and retry
             startSpeculativeCompaction();
             continue;
           }
         }
       }
 
-      const readyResult = applyReadySpeculativeCompaction();
-      if (readyResult.stale && attempt === 0) {
-      }
+      // Apply any completed speculative job (handles stale via re-fire inside)
+      applyReadySpeculativeCompaction();
     }
 
     if (

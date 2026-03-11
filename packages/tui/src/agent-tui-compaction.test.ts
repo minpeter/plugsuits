@@ -41,9 +41,9 @@ describe("agent-tui compaction core", () => {
       phase: "new-turn",
       isAtHardContextLimit: () => false,
       getLatestRunningSpeculativeCompaction: () => null,
-      prepareSpeculativeCompaction: async () => {
+      prepareSpeculativeCompaction: () => {
         prepareCalls += 1;
-        return null;
+        return Promise.resolve(null);
       },
       applyPreparedCompaction: () => ({ applied: false, reason: "noop" }),
       applyReadySpeculativeCompaction: () => {
@@ -79,7 +79,7 @@ describe("agent-tui compaction core", () => {
       phase: "intermediate-step",
       isAtHardContextLimit: () => atHardLimit,
       getLatestRunningSpeculativeCompaction: () => runningJob,
-      prepareSpeculativeCompaction: async () => {
+      prepareSpeculativeCompaction: () => {
         throw new Error("should wait existing running job first");
       },
       applyPreparedCompaction: () => ({ applied: true, reason: "applied" }),

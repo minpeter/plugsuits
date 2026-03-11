@@ -33,12 +33,12 @@ const SUMMARY_ID_REGEX = /^summary_/;
 // ─── Helpers ───
 
 const CHARS_PER_TOKEN = 4;
-type CompactionPreset = {
+interface CompactionPreset {
   enabled: true;
   keepRecentTokens: number;
   maxTokens: number;
   reserveTokens: number;
-};
+}
 
 /** Create a message string of approximately `tokenCount` tokens (Latin text). */
 function makeContent(tokenCount: number): string {
@@ -114,7 +114,9 @@ describe("compaction integration with model-specific configs", () => {
         phase: "new-turn",
       });
       expect(prepared).not.toBeNull();
-      history.applyPreparedCompaction(prepared!);
+      if (prepared) {
+        history.applyPreparedCompaction(prepared);
+      }
 
       // Should have compacted and prepended system summary
       expect(history.getSummaries().length).toBeGreaterThanOrEqual(1);
@@ -149,6 +151,7 @@ describe("compaction integration with model-specific configs", () => {
       expect(remaining.length).toBeLessThanOrEqual(3);
 
       // Last remaining must be the most recent message
+      // biome-ignore lint/style/useAtIndex: Array.at() not available in this TypeScript target
       const lastRemaining = remainingContents[remainingContents.length - 1];
       expect(lastRemaining).toContain("msg_9_");
     });
@@ -364,6 +367,7 @@ describe("compaction integration with model-specific configs", () => {
       let receivedPreviousSummary: string | undefined;
       let callCount = 0;
 
+      // biome-ignore lint/suspicious/useAwait: summarizeFn must return Promise<string> per API contract
       const customSummarizeFn = async (
         _messages: unknown[],
         previousSummary?: string
@@ -415,6 +419,7 @@ describe("compaction integration with model-specific configs", () => {
 
     it("merges multiple summaries into one after compaction", async () => {
       let callCount = 0;
+      // biome-ignore lint/suspicious/useAwait: summarizeFn must return Promise<string> per API contract
       const customSummarizeFn = async (
         _messages: unknown[],
         _previousSummary?: string
@@ -481,6 +486,7 @@ describe("compaction integration with model-specific configs", () => {
 
     it("backwards compatible — summarizeFn without previousSummary still works", async () => {
       // Simulate a user who defined summarizeFn with only 1 parameter
+      // biome-ignore lint/suspicious/useAwait: summarizeFn must return Promise<string> per API contract
       const oldStyleSummarizeFn = async (messages: unknown[]) => {
         return `Old-style summary of ${messages.length} messages`;
       };
@@ -544,6 +550,7 @@ describe("compaction integration with model-specific configs", () => {
       const prepared = await preparePromise;
       expect(prepared).not.toBeNull();
 
+      // biome-ignore lint/style/noNonNullAssertion: prepared is asserted non-null above
       const applied = history.applyPreparedCompaction(prepared!);
       expect(applied).toEqual({ applied: true, reason: "applied" });
 
@@ -586,6 +593,7 @@ describe("compaction integration with model-specific configs", () => {
 
       history.setContextLimit(1200);
 
+      // biome-ignore lint/style/noNonNullAssertion: prepared is asserted non-null above
       const result = history.applyPreparedCompaction(prepared!);
       expect(result).toEqual({ applied: false, reason: "stale" });
     });
@@ -637,6 +645,7 @@ describe("compaction integration with model-specific configs", () => {
       const prepared = await preparePromise;
       expect(prepared).not.toBeNull();
 
+      // biome-ignore lint/style/noNonNullAssertion: prepared is asserted non-null above
       const result = history.applyPreparedCompaction(prepared!);
       expect(result).toEqual({ applied: true, reason: "applied" });
       expect(history.getSummaries().length).toBeGreaterThanOrEqual(1);
@@ -678,6 +687,7 @@ describe("compaction integration with model-specific configs", () => {
       });
       expect(prepared).not.toBeNull();
 
+      // biome-ignore lint/style/noNonNullAssertion: prepared is asserted non-null above
       const result = history.applyPreparedCompaction(prepared!);
       expect(result).toEqual({ applied: true, reason: "applied" });
       expect(history.getSummaries().length).toBeGreaterThanOrEqual(1);
@@ -719,6 +729,7 @@ describe("compaction integration with model-specific configs", () => {
       const secondJob = maybeStartSpeculativeJob();
       expect(secondJob).toBeNull();
 
+      // biome-ignore lint/style/noNonNullAssertion: firstJob is asserted non-null above
       const prepared = await firstJob!;
       expect(prepared).not.toBeNull();
     });
