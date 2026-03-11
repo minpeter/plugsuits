@@ -772,11 +772,11 @@ const mainCommand = defineCommand({
       searchInput.focused = true;
       searchInput.setValue(initialFilter);
 
-      const items: SelectItem[] = models.map((model) => {
+      const items: SelectItem[] = models.map((model, index) => {
         const isCurrent =
           model.id === currentModelId && model.provider === currentProvider;
         return {
-          value: model.id,
+          value: String(index),
           label: buildModelSelectorLabel(model, isCurrent),
           description: buildModelSelectorDescription(model),
         };
@@ -837,7 +837,8 @@ const mainCommand = defineCommand({
         };
 
         selectList.onSelect = (item) => {
-          finish(models.find((m) => m.id === item.value) ?? null);
+          const selectedIndex = Number.parseInt(item.value, 10);
+          finish(models[selectedIndex] ?? null);
         };
         selectList.onCancel = () => {
           finish(null);
