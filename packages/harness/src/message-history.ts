@@ -802,9 +802,10 @@ export class MessageHistory {
         this.systemPromptTokens + summaryTokens + messageTokens;
     }
 
-    const remaining = this.contextLimit - estimatedInputTokens;
+    const reserveTokens = this.getEffectiveReserveTokens();
+    const remaining = this.contextLimit - estimatedInputTokens - reserveTokens;
     const SAFETY_MARGIN = 0.85;
-    const MIN_OUTPUT = 32;
+    const MIN_OUTPUT = 0;
 
     return Math.max(MIN_OUTPUT, Math.floor(remaining * SAFETY_MARGIN));
   }

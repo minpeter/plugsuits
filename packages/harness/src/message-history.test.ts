@@ -1055,8 +1055,11 @@ describe("MessageHistory smart compaction with actual usage", () => {
 
     const usage = history.getActualUsage();
     expect(usage).not.toBeNull();
-    expect(usage!.totalTokens).toBeLessThan(95);
-    expect(usage!.totalTokens).toBeGreaterThanOrEqual(0);
+    if (!usage) {
+      throw new Error("Expected actual usage after compaction");
+    }
+    expect(usage.totalTokens).toBeLessThan(95);
+    expect(usage.totalTokens).toBeGreaterThanOrEqual(0);
     expect(history.needsCompaction()).toBe(false);
     expect(history.getSummaries()).toHaveLength(1);
   });
@@ -1189,10 +1192,12 @@ describe("MessageHistory speculative compaction", () => {
     });
     expect(history.getSummaries()).toHaveLength(1);
     expect(history.getSummaries()[0].summary).toBe("Prepared summary");
-    expect(history.getAll().at(-1)?.modelMessage).toEqual({
-      role: "assistant",
-      content: "new tail message",
-    });
+    expect(history.getAll()[history.getAll().length - 1]?.modelMessage).toEqual(
+      {
+        role: "assistant",
+        content: "new tail message",
+      }
+    );
   });
 
   it("predicts speculative compaction one turn early", () => {
@@ -1370,6 +1375,73 @@ describe("MessageHistory isAtHardContextLimit", () => {
 
     // Pruning-only mode: should still return true when at limit
     expect(history.isAtHardContextLimit()).toBe(true);
+  });
+});
+
+describe("MessageHistory getRecommendedMaxOutputTokens", () => {
+  it("subtracts reserve tokens from the output budget", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 20_480,
+        reserveTokens: 512,
+      },
+    });
+    history.setContextLimit(20_480);
+    history.setSystemPromptTokens(10_000);
+
+    const maxOutputTokens = history.getRecommendedMaxOutputTokens([
+      { role: "user", content: "x".repeat(10_000) },
+    ]);
+
+    expect(maxOutputTokens).toBe(6347);
+  });
+
+  it("returns zero when the estimated input plus reserve already exhausts the limit", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 20_480,
+        reserveTokens: 512,
+      },
+    });
+    history.setContextLimit(20_480);
+    history.setSystemPromptTokens(19_800);
+
+    const maxOutputTokens = history.getRecommendedMaxOutputTokens([
+      { role: "user", content: "x".repeat(1000) },
+    ]);
+
+    expect(maxOutputTokens).toBe(0);
+  });
+
+  it("returns a smaller budget when reserve tokens are configured", () => {
+    const withoutReserve = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 20_480,
+        reserveTokens: 0,
+      },
+    });
+    withoutReserve.setContextLimit(20_480);
+    withoutReserve.setSystemPromptTokens(4000);
+
+    const withReserve = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 20_480,
+        reserveTokens: 512,
+      },
+    });
+    withReserve.setContextLimit(20_480);
+    withReserve.setSystemPromptTokens(4000);
+
+    const messages = [{ role: "user" as const, content: "x".repeat(4000) }];
+
+    expect(withReserve.getRecommendedMaxOutputTokens(messages)).toBeLessThan(
+      withoutReserve.getRecommendedMaxOutputTokens(messages) ??
+        Number.POSITIVE_INFINITY
+    );
   });
 });
 
