@@ -105,10 +105,10 @@ const formatContextUsage = (
   >
 ): string => {
   if (contextUsage.source === "estimated" && contextUsage.used === 0) {
-    return `Context: ?/${formatTokens(contextUsage.limit)} (?)`;
+    return `?/${formatTokens(contextUsage.limit)} (?)`;
   }
 
-  return `Context: ${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%)`;
+  return `${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%)`;
 };
 
 const buildCurrentIndicatorLabel = (
