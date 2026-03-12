@@ -84,6 +84,12 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       return { applied: false, stale: false };
     }
 
+    if (result.reason === "applied") {
+      console.error(
+        "[compaction] Applied: context reduced, some older messages were summarized"
+      );
+    }
+
     return { applied: result.reason === "applied", stale: false };
   };
 
@@ -239,7 +245,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       config.messageHistory.isAtHardContextLimit(additionalTokens, { phase })
     ) {
       console.warn(
-        "[compaction] Hard limit still exceeded after 2 compaction attempts. Proceeding with current context."
+        "[compaction] Hard limit still exceeded after 2 compaction attempts — some context may be lost due to small context window. Proceeding with truncated context."
       );
     }
   };

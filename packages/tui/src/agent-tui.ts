@@ -688,15 +688,34 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     tui.requestRender();
   };
 
+  const buildCompactionDetail = (
+    saved: number,
+    after: string,
+    summarizedCount: number
+  ): string => {
+    if (saved <= 0) {
+      return "restructured";
+    }
+    let detail = `−${saved} tokens (now ${after})`;
+    if (summarizedCount > 0) {
+      detail += `, ${summarizedCount} messages summarized`;
+    }
+    return detail;
+  };
+
   const applyReadySpeculativeCompaction = (): {
     applied: boolean;
     stale: boolean;
   } => {
     let appliedTokenDelta = 0;
+    let baseMessageCount = 0;
+    let newMessageCount = 0;
     const result = applyReadySpeculativeCompactionCore({
       jobs: speculativeCompactionJobs,
       applyPreparedCompaction: (prepared) => {
         appliedTokenDelta = prepared.tokenDelta;
+        baseMessageCount = prepared.baseMessageIds.length;
+        newMessageCount = prepared.messages.length;
         return config.messageHistory.applyPreparedCompaction(prepared);
       },
       discardJob: discardSpeculativeCompactionJob,
@@ -711,8 +730,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       const saved = Math.abs(appliedTokenDelta);
       const usage = config.messageHistory.getContextUsage();
       const after = usage ? `${usage.used}` : "?";
-      const detail =
-        saved > 0 ? `−${saved} tokens (now ${after})` : "restructured";
+      const summarizedCount = baseMessageCount - newMessageCount;
+      const detail = buildCompactionDetail(saved, after, summarizedCount);
       addCompactionNotice(`↻ Compacted: ${detail}`);
       updateHeader();
       tui.requestRender();
@@ -747,6 +766,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     let lastAppliedDelta = 0;
     let didApply = false;
     let lastReason = "noop" as string;
+    let lastBaseMessageCount = 0;
+    let lastNewMessageCount = 0;
     await blockAtHardContextLimitCore({
       additionalTokens,
       phase,
@@ -759,6 +780,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         }),
       applyPreparedCompaction: (prepared) => {
         lastAppliedDelta = prepared.tokenDelta;
+        lastBaseMessageCount = prepared.baseMessageIds.length;
+        lastNewMessageCount = prepared.messages.length;
         const result = config.messageHistory.applyPreparedCompaction(prepared);
         lastReason = result.reason;
         if (result.reason === "applied") {
@@ -769,7 +792,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       applyReadySpeculativeCompaction,
       warnHardLimitStillExceeded: () => {
         addCompactionNotice(
-          "↻ Compaction: hard limit still exceeded after retries"
+          "↻ Compaction: context limit still tight after retries — older messages were condensed, some detail may be lost"
         );
       },
     });
@@ -780,8 +803,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         const saved = Math.abs(lastAppliedDelta);
         const usage = config.messageHistory.getContextUsage();
         const after = usage ? `${usage.used}` : "?";
-        const detail =
-          saved > 0 ? `−${saved} tokens (now ${after})` : "restructured";
+        const summarizedCount = lastBaseMessageCount - lastNewMessageCount;
+        const detail = buildCompactionDetail(saved, after, summarizedCount);
         addCompactionNotice(`↻ Compacted: ${detail}`);
       } else if (lastReason === "rejected") {
         addCompactionNotice("↻ Compaction skipped (no token reduction)");
