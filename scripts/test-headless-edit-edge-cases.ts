@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Comprehensive headless edit_file stress test: 25 edge cases
  *
@@ -6,13 +6,16 @@
  * Each runs via headless mode with its own demo file + prompt.
  *
  * Usage:
- *   bun run scripts/test-headless-edit-edge-cases.ts [-m <model>] [--provider <provider>]
+ *   node --import tsx scripts/test-headless-edit-edge-cases.ts [-m <model>] [--provider <provider>]
  */
 
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ── CLI arg passthrough ───────────────────────────────────────
 const extraArgs: string[] = [];
@@ -401,14 +404,14 @@ const TEST_CASES: TestCase[] = [
     prompt: [
       "Read path.cfg with read_file.",
       "Replace line 1 using edit_file with edits: [{ op: 'replace', pos: '<line1 anchor>', lines: ['path = \"C:\\\\Users\\\\admin\\\\file.txt\"'] }].",
-      'The file should contain a Windows-style path with backslashes: C:\\Users\\admin\\file.txt.',
+      "The file should contain a Windows-style path with backslashes: C:\\Users\\admin\\file.txt.",
     ].join(" "),
     validate: (content) => {
       const lines = content.replace(/\r/g, "").trimEnd().split("\n");
       const line1 = lines[0] ?? "";
       // Accept either single or double backslashes — both are valid model interpretations
-      const hasSingleBS = line1.includes('C:\\Users\\admin\\file.txt');
-      const hasDoubleBS = line1.includes('C:\\\\Users\\\\admin\\\\file.txt');
+      const hasSingleBS = line1.includes("C:\\Users\\admin\\file.txt");
+      const hasDoubleBS = line1.includes("C:\\\\Users\\\\admin\\\\file.txt");
       const hasPath = hasSingleBS || hasDoubleBS;
       const hasQuotes = line1.includes('"');
       if (hasPath && hasQuotes) {
@@ -457,7 +460,6 @@ const TEST_CASES: TestCase[] = [
       "Expected line 2 to be exactly 180 characters.",
     ].join(" "),
     validate: (content) => {
-      const expected = "L".repeat(180);
       const lines = content.replace(/\r/g, "").trimEnd().split("\n");
       if (!lines[1]) {
         return { passed: false, reason: "line 2 is missing" };
@@ -474,7 +476,10 @@ const TEST_CASES: TestCase[] = [
           reason: "line 2 content does not match expected repeated-L string",
         };
       }
-      return { passed: true, reason: `long line replaced (${lines[1].length} chars)` };
+      return {
+        passed: true,
+        reason: `long line replaced (${lines[1].length} chars)`,
+      };
     },
   },
   {
@@ -910,16 +915,18 @@ async function runTestCase(
   writeFileSync(testFile, tc.fileContent, "utf-8");
 
   const headlessScript = resolve(
-    import.meta.dir,
+    SCRIPT_DIR,
     "..",
     "packages",
     "cea",
     "src",
     "entrypoints",
-    "headless.ts"
+    "main.ts"
   );
   const headlessArgs = [
-    "run",
+    "--conditions=@ai-sdk-tool/source",
+    "--import",
+    "tsx",
     headlessScript,
     "-p",
     tc.prompt,
@@ -930,9 +937,9 @@ async function runTestCase(
   const startTime = Date.now();
 
   const output = await new Promise<string>((res, reject) => {
-    const proc = spawn("bun", headlessArgs, {
+    const proc = spawn("node", headlessArgs, {
       cwd: testDir,
-      env: { ...process.env, BUN_INSTALL: process.env.BUN_INSTALL },
+      env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

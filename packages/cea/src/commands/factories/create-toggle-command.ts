@@ -1,5 +1,5 @@
+import type { Command, CommandResult } from "@ai-sdk-tool/harness";
 import { colorize } from "../../interaction/colors";
-import type { Command, CommandResult } from "../types";
 
 interface ToggleCommandConfig {
   description: string;

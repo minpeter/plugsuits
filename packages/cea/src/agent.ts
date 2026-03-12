@@ -2,7 +2,9 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
   type CompactionConfig,
+  computeSpeculativeStartRatio,
   createAgent,
+  createModelSummarizer,
   type AgentStreamOptions as HarnessAgentStreamOptions,
   type AgentStreamResult as HarnessAgentStreamResult,
 } from "@ai-sdk-tool/harness";
@@ -52,7 +54,10 @@ const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
 
 type ProviderOptions = AiProviderOptions | undefined;
 
-export type AgentStreamOptions = Pick<HarnessAgentStreamOptions, "abortSignal">;
+export type AgentStreamOptions = Pick<
+  HarnessAgentStreamOptions,
+  "abortSignal" | "maxOutputTokens"
+>;
 export type AgentStreamResult = HarnessAgentStreamResult;
 
 export type ProviderType = "friendli" | "anthropic";
@@ -186,6 +191,21 @@ const getModelContextLength = (
   return model?.contextLength ?? DEFAULT_CONTEXT_LENGTH;
 };
 
+const getCompactionReserveTokens = (
+  modelId: string,
+  provider: ProviderType
+): number => {
+  if (provider === "anthropic") {
+    return getEffectiveMaxOutputTokens(modelId, provider);
+  }
+
+  const model = getFriendliModelById(modelId);
+  return (
+    model?.compactionReserveTokens ??
+    getEffectiveMaxOutputTokens(modelId, provider)
+  );
+};
+
 const getProviderOptions = (
   modelId: string,
   provider: ProviderType,
@@ -194,7 +214,7 @@ const getProviderOptions = (
   const thinkingEnabled = reasoningMode !== "off";
   const effectiveMaxTokens = getEffectiveMaxOutputTokens(modelId, provider);
 
-  const getAnthropicProviderOptions = () => {
+  const getAnthropicProviderOptions = (): ProviderOptions => {
     if (!thinkingEnabled) {
       return undefined;
     }
@@ -383,15 +403,27 @@ export class AgentManager {
     overrides?: Partial<CompactionConfig>
   ): CompactionConfig {
     const contextLength = getModelContextLength(this.modelId, this.provider);
-    const effectiveOutputTokens = getEffectiveMaxOutputTokens(
+    const compactionReserveTokens = getCompactionReserveTokens(
       this.modelId,
       this.provider
+    );
+    const summarizeFn = createModelSummarizer(
+      this.getProviderModel(this.modelId, this.provider),
+      {
+        instructions: () => this.getInstructions(),
+        contextLimit: contextLength,
+      }
     );
     return {
       enabled: true,
       maxTokens: contextLength,
-      reserveTokens: effectiveOutputTokens,
+      reserveTokens: compactionReserveTokens,
       keepRecentTokens: Math.floor(contextLength * 0.3),
+      speculativeStartRatio: computeSpeculativeStartRatio(
+        contextLength,
+        compactionReserveTokens
+      ),
+      summarizeFn,
       ...overrides,
     };
   }
@@ -532,7 +564,20 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     messages: ModelMessage[],
     options: AgentStreamOptions = {}
   ): Promise<AgentStreamResult> {
-    const { model, providerOptions, maxOutputTokens } = this.buildModel();
+    const {
+      model,
+      providerOptions,
+      maxOutputTokens: providerMaxOutputTokens,
+    } = this.buildModel();
+
+    // Use the smaller of caller's budget and provider cap.
+    // Caller budget comes from harness context-window enforcement;
+    // provider cap comes from model-specific limits.
+    const effectiveMaxOutputTokens =
+      options.maxOutputTokens != null
+        ? Math.min(options.maxOutputTokens, providerMaxOutputTokens)
+        : providerMaxOutputTokens;
+
     const preparedMessages =
       this.provider === "friendli"
         ? applyFriendliInterleavedField(
@@ -552,9 +597,9 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
 
     return agent.stream({
       messages: preparedMessages,
-      ...options,
+      abortSignal: options.abortSignal,
       providerOptions,
-      maxOutputTokens,
+      maxOutputTokens: effectiveMaxOutputTokens,
     });
   }
 }

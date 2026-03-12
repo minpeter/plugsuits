@@ -36,7 +36,7 @@ export async function runAgentLoop(
 ): Promise<RunAgentLoopResult> {
   const { agent, abortSignal, onError, onStepComplete, onToolCall } = options;
   const shouldContinue = options.shouldContinue ?? shouldContinueManualToolLoop;
-  const maxIterations = options.maxIterations ?? Infinity;
+  const maxIterations = options.maxIterations ?? Number.POSITIVE_INFINITY;
   const messages = [...options.messages];
 
   let iteration = 0;

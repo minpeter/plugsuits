@@ -1,0 +1,8 @@
+Normal headless flow now avoids blocking on speculative compaction.
+
+Evidence:
+- waitForSpeculativeCompactionIfNeeded(content) applies ready work first, then blocks only through blockAtHardContextLimit(estimateTokens(content), "new-turn").
+- blockAtHardContextLimit(...) returns immediately unless messageHistory.isAtHardContextLimit(...) is true.
+- processAgentResponse() now reads sync getMessagesForLLM() and starts background compaction fire-and-forget after preparing messages.
+- The test "does not block a normal follow-up while speculative compaction is still running below the hard limit" verifies the second stream starts before the compaction promise resolves.
+- Verified on 2026-03-11 with `bun test packages/headless/src --timeout 30000`.

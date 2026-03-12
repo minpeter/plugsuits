@@ -1,6 +1,6 @@
+import type { Command } from "@ai-sdk-tool/harness";
 import { agentManager } from "../agent";
 import { createToggleCommand } from "./factories/create-toggle-command";
-import type { Command } from "./types";
 
 export const createTranslateCommand = (): Command =>
   createToggleCommand({

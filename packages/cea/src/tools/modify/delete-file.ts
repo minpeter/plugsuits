@@ -2,8 +2,13 @@ import { lstat, rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import { assertWriteSafety } from "../utils/safety-utils";
-import DELETE_FILE_DESCRIPTION from "./delete-file.txt";
+
+const DELETE_FILE_DESCRIPTION = readTextAsset(
+  "./delete-file.txt",
+  import.meta.url
+);
 
 const inputSchema = z.object({
   path: z.string().describe("Path to delete"),

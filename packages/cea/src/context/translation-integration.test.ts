@@ -1,14 +1,14 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { MessageHistory } from "@ai-sdk-tool/harness";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   TranslationAgentManager,
   TranslationModelConfig,
 } from "./translation";
 
-const actualAi = await import("ai");
-
-let shouldFailTranslation = false;
-let generateTextCallCount = 0;
+const translationState = vi.hoisted(() => ({
+  generateTextCallCount: 0,
+  shouldFailTranslation: false,
+}));
 const USER_TEXT_CDATA_REGEX =
   /<user_text><!\[CDATA\[([\s\S]*)\]\]><\/user_text>/;
 const CDATA_SPLIT_SEQUENCE = "]]]]><![CDATA[>";
@@ -20,13 +20,13 @@ const extractUserTextFromPrompt = (prompt: string): string => {
     return prompt;
   }
 
-  return match[1].replaceAll(CDATA_SPLIT_SEQUENCE, CDATA_END_SEQUENCE);
+  return match[1].split(CDATA_SPLIT_SEQUENCE).join(CDATA_END_SEQUENCE);
 };
 
-const mockedGenerateText = mock((options: Record<string, unknown>) => {
-  generateTextCallCount += 1;
+const mockedGenerateText = vi.fn((options: Record<string, unknown>) => {
+  translationState.generateTextCallCount += 1;
 
-  if (shouldFailTranslation) {
+  if (translationState.shouldFailTranslation) {
     throw new Error("integration translation failure");
   }
 
@@ -34,28 +34,31 @@ const mockedGenerateText = mock((options: Record<string, unknown>) => {
   const userText = extractUserTextFromPrompt(prompt);
 
   if (userText === "이 프로젝트의 구조를 설명해줘") {
-    return { text: "Explain the structure of this project." };
+    return Promise.resolve({
+      text: "Explain the structure of this project.",
+    } as never);
   }
 
   if (userText === "workspace/foo.ts 파일을 수정해줘") {
-    return { text: "Please update workspace/foo.ts." };
+    return Promise.resolve({
+      text: "Please update workspace/foo.ts.",
+    } as never);
   }
 
   if (userText === "workspace/foo.ts 파일에서 `buildPath` 함수만 수정해줘") {
-    return {
+    return Promise.resolve({
       text: "Please only update the `buildPath` function in workspace/foo.ts.",
-    };
+    } as never);
   }
 
-  return { text: userText };
+  return Promise.resolve({ text: userText } as never);
 });
 
-mock.module("ai", () => ({
-  ...actualAi,
-  generateText: mockedGenerateText,
-}));
-
-const { translateToEnglish } = await import("./translation");
+const {
+  resetGenerateTextForTesting,
+  setGenerateTextForTesting,
+  translateToEnglish,
+} = await import("./translation");
 
 const createAgentManagerStub = (): TranslationAgentManager => {
   const modelConfig: TranslationModelConfig = {
@@ -89,8 +92,14 @@ const runPipeline = async (input: string, translationEnabled: boolean) => {
 
 describe("translation integration pipeline", () => {
   beforeEach(() => {
-    shouldFailTranslation = false;
-    generateTextCallCount = 0;
+    translationState.shouldFailTranslation = false;
+    translationState.generateTextCallCount = 0;
+    mockedGenerateText.mockClear();
+    setGenerateTextForTesting(mockedGenerateText as never);
+  });
+
+  afterEach(() => {
+    resetGenerateTextForTesting();
   });
 
   it("translates Korean input, stores originalContent, and keeps English for model", async () => {
@@ -125,7 +134,7 @@ describe("translation integration pipeline", () => {
       translated: false,
       text: "Please list the files",
     });
-    expect(generateTextCallCount).toBe(0);
+    expect(translationState.generateTextCallCount).toBe(0);
 
     const stored = history.getAll()[0];
     expect(stored?.originalContent).toBeUndefined();
@@ -147,7 +156,7 @@ describe("translation integration pipeline", () => {
       translated: false,
       text: "workspace/foo.ts 파일을 수정해줘",
     });
-    expect(generateTextCallCount).toBe(0);
+    expect(translationState.generateTextCallCount).toBe(0);
 
     const stored = history.getAll()[0];
     expect(stored?.originalContent).toBeUndefined();
@@ -160,7 +169,7 @@ describe("translation integration pipeline", () => {
   });
 
   it("falls back to original text when translation fails", async () => {
-    shouldFailTranslation = true;
+    translationState.shouldFailTranslation = true;
 
     const { history, translatedResult } = await runPipeline(
       "workspace/foo.ts 파일을 수정해줘",

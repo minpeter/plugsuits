@@ -1,13 +1,12 @@
-import { describe, expect, it } from "bun:test";
 import type { ModelMessage } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
+import { describe, expect, it } from "vitest";
 import {
   createModelSummarizer,
+  DEFAULT_COMPACTION_USER_PROMPT,
   DEFAULT_SUMMARIZATION_PROMPT,
   ITERATIVE_SUMMARIZATION_PROMPT,
 } from "./compaction-prompts";
-
-// ─── Helpers ───
 
 function makeMessages(
   ...specs: Array<{ role: string; content: string | object[] }>
@@ -15,32 +14,73 @@ function makeMessages(
   return specs.map((s) => s as ModelMessage);
 }
 
-/**
- * Create a MockLanguageModelV3 that returns a fixed text response.
- */
 function createMockModel(responseText: string) {
   return new MockLanguageModelV3({
     doGenerate: {
       content: [{ type: "text" as const, text: responseText }],
-      finishReason: "stop" as const,
+      finishReason: "stop",
       usage: { inputTokens: 100, outputTokens: 50 },
-    },
+    } as any,
   });
 }
 
-// ─── Tests ───
+function extractUserContent(callPrompt: any[]): string {
+  return callPrompt
+    .filter((m: any) => m.role === "user")
+    .map((m: any) => {
+      if (typeof m.content === "string") {
+        return m.content;
+      }
+      if (Array.isArray(m.content)) {
+        return m.content.map((p: any) => p.text ?? "").join("");
+      }
+      return "";
+    })
+    .join("");
+}
+
+function extractSystemContent(callPrompt: any[]): string {
+  return callPrompt
+    .filter((m: any) => m.role === "system")
+    .map((m: any) => {
+      if (typeof m.content === "string") {
+        return m.content;
+      }
+      if (Array.isArray(m.content)) {
+        return m.content.map((p: any) => p.text ?? "").join("");
+      }
+      return "";
+    })
+    .join("");
+}
 
 describe("compaction-prompts", () => {
-  describe("DEFAULT_SUMMARIZATION_PROMPT", () => {
-    it("contains required section headers", () => {
+  describe("legacy prompt constants", () => {
+    it("DEFAULT_SUMMARIZATION_PROMPT contains required headers", () => {
       expect(DEFAULT_SUMMARIZATION_PROMPT).toContain("## Summary");
       expect(DEFAULT_SUMMARIZATION_PROMPT).toContain("## Context");
       expect(DEFAULT_SUMMARIZATION_PROMPT).toContain("## Current State");
     });
 
-    it("is a non-empty string", () => {
-      expect(typeof DEFAULT_SUMMARIZATION_PROMPT).toBe("string");
-      expect(DEFAULT_SUMMARIZATION_PROMPT.length).toBeGreaterThan(100);
+    it("ITERATIVE_SUMMARIZATION_PROMPT contains iterative instructions", () => {
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("iterative update");
+      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("MERGE");
+    });
+  });
+
+  describe("DEFAULT_COMPACTION_USER_PROMPT", () => {
+    it("contains required summary sections", () => {
+      expect(DEFAULT_COMPACTION_USER_PROMPT).toContain(
+        "Primary Request and Intent"
+      );
+      expect(DEFAULT_COMPACTION_USER_PROMPT).toContain(
+        "Key Technical Concepts"
+      );
+      expect(DEFAULT_COMPACTION_USER_PROMPT).toContain(
+        "Files and Code Sections"
+      );
+      expect(DEFAULT_COMPACTION_USER_PROMPT).toContain("Current Work");
+      expect(DEFAULT_COMPACTION_USER_PROMPT).toContain("<summary>");
     });
   });
 
@@ -59,14 +99,11 @@ describe("compaction-prompts", () => {
 
       expect(result).toContain("## Summary");
       expect(result).toContain("No conversation history");
-      // Model should NOT be called for empty messages
       expect(mockModel.doGenerateCalls).toHaveLength(0);
     });
 
-    it("calls the model with formatted messages", async () => {
-      const expectedSummary =
-        "## Summary\nUser asked about weather.\n\n## Context\n- Location: Seoul\n\n## Current State\n- Awaiting response";
-      const mockModel = createMockModel(expectedSummary);
+    it("passes conversation messages as-is plus compaction user turn", async () => {
+      const mockModel = createMockModel("plain text summary");
       const summarizer = createModelSummarizer(mockModel);
 
       const messages = makeMessages(
@@ -77,62 +114,60 @@ describe("compaction-prompts", () => {
         }
       );
 
-      const result = await summarizer(messages);
+      await summarizer(messages);
 
-      expect(result).toBe(expectedSummary);
       expect(mockModel.doGenerateCalls).toHaveLength(1);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const allMessages = callPrompt.filter((m: any) => m.role !== "system");
+      expect(allMessages.length).toBe(3);
+
+      // biome-ignore lint/style/useAtIndex: Array.at() not available in this TypeScript target
+      const lastMsg = allMessages[allMessages.length - 1];
+      expect(lastMsg.role).toBe("user");
+
+      const lastContent =
+        typeof lastMsg.content === "string"
+          ? lastMsg.content
+          : lastMsg.content.map((p: any) => p.text ?? "").join("");
+      expect(lastContent).toContain(
+        "Your task is to create a detailed summary"
+      );
     });
 
     it("handles model returning empty text with fallback", async () => {
       const mockModel = createMockModel("");
       const summarizer = createModelSummarizer(mockModel);
 
-      const messages = makeMessages({
-        role: "user",
-        content: "Hello",
-      });
-
-      const result = await summarizer(messages);
+      const result = await summarizer(
+        makeMessages({ role: "user", content: "Hello" })
+      );
 
       expect(result).toContain("## Summary");
       expect(result).toContain("summary generation failed");
     });
 
-    it("accepts custom prompt option", async () => {
+    it("accepts custom prompt as user-turn content", async () => {
       const customPrompt = "Summarize in haiku format.";
-      const mockModel = createMockModel(
-        "Context flows here\nMessages compressed to form\nWisdom preserved well"
-      );
+      const mockModel = createMockModel("Haiku summary result");
       const summarizer = createModelSummarizer(mockModel, {
         prompt: customPrompt,
       });
 
-      const messages = makeMessages({
-        role: "user",
-        content: "Tell me a story.",
-      });
-
-      await summarizer(messages);
-
-      // Verify the model was called
-      expect(mockModel.doGenerateCalls).toHaveLength(1);
-
-      // The system prompt should contain our custom prompt
-      const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const systemMessages = callPrompt.filter(
-        (m: any) => m.role === "system"
+      await summarizer(
+        makeMessages({ role: "user", content: "Tell me a story." })
       );
-      expect(systemMessages.length).toBeGreaterThan(0);
-      const systemContent = systemMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-      expect(systemContent).toContain(customPrompt);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const userMessages = callPrompt.filter((m: any) => m.role === "user");
+      // biome-ignore lint/style/useAtIndex: Array.at() not available in this TypeScript target
+      const lastUserMsg = userMessages[userMessages.length - 1];
+
+      const content =
+        typeof lastUserMsg.content === "string"
+          ? lastUserMsg.content
+          : lastUserMsg.content.map((p: any) => p.text ?? "").join("");
+      expect(content).toContain(customPrompt);
     });
 
     it("accepts custom maxOutputTokens option", async () => {
@@ -141,18 +176,21 @@ describe("compaction-prompts", () => {
         maxOutputTokens: 256,
       });
 
-      const messages = makeMessages({
-        role: "user",
-        content: "Hello",
-      });
+      await summarizer(makeMessages({ role: "user", content: "Hello" }));
 
-      await summarizer(messages);
-
-      expect(mockModel.doGenerateCalls).toHaveLength(1);
       expect(mockModel.doGenerateCalls[0].maxOutputTokens).toBe(256);
     });
 
-    it("formats tool-call messages in the input", async () => {
+    it("defaults maxOutputTokens to 4096", async () => {
+      const mockModel = createMockModel("summary");
+      const summarizer = createModelSummarizer(mockModel);
+
+      await summarizer(makeMessages({ role: "user", content: "Hello" }));
+
+      expect(mockModel.doGenerateCalls[0].maxOutputTokens).toBe(4096);
+    });
+
+    it("preserves tool-call messages in original structure", async () => {
       const mockModel = createMockModel("## Summary\nTool was used.");
       const summarizer = createModelSummarizer(mockModel);
 
@@ -183,94 +221,64 @@ describe("compaction-prompts", () => {
         { role: "assistant", content: "Here are the file contents." }
       );
 
-      const result = await summarizer(messages);
-      expect(result).toBe("## Summary\nTool was used.");
-      expect(mockModel.doGenerateCalls).toHaveLength(1);
-
-      // Check that the formatted input includes tool info
-      const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const userMessages = callPrompt.filter((m: any) => m.role === "user");
-      expect(userMessages.length).toBeGreaterThan(0);
-      const userContent = userMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-      expect(userContent).toContain("read_file");
-      expect(userContent).toContain("tool-call");
-      expect(userContent).toContain("tool-result");
-    });
-
-    it("truncates long tool inputs and outputs", async () => {
-      const mockModel = createMockModel("## Summary\nSummarized.");
-      const summarizer = createModelSummarizer(mockModel);
-
-      const longInput = "x".repeat(500);
-      const longOutput = "y".repeat(500);
-
-      const messages = makeMessages(
-        { role: "user", content: "Do something" },
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool-call",
-              toolCallId: "call_1",
-              toolName: "execute",
-              input: { data: longInput },
-            },
-          ],
-        },
-        {
-          role: "tool",
-          content: [
-            {
-              type: "tool-result",
-              toolCallId: "call_1",
-              toolName: "execute",
-              output: longOutput,
-            },
-          ],
-        }
-      );
-
       await summarizer(messages);
 
-      expect(mockModel.doGenerateCalls).toHaveLength(1);
       const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const userMessages = callPrompt.filter((m: any) => m.role === "user");
-      const userContent = userMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-
-      // Should contain truncation indicators
-      expect(userContent).toContain("...");
-      // Should not contain the full 500-char strings
-      expect(userContent.length).toBeLessThan(
-        longInput.length + longOutput.length + 500
+      // 4 original messages + 1 compaction user turn = 5
+      const nonSystemMessages = callPrompt.filter(
+        (m: any) => m.role !== "system"
       );
+      expect(nonSystemMessages.length).toBe(5);
+
+      // The assistant message with tool-call should be preserved as-is
+      const assistantWithToolCall = nonSystemMessages.find(
+        (m: any) =>
+          m.role === "assistant" &&
+          Array.isArray(m.content) &&
+          m.content.some((p: any) => p.type === "tool-call")
+      );
+      expect(assistantWithToolCall).toBeDefined();
+
+      // The tool result message should be preserved as-is
+      const toolResult = nonSystemMessages.find((m: any) => m.role === "tool");
+      expect(toolResult).toBeDefined();
+    });
+
+    it("extracts content from <summary> tags in response", async () => {
+      const responseWithTags =
+        "<analysis>\nSome analysis here\n</analysis>\n\n<summary>\n1. Primary Request: User asked about weather\n2. Key Concepts: Weather API\n</summary>";
+      const mockModel = createMockModel(responseWithTags);
+      const summarizer = createModelSummarizer(mockModel);
+
+      const result = await summarizer(
+        makeMessages({ role: "user", content: "Hello" })
+      );
+
+      expect(result).toContain("Primary Request: User asked about weather");
+      expect(result).not.toContain("<analysis>");
+      expect(result).not.toContain("<summary>");
+      expect(result).not.toContain("</summary>");
+    });
+
+    it("returns full text when no <summary> tags present", async () => {
+      const plainResponse = "## Summary\nPlain summary without tags.";
+      const mockModel = createMockModel(plainResponse);
+      const summarizer = createModelSummarizer(mockModel);
+
+      const result = await summarizer(
+        makeMessages({ role: "user", content: "Hello" })
+      );
+
+      expect(result).toBe(plainResponse);
     });
 
     it("works as a CompactionConfig.summarizeFn", async () => {
-      // Verifies the function signature is compatible
       const mockModel = createMockModel(
         "## Summary\nConversation about testing."
       );
       const summarizeFn = createModelSummarizer(mockModel);
 
-      // Same signature as CompactionConfig.summarizeFn
       const fn: (messages: ModelMessage[]) => Promise<string> = summarizeFn;
-
       const result = await fn([
         { role: "user", content: "test" } as ModelMessage,
       ]);
@@ -280,29 +288,60 @@ describe("compaction-prompts", () => {
     });
   });
 
-  describe("ITERATIVE_SUMMARIZATION_PROMPT", () => {
-    it("contains required section headers", () => {
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("## Summary");
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("## Context");
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("## Current State");
+  describe("createModelSummarizer with instructions", () => {
+    it("uses string instructions as system prompt", async () => {
+      const mockModel = createMockModel("summary result");
+      const instructions = "You are a helpful coding assistant.";
+      const summarizer = createModelSummarizer(mockModel, { instructions });
+
+      await summarizer(makeMessages({ role: "user", content: "Hello" }));
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const systemContent = extractSystemContent(callPrompt);
+      expect(systemContent).toContain(instructions);
     });
 
-    it("contains iterative update instructions", () => {
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("iterative update");
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("previous summary");
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("MERGE");
+    it("calls function instructions at summarization time", async () => {
+      let callCount = 0;
+      const mockModel = createMockModel("summary result");
+      const summarizer = createModelSummarizer(mockModel, {
+        // biome-ignore lint/suspicious/useAwait: testing async instructions interface
+        instructions: async () => {
+          callCount++;
+          return `Instructions v${callCount}`;
+        },
+      });
+
+      await summarizer(makeMessages({ role: "user", content: "First" }));
+      const firstCallPrompt = mockModel.doGenerateCalls[0].prompt;
+      expect(extractSystemContent(firstCallPrompt)).toContain(
+        "Instructions v1"
+      );
+
+      await summarizer(makeMessages({ role: "user", content: "Second" }));
+      const secondCallPrompt = mockModel.doGenerateCalls[1].prompt;
+      expect(extractSystemContent(secondCallPrompt)).toContain(
+        "Instructions v2"
+      );
+
+      expect(callCount).toBe(2);
     });
 
-    it("is a non-empty string", () => {
-      expect(typeof ITERATIVE_SUMMARIZATION_PROMPT).toBe("string");
-      expect(ITERATIVE_SUMMARIZATION_PROMPT.length).toBeGreaterThan(100);
+    it("omits system prompt when no instructions provided", async () => {
+      const mockModel = createMockModel("summary");
+      const summarizer = createModelSummarizer(mockModel);
+
+      await summarizer(makeMessages({ role: "user", content: "Hello" }));
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
+      expect(systemMessages).toHaveLength(0);
     });
   });
 
   describe("createModelSummarizer with previousSummary", () => {
-    it("uses iterative prompt when previousSummary is provided", async () => {
-      const expectedSummary = "## Summary\nUpdated summary with merged context.";
-      const mockModel = createMockModel(expectedSummary);
+    it("includes previous summary in last user message", async () => {
+      const mockModel = createMockModel("Updated summary");
       const summarizer = createModelSummarizer(mockModel);
 
       const messages = makeMessages(
@@ -311,100 +350,54 @@ describe("compaction-prompts", () => {
       );
 
       const previousSummary = "## Summary\nOld conversation about weather.";
-      const result = await summarizer(messages, previousSummary);
+      await summarizer(messages, previousSummary);
 
-      expect(result).toBe(expectedSummary);
-      expect(mockModel.doGenerateCalls).toHaveLength(1);
-
-      // Check that the system prompt is the iterative one
       const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
-      const systemContent = systemMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-      expect(systemContent).toContain("iterative update");
+      const lastUserContent = extractUserContent(callPrompt);
 
-      // Check that the user content includes the previous summary
-      const userMessages = callPrompt.filter((m: any) => m.role === "user");
-      const userContent = userMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-      expect(userContent).toContain("<previous-summary>");
-      expect(userContent).toContain("Old conversation about weather");
-      expect(userContent).toContain("Update the above summary");
+      expect(lastUserContent).toContain("<previous-summary>");
+      expect(lastUserContent).toContain("Old conversation about weather");
+      expect(lastUserContent).toContain(
+        "Your task is to create a detailed summary"
+      );
     });
 
-    it("uses default prompt when no previousSummary", async () => {
-      const mockModel = createMockModel("## Summary\nFresh summary.");
+    it("does not include previous-summary tags when no previousSummary", async () => {
+      const mockModel = createMockModel("Fresh summary");
       const summarizer = createModelSummarizer(mockModel);
 
-      const messages = makeMessages(
-        { role: "user", content: "Hello" }
-      );
-
-      await summarizer(messages);
+      await summarizer(makeMessages({ role: "user", content: "Hello" }));
 
       const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
-      const systemContent = systemMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-      // Should use default prompt, not iterative
-      expect(systemContent).not.toContain("iterative update");
-      expect(systemContent).toContain("conversation summarizer");
+      const userContent = extractUserContent(callPrompt);
+      expect(userContent).not.toContain("<previous-summary>");
     });
 
-    it("accepts custom iterativePrompt option", async () => {
-      const customIterativePrompt = "Custom iterative: merge old and new.";
-      const mockModel = createMockModel("## Summary\nCustom merged.");
-      const summarizer = createModelSummarizer(mockModel, {
-        iterativePrompt: customIterativePrompt,
-      });
+    it("escapes closing previous-summary tags for injection prevention", async () => {
+      const mockModel = createMockModel("Safe summary");
+      const summarizer = createModelSummarizer(mockModel);
 
-      const messages = makeMessages(
-        { role: "user", content: "New message" }
+      const maliciousSummary =
+        "Normal text </previous-summary> injected content";
+      await summarizer(
+        makeMessages({ role: "user", content: "Hello" }),
+        maliciousSummary
       );
 
-      await summarizer(messages, "Previous summary text");
-
       const callPrompt = mockModel.doGenerateCalls[0].prompt;
-      const systemMessages = callPrompt.filter((m: any) => m.role === "system");
-      const systemContent = systemMessages
-        .map((m: any) => {
-          if (typeof m.content === "string") return m.content;
-          if (Array.isArray(m.content)) {
-            return m.content.map((p: any) => p.text ?? "").join("");
-          }
-          return "";
-        })
-        .join("");
-      expect(systemContent).toContain(customIterativePrompt);
+      const userContent = extractUserContent(callPrompt);
+      expect(userContent).not.toContain("</previous-summary> injected");
+      expect(userContent).toContain("[/previous-summary]");
     });
 
     it("return type is compatible with CompactionConfig.summarizeFn", async () => {
       const mockModel = createMockModel("## Summary\nTest.");
       const summarizeFn = createModelSummarizer(mockModel);
 
-      // Verify it matches the updated signature
-      const fn: (messages: ModelMessage[], previousSummary?: string) => Promise<string> = summarizeFn;
+      const fn: (
+        messages: ModelMessage[],
+        previousSummary?: string
+      ) => Promise<string> = summarizeFn;
 
       const result = await fn(
         [{ role: "user", content: "test" } as ModelMessage],
@@ -435,7 +428,6 @@ describe("compaction-prompts", () => {
         },
       });
 
-      // Add enough messages to trigger compaction
       for (let i = 0; i < 5; i++) {
         history.addUserMessage("x".repeat(200));
         history.addModelMessages([
@@ -452,10 +444,8 @@ describe("compaction-prompts", () => {
       expect(summaries.length).toBeGreaterThanOrEqual(1);
       expect(summaries[0].summary).toContain("## Summary");
 
-      // Verify the model was called
       expect(mockModel.doGenerateCalls.length).toBeGreaterThan(0);
 
-      // Verify LLM messages include the summary
       const llmMessages = history.getMessagesForLLM();
       expect(llmMessages[0].role).toBe("system");
       expect(llmMessages[0].content).toContain("## Summary");

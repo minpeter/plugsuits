@@ -1,12 +1,4 @@
 import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from "bun:test";
-import {
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -16,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { executeGrep } from "../explore/grep";
 import { executeReadFile } from "../explore/read-file";
 import { executeEditFile } from "./edit-file";

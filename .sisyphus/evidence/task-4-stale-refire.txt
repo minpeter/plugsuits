@@ -1,0 +1,7 @@
+Stale speculative results now trigger single re-fire without loops.
+
+Evidence:
+- applyReadySpeculativeCompactionCore checks applyPreparedCompaction(...) return reason.
+- On reason === "stale", it discards stale job and triggers onStale() once via didRefire guard.
+- No while/retry loop exists in applyReadySpeculativeCompactionCore; next turn applies when ready.
+- Added test "re-fires once when prepared compaction is stale" to verify one-shot re-fire behavior.

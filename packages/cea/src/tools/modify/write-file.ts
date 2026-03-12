@@ -2,8 +2,13 @@ import { mkdir } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import { assertWriteSafety, safeAtomicWriteFile } from "../utils/safety-utils";
-import WRITE_FILE_DESCRIPTION from "./write-file.txt";
+
+const WRITE_FILE_DESCRIPTION = readTextAsset(
+  "./write-file.txt",
+  import.meta.url
+);
 
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),

@@ -1018,7 +1018,7 @@ class ToolCallView extends Container {
   private output: unknown;
   private outputDenied = false;
   private pendingSpinnerFrameIndex = 0;
-  private pendingSpinnerInterval: Timer | null = null;
+  private pendingSpinnerInterval: ReturnType<typeof setInterval> | null = null;
   private pendingTemplate: string | null = null;
   private parsedInput: unknown;
   private readMode = false;

@@ -1,10 +1,23 @@
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SessionManager } from "@ai-sdk-tool/harness";
 import { tool } from "ai";
 import { z } from "zod";
 import { TODO_DIR } from "../../context/paths";
-import { getSessionId } from "../../context/session";
-import TODO_WRITE_DESCRIPTION from "./todo-write.txt";
+import { readTextAsset } from "../../utils/text-asset";
+
+const TODO_WRITE_DESCRIPTION = readTextAsset(
+  "./todo-write.txt",
+  import.meta.url
+);
+
+const typedGlobalThis = globalThis as typeof globalThis & {
+  __ceaSessionManager?: SessionManager;
+};
+if (!typedGlobalThis.__ceaSessionManager) {
+  typedGlobalThis.__ceaSessionManager = new SessionManager();
+}
+const sessionManager = typedGlobalThis.__ceaSessionManager;
 
 const todoItemSchema = z.object({
   id: z.string().describe("Unique identifier for the todo item"),
@@ -109,7 +122,7 @@ export async function executeTodoWrite({
     }
   }
 
-  const sessionId = getSessionId();
+  const sessionId = sessionManager.getId();
   const todoDir = TODO_DIR;
 
   await cleanupStaleTodos(todoDir);

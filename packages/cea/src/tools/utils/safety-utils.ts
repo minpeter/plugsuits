@@ -106,6 +106,24 @@ export interface IgnoreFilter {
   ignores: (pathFromBaseDir: string) => boolean;
 }
 
+function resolveFromCwd(filePath: string): string {
+  return isAbsolute(filePath) ? filePath : resolve(process.cwd(), filePath);
+}
+
+function buildFileNotFoundReason(
+  filePath: string,
+  resolvedFilePath: string
+): string {
+  if (isAbsolute(filePath)) {
+    return `File not found: '${filePath}'.`;
+  }
+
+  return (
+    `File not found: '${filePath}' (resolved to '${resolvedFilePath}' from working directory ` +
+    `'${process.cwd()}'). Use a path relative to the current working directory or an absolute path.`
+  );
+}
+
 function buildDefaultIgnorePatterns(): string[] {
   return [...DEFAULT_IGNORED_DIRECTORIES, ...DEFAULT_IGNORED_FILE_PATTERNS];
 }
@@ -416,6 +434,11 @@ async function isLikelyBinaryFile(
 interface FileCheckResult {
   allowed: boolean;
   lastModified?: string;
+  metadata?: {
+    fileSize?: number;
+    isBinary?: boolean;
+    ignoredBy?: string;
+  };
   reason?: string;
 }
 
@@ -491,12 +514,14 @@ const checkFileStatGuards: FileReadGuard = async (context) => {
       };
     }
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code !== "ENOENT"
-    ) {
+    if (isErrnoException(error) && error.code === "ENOENT") {
+      return {
+        allowed: false,
+        reason: buildFileNotFoundReason(filePath, resolvedFilePath),
+      };
+    }
+
+    if (typeof error === "object" && error !== null && "code" in error) {
       return {
         allowed: false,
         reason: `Unable to inspect file metadata for '${filePath}'.`,
@@ -519,9 +544,7 @@ async function checkFileReadable(
   }
 ): Promise<FileCheckResult> {
   const cwd = process.cwd();
-  const resolvedFilePath = isAbsolute(filePath)
-    ? filePath
-    : resolve(cwd, filePath);
+  const resolvedFilePath = resolveFromCwd(filePath);
   const insideCwd = getPathForIgnoreCheck(resolvedFilePath, cwd) !== null;
   const baseDir = insideCwd ? cwd : dirname(resolvedFilePath);
 
@@ -606,7 +629,7 @@ export async function safeReadFileEnhanced(
     throw new Error(check.reason);
   }
 
-  const rawContent = await readFile(path, "utf-8");
+  const rawContent = await readFile(resolveFromCwd(path), "utf-8");
   const allLines = rawContent.split("\n");
   const totalLines = allLines.length;
   const bytes = Buffer.byteLength(rawContent, "utf-8");
@@ -1012,7 +1035,7 @@ export async function safeAtomicWriteFile(
   try {
     const stats = await lstat(targetPath);
     existed = true;
-    originalMode = stats.mode % 0o1000;
+    originalMode = Number.parseInt(stats.mode.toString(8).slice(-4), 8);
     // Belt-and-suspenders: reject symlinks even after assertWriteSafety
     if (stats.isSymbolicLink()) {
       throw new Error(

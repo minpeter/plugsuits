@@ -91,12 +91,6 @@ const TOOL_PATTERNS: ToolPattern[] = [
     description: "pnpm package manager (CI mode)",
   },
   {
-    pattern: /^bun\s+(install|add)/,
-    name: "bun",
-    env: { CI: "true" },
-    description: "Bun package manager (CI mode)",
-  },
-  {
     pattern: /^(sudo\s+)?yum\s+/,
     name: "yum",
     env: {},

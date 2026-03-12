@@ -5,24 +5,25 @@ echo "Installing system dependencies..."
 # Use --no-install-recommends to minimize package size
 # Required tools:
 #   - curl, git, ca-certificates: for cloning and downloading
-#   - unzip, tar: for extracting archives (bun install, ripgrep auto-download)
+#   - unzip, tar: for extracting archives (pnpm install, ripgrep auto-download)
 #   - ripgrep: for code search (faster than grep)
 apt-get update -qq && apt-get install -y -qq --no-install-recommends \
   curl git ca-certificates unzip tar ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
-echo "Installing bun..."
-curl -fsSL https://bun.sh/install | bash
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
+echo "Enabling pnpm via corepack..."
+npm install -g corepack@latest
+corepack enable
+corepack prepare pnpm@10.32.1 --activate
 
 echo "Cloning code-editing-agent..."
 git clone --depth 1 --single-branch https://github.com/minpeter/code-editing-agent.git /agent
 cd /agent
 
-echo "Installing npm dependencies..."
+echo "Installing pnpm dependencies..."
 # Use frozen lockfile for faster, reproducible installs
-bun install --frozen-lockfile
+pnpm install --frozen-lockfile
 
 echo "code-editing-agent installed successfully"
-bun --version
+node --version
+pnpm --version

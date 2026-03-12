@@ -1,9 +1,15 @@
 import { realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { tool } from "ai";
+import { globIterate } from "glob";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import { formatBlock, getIgnoreFilter } from "../utils/safety-utils";
-import GLOB_FILES_DESCRIPTION from "./glob-files.txt";
+
+const GLOB_FILES_DESCRIPTION = readTextAsset(
+  "./glob-files.txt",
+  import.meta.url
+);
 
 const MAX_RESULTS = 500;
 const MAX_GLOB_RESULTS = 10_000; // max candidates scanned before stat phase
@@ -61,7 +67,6 @@ export async function executeGlob({
     canonicalSearchDir = searchDir;
   }
 
-  const glob = new Bun.Glob(pattern);
   const topFilesByMtime: FileWithMtime[] = [];
   let totalMatches = 0;
   let skippedUnreadable = 0;
@@ -93,10 +98,10 @@ export async function executeGlob({
     pending.add(task);
   };
 
-  for await (const file of glob.scan({
-    cwd: searchDir,
+  for await (const file of globIterate(pattern, {
     absolute: false,
-    onlyFiles: true,
+    cwd: searchDir,
+    nodir: true,
   })) {
     if (ignoreFilter?.ignores(file)) {
       continue;

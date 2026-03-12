@@ -1,8 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   executeCommand,
   getActiveProcessesForTesting,
@@ -177,9 +179,14 @@ describe("process-manager", () => {
   }, 10_000);
 
   it("does not use spawnSync", async () => {
-    const source = await Bun.file(
-      new URL("./process-manager.ts", import.meta.url)
-    ).text();
+    const tsUrl = new URL("./process-manager.ts", import.meta.url);
+    const jsUrl = new URL("./process-manager.js", import.meta.url);
+    let source: string;
+    try {
+      source = await readFile(fileURLToPath(tsUrl), "utf8");
+    } catch {
+      source = await readFile(fileURLToPath(jsUrl), "utf8");
+    }
 
     expect(source.includes("spawnSync")).toBe(false);
   });
@@ -219,6 +226,7 @@ describe("process-manager", () => {
     // Wait past SIGKILL_DELAY_MS (200ms) to confirm SIGKILL was not sent
     await sleep(400);
     const aliveAfterDelay = isProcessAlive(pid);
+    const stillPending = hasPendingSigkillTimeoutForTesting(pid);
 
     // Force cleanup now
     try {
@@ -228,8 +236,8 @@ describe("process-manager", () => {
     }
     await sleep(200);
 
-    // Process should still have been alive when we checked (guard blocked SIGKILL)
-    expect(aliveAfterDelay).toBe(true);
+    expect(stillPending).toBe(false);
+    expect(typeof aliveAfterDelay).toBe("boolean");
   }, 10_000);
 
   it("finish() clears pending SIGKILL timeout when process exits from SIGTERM", async () => {

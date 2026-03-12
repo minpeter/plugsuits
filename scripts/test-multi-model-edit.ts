@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Multi-model edit_file test runner
  *
@@ -6,11 +6,14 @@
  * and produces a summary table.
  *
  * Usage:
- *   bun run scripts/test-multi-model-edit.ts [--timeout <seconds>]
+ *   node --import tsx scripts/test-multi-model-edit.ts [--timeout <seconds>]
  */
 
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ── Models ────────────────────────────────────────────────────
 const MODELS = [
@@ -37,6 +40,12 @@ const YELLOW = "\x1b[33m";
 const DIM = "\x1b[2m";
 const CYAN = "\x1b[36m";
 const RESET = "\x1b[0m";
+const ANSI_ESCAPE = "\u001b";
+const ANSI_ESCAPE_REGEX = new RegExp(`${ANSI_ESCAPE}\\[[0-9;]*m`, "g");
+const TEST_NAME_REGEX = /^\s*(\d+\.\s+.+)$/;
+const PASS_PREFIX_REGEX = /^\s*PASS\s*—?\s*/;
+const FAIL_PREFIX_REGEX = /^\s*FAIL\s*—?\s*/;
+const ERROR_PREFIX_REGEX = /^\s*ERROR\s*—?\s*/;
 
 // ── Types ─────────────────────────────────────────────────────
 interface TestResult {
@@ -55,6 +64,89 @@ interface ModelResult {
   totalTests: number;
 }
 
+function getResultColor(totalPassed: number, totalTests: number): string {
+  if (totalPassed === totalTests) {
+    return GREEN;
+  }
+
+  if (totalPassed > 0) {
+    return YELLOW;
+  }
+
+  return RED;
+}
+
+function printModelTests(tests: TestResult[]): void {
+  for (const test of tests) {
+    const icon = test.passed ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`;
+    console.log(`    ${icon} ${test.name}`);
+  }
+}
+
+function printModelRunResult(result: ModelResult): void {
+  const timeStr = `${(result.durationMs / 1000).toFixed(1)}s`;
+  if (result.error) {
+    console.log(`  ${RED}ERROR${RESET}: ${result.error} (${timeStr})`);
+    return;
+  }
+
+  const color = getResultColor(result.totalPassed, result.totalTests);
+  console.log(
+    `  ${color}${result.totalPassed}/${result.totalTests} passed${RESET} (${timeStr})`
+  );
+  printModelTests(result.tests);
+}
+
+function printSummary(allResults: ModelResult[]): void {
+  console.log(`${BOLD}═══ Summary ═══${RESET}\n`);
+
+  for (const result of allResults) {
+    const timeStr = `${(result.durationMs / 1000).toFixed(0)}s`;
+    const color = getResultColor(result.totalPassed, result.totalTests);
+    console.log(
+      `  ${result.modelShort.padEnd(8)} ${color}${result.totalPassed}/${result.totalTests}${RESET} (${timeStr})`
+    );
+    printModelTests(result.tests);
+  }
+
+  console.log();
+
+  const totalModels = allResults.length;
+  const perfectModels = allResults.filter(
+    (result) => !result.error && result.totalPassed === result.totalTests
+  ).length;
+  console.log(
+    `${BOLD}Models with 100%: ${perfectModels}/${totalModels}${RESET}`
+  );
+
+  const validResults = allResults.filter((result) => !result.error);
+  const overallPassed = validResults.reduce(
+    (sum, result) => sum + result.totalPassed,
+    0
+  );
+  const overallTotal = validResults.reduce(
+    (sum, result) => sum + result.totalTests,
+    0
+  );
+  const successRate =
+    overallTotal > 0 ? Math.round((overallPassed / overallTotal) * 100) : 0;
+
+  console.log(
+    `${BOLD}Overall: ${overallPassed}/${overallTotal} (${successRate}%)${RESET}`
+  );
+  console.log();
+
+  if (perfectModels === totalModels && totalModels > 0) {
+    console.log(`${BOLD}${GREEN}🎉 ALL MODELS PASSED ALL TESTS!${RESET}\n`);
+    process.exit(0);
+  }
+
+  console.log(
+    `${BOLD}${YELLOW}Some models have failures. See details above.${RESET}\n`
+  );
+  process.exit(1);
+}
+
 // ── Parse test-headless-edit-ops stdout ───────────────────────
 function parseOpsOutput(stdout: string): TestResult[] {
   const results: TestResult[] = [];
@@ -69,10 +161,10 @@ function parseOpsOutput(stdout: string): TestResult[] {
   for (const line of lines) {
     // Detect test name: starts with ANSI-colored bold cyan + "N. Name"
     // Strip ANSI codes for matching
-    const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
+    const stripped = line.replace(ANSI_ESCAPE_REGEX, "");
 
     // Test name pattern: "N. <name>"
-    const testNameMatch = stripped.match(/^\s*(\d+\.\s+.+)$/);
+    const testNameMatch = stripped.match(TEST_NAME_REGEX);
     if (
       testNameMatch &&
       !stripped.includes("—") &&
@@ -85,7 +177,7 @@ function parseOpsOutput(stdout: string): TestResult[] {
 
     // Result line: PASS/FAIL/ERROR
     if (currentTestName && stripped.includes("PASS")) {
-      const detail = stripped.replace(/^\s*PASS\s*—?\s*/, "").trim();
+      const detail = stripped.replace(PASS_PREFIX_REGEX, "").trim();
       results.push({
         name: currentTestName,
         passed: true,
@@ -93,7 +185,7 @@ function parseOpsOutput(stdout: string): TestResult[] {
       });
       currentTestName = "";
     } else if (currentTestName && stripped.includes("FAIL")) {
-      const detail = stripped.replace(/^\s*FAIL\s*—?\s*/, "").trim();
+      const detail = stripped.replace(FAIL_PREFIX_REGEX, "").trim();
       results.push({
         name: currentTestName,
         passed: false,
@@ -101,7 +193,7 @@ function parseOpsOutput(stdout: string): TestResult[] {
       });
       currentTestName = "";
     } else if (currentTestName && stripped.includes("ERROR")) {
-      const detail = stripped.replace(/^\s*ERROR\s*—?\s*/, "").trim();
+      const detail = stripped.replace(ERROR_PREFIX_REGEX, "").trim();
       results.push({
         name: currentTestName,
         passed: false,
@@ -115,32 +207,28 @@ function parseOpsOutput(stdout: string): TestResult[] {
 }
 
 // ── Run one model ────────────────────────────────────────────
-async function runModel(model: {
-  id: string;
-  short: string;
-}): Promise<ModelResult> {
-  const opsScript = resolve(import.meta.dir, "test-headless-edit-ops.ts");
+function runModel(model: { id: string; short: string }): Promise<ModelResult> {
+  const opsScript = resolve(SCRIPT_DIR, "test-headless-edit-ops.ts");
   const startTime = Date.now();
 
   return new Promise<ModelResult>((resolvePromise) => {
     const proc = spawn(
-      "bun",
-      ["run", opsScript, "-m", model.id, "--no-translate"],
+      "node",
+      ["--import", "tsx", opsScript, "-m", model.id, "--no-translate"],
       {
-        cwd: resolve(import.meta.dir, ".."),
-        env: { ...process.env, BUN_INSTALL: process.env.BUN_INSTALL },
+        cwd: resolve(SCRIPT_DIR, ".."),
+        env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
 
     let stdout = "";
-    let stderr = "";
 
     proc.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+    proc.stderr.on("data", () => {
+      // Drain stderr to avoid backpressure; the runner reports timeout/spawn errors separately.
     });
 
     const timeout = setTimeout(() => {
@@ -199,71 +287,10 @@ const main = async () => {
     console.log(`${CYAN}${BOLD}▶ Testing ${model.short} (${model.id})${RESET}`);
     const result = await runModel(model);
     allResults.push(result);
-
-    const timeStr = `${(result.durationMs / 1000).toFixed(1)}s`;
-    if (result.error) {
-      console.log(`  ${RED}ERROR${RESET}: ${result.error} (${timeStr})`);
-    } else {
-      const color =
-        result.totalPassed === result.totalTests
-          ? GREEN
-          : result.totalPassed > 0
-            ? YELLOW
-            : RED;
-      console.log(
-        `  ${color}${result.totalPassed}/${result.totalTests} passed${RESET} (${timeStr})`
-      );
-      for (const t of result.tests) {
-        const icon = t.passed ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`;
-        console.log(`    ${icon} ${t.name}`);
-      }
-    }
+    printModelRunResult(result);
     console.log();
   }
-
-  // ── Summary Table ──────────────────────────────────────────
-  console.log(`${BOLD}═══ Summary ═══${RESET}\n`);
-
-  // Per-model results
-  for (const r of allResults) {
-    const timeStr = `${(r.durationMs / 1000).toFixed(0)}s`;
-    const color = r.totalPassed === r.totalTests ? GREEN : r.totalPassed > 0 ? YELLOW : RED;
-    console.log(`  ${r.modelShort.padEnd(8)} ${color}${r.totalPassed}/${r.totalTests}${RESET} (${timeStr})`);
-    for (const t of r.tests) {
-      const icon = t.passed ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`;
-      console.log(`    ${icon} ${t.name}`);
-    }
-  }
-
-  console.log();
-
-  // Overall
-  const totalModels = allResults.length;
-  const perfectModels = allResults.filter(
-    (r) => !r.error && r.totalPassed === r.totalTests
-  ).length;
-  console.log(
-    `${BOLD}Models with 100%: ${perfectModels}/${totalModels}${RESET}`
-  );
-
-  const validResults = allResults.filter((r) => !r.error);
-  const overallPassed = validResults.reduce((sum, r) => sum + r.totalPassed, 0);
-  const overallTotal = validResults.reduce((sum, r) => sum + r.totalTests, 0);
-  console.log(
-    `${BOLD}Overall: ${overallPassed}/${overallTotal} (${overallTotal > 0 ? Math.round((overallPassed / overallTotal) * 100) : 0}%)${RESET}`
-  );
-
-  console.log();
-
-  if (perfectModels === totalModels && totalModels > 0) {
-    console.log(`${BOLD}${GREEN}🎉 ALL MODELS PASSED ALL TESTS!${RESET}\n`);
-    process.exit(0);
-  } else {
-    console.log(
-      `${BOLD}${YELLOW}Some models have failures. See details above.${RESET}\n`
-    );
-    process.exit(1);
-  }
+  printSummary(allResults);
 };
 
 main();

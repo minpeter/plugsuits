@@ -3,10 +3,15 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import { ensureTool } from "../../utils/tools-manager";
 import { formatLineTag } from "../utils/hashline/hash-computation";
 import { formatBlock } from "../utils/safety-utils";
-import GREP_FILES_DESCRIPTION from "./grep-files.txt";
+
+const GREP_FILES_DESCRIPTION = readTextAsset(
+  "./grep-files.txt",
+  import.meta.url
+);
 
 const MAX_MATCHES = 20_000;
 /** Maximum bytes to buffer from ripgrep stdout before killing the process. */

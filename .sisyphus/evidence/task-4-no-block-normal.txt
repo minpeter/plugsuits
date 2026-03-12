@@ -1,0 +1,7 @@
+Normal flow no longer blocks on speculative compaction.
+
+Evidence:
+- prepareMessages(phase) now first applies ready speculative results, then checks hard limit only.
+- If messageHistory.isAtHardContextLimit(0, { phase }) is false, it immediately returns getMessagesForLLM() output.
+- startSpeculativeCompaction() is still fire-and-forget and does not await.
+- blockOnlyIfAtHardContextLimit(userContent) computes estimateTokens(userContent) and returns immediately unless hard limit is already reached.

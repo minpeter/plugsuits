@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { existsSync, statSync, unlinkSync } from "node:fs";
+import { describe, expect, test } from "vitest";
 import { sanitizeOutput, stripAnsi, truncateOutput } from "./output-handler";
 
 describe("stripAnsi", () => {

@@ -1,5 +1,9 @@
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createAgentPaths } from "@ai-sdk-tool/harness";
 
-export const CEA_DIR = ".cea";
-export const TODO_DIR = join(tmpdir(), "cea-todos");
+const agentPaths = createAgentPaths({
+  configDirName: ".cea",
+  todoDirName: "cea-todos",
+});
+
+export const CEA_DIR = agentPaths.configDir;
+export const TODO_DIR = agentPaths.todoDir;

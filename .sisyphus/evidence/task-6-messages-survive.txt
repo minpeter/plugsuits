@@ -1,0 +1,19 @@
+Task 6 targeted test evidence
+
+Test name:
+messages survive during in-flight compaction
+
+Location:
+packages/harness/src/compaction-integration.test.ts
+
+Verification:
+- Started prepareSpeculativeCompaction() and intentionally delayed summarizeFn.
+- Added three tail user messages while speculative compaction was in-flight.
+- Applied prepared compaction result via applyPreparedCompaction().
+- Asserted apply result: { applied: true, reason: "applied" }.
+- Asserted all tail messages remained present after apply.
+
+Targeted command output:
+bun test packages/harness/src/compaction-integration.test.ts --timeout 30000
+- 24 pass
+- 0 fail

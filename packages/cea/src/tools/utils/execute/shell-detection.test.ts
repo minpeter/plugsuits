@@ -1,36 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { getShell, getShellArgs } from "./shell-detection";
-
-const SHELL_DETECTION_SCRIPT =
-  "import { getShell } from './shell-detection'; console.log(getShell());";
-const SHELL_DETECTION_CWD = join(
-  process.cwd(),
-  "packages",
-  "cea",
-  "src",
-  "tools",
-  "utils",
-  "execute"
-);
-
-function runShellDetectionWithEnv(shellPath: string): string {
-  const env = { ...process.env, SHELL: shellPath };
-  const result = spawnSync(process.execPath, ["-e", SHELL_DETECTION_SCRIPT], {
-    cwd: SHELL_DETECTION_CWD,
-    env,
-    encoding: "utf8",
-  });
-
-  if (result.status !== 0 || !result.stdout) {
-    throw new Error("Failed to evaluate getShell in child process");
-  }
-
-  return result.stdout.trim();
-}
+import { beforeEach, describe, expect, test } from "vitest";
+import {
+  getShell,
+  getShellArgs,
+  resetCacheForTesting,
+} from "./shell-detection";
 
 function createFakeShell(shellName: string): string {
   const tempDir = mkdtempSync(join(tmpdir(), "shell-detection-"));
@@ -42,6 +18,15 @@ function createFakeShell(shellName: string): string {
 function removeFakeShell(shellPath: string): void {
   rmSync(shellPath, { force: true });
   rmSync(dirname(shellPath), { recursive: true, force: true });
+}
+
+function restoreShell(originalShell: string | undefined): void {
+  if (originalShell === undefined) {
+    Reflect.deleteProperty(process.env, "SHELL");
+    return;
+  }
+
+  process.env.SHELL = originalShell;
 }
 
 function getFallbackCandidates(): string[] {
@@ -57,6 +42,10 @@ function getFallbackCandidates(): string[] {
 }
 
 describe("shell detection", () => {
+  beforeEach(() => {
+    resetCacheForTesting();
+  });
+
   test("returns a valid shell path", () => {
     const shell = getShell();
 
@@ -74,18 +63,24 @@ describe("shell detection", () => {
 
   test("uses explicit SHELL path when valid", () => {
     const fakeShell = createFakeShell("zsh-shell");
+    const originalShell = process.env.SHELL;
     try {
-      const shell = runShellDetectionWithEnv(fakeShell);
+      process.env.SHELL = fakeShell;
+      const shell = getShell();
       expect(shell).toBe(fakeShell);
     } finally {
+      restoreShell(originalShell);
+      resetCacheForTesting();
       removeFakeShell(fakeShell);
     }
   });
 
   test("falls back when SHELL is rejected", () => {
     const fakeRejectedShell = createFakeShell("fish");
+    const originalShell = process.env.SHELL;
     try {
-      const shell = runShellDetectionWithEnv(fakeRejectedShell);
+      process.env.SHELL = fakeRejectedShell;
+      const shell = getShell();
       const candidates = getFallbackCandidates();
       const availableFallback = candidates.find((candidate) =>
         existsSync(candidate)
@@ -97,6 +92,8 @@ describe("shell detection", () => {
       expect(shell).not.toBe(fakeRejectedShell);
       expect(existsSync(shell)).toBe(true);
     } finally {
+      restoreShell(originalShell);
+      resetCacheForTesting();
       removeFakeShell(fakeRejectedShell);
     }
   });

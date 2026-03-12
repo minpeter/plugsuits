@@ -1,0 +1,6 @@
+/clear now discards all running speculative jobs immediately.
+
+Evidence:
+- commandResult.action.type === "new-session" path calls discardAllSpeculativeCompactionJobs() before messageHistory.clear().
+- discardAllSpeculativeCompactionJobsCore iterates all jobs and marks each discarded via discardJob callback.
+- Added test "discards all speculative jobs for /clear behavior" to validate every pending job gets discarded.

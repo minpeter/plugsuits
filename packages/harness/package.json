@@ -1,11 +1,12 @@
 {
   "name": "@ai-sdk-tool/harness",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "@ai-sdk-tool/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
@@ -25,10 +26,13 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run src"
   },
   "dependencies": {
-    "ai": "^6.0.101"
+    "@ai-sdk/provider": "^3.0.8",
+    "ai": "^6.0.116",
+    "glob": "^13.0.6",
+    "yaml": "^2.8.2"
   },
   "peerDependencies": {
     "typescript": "^5.0.0",
@@ -36,6 +40,7 @@
   },
   "devDependencies": {
     "@ai-sdk/openai": "^3.0.41",
+    "@types/node": "^25.4.0",
     "typescript": "^5.9.3"
   }
 }

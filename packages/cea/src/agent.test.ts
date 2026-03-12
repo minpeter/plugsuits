@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import {
+  computeSpeculativeStartRatio,
+  type createModelSummarizer,
+  MessageHistory,
+} from "@ai-sdk-tool/harness";
+import { beforeEach, describe, expect, it } from "vitest";
 import { agentManager, selectTranslationReasoningMode } from "./agent";
 
 describe("AgentManager translation state", () => {
@@ -49,5 +54,46 @@ describe("AgentManager translation reasoning selection", () => {
     agentManager.setReasoningMode("interleaved");
 
     expect(agentManager.getTranslationReasoningMode()).toBe("on");
+  });
+});
+
+describe("AgentManager compaction config", () => {
+  beforeEach(() => {
+    agentManager.resetForTesting();
+  });
+
+  it("uses dynamically computed speculative ratio based on context and reserve", () => {
+    agentManager.setProvider("friendli");
+    agentManager.setModelId("test-compact");
+
+    const mutableAgentManager = agentManager as unknown as {
+      getProviderModel(
+        modelId: string,
+        provider: string
+      ): Parameters<typeof createModelSummarizer>[0];
+    };
+    mutableAgentManager.getProviderModel = () => ({}) as never;
+
+    const compaction = agentManager.buildCompactionConfig();
+    const contextLength = agentManager.getModelTokenLimits().contextLength;
+    const history = new MessageHistory({ compaction });
+    history.setContextLimit(contextLength);
+    history.addUserMessage("hello");
+
+    const expectedRatio = computeSpeculativeStartRatio(
+      contextLength,
+      compaction.reserveTokens
+    );
+
+    expect(compaction.maxTokens).toBe(20_480);
+    expect(agentManager.getModelTokenLimits().maxCompletionTokens).toBe(20_480);
+    expect(compaction.reserveTokens).toBe(2048);
+    expect(compaction.keepRecentTokens).toBe(Math.floor(20_480 * 0.3));
+    expect(compaction.speculativeStartRatio).toBe(expectedRatio);
+    expect(expectedRatio).toBeCloseTo(0.7, 2);
+
+    history.updateActualUsage({ totalTokens: 16_000 });
+    expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);
+    expect(history.needsCompaction()).toBe(false);
   });
 });

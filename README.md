@@ -38,14 +38,15 @@ No framework overhead. No abstraction tax. Just the interface between model and 
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) >= 1.0
+- Node.js >= 22
+- pnpm >= 10
 - A [FriendliAI](https://friendli.ai) API token (or any Vercel AI SDK-compatible provider)
 
 ### Run directly
 
 ```bash
 export FRIENDLI_TOKEN=your_token_here
-bunx plugsuits
+pnpm dlx plugsuits
 ```
 
 ### Local development
@@ -53,8 +54,8 @@ bunx plugsuits
 ```bash
 git clone https://github.com/minpeter/plugsuits.git
 cd plugsuits
-bun install
-bun start
+pnpm install
+pnpm dev
 ```
 
 ## Usage
@@ -62,7 +63,7 @@ bun start
 ### Interactive mode
 
 ```
-$ bun start
+$ pnpm dev
 
 Chat with AI (model: LGAI-EXAONE/K-EXAONE-236B-A23B)
 Use '/help' for commands, 'ctrl-c' to quit
@@ -85,7 +86,7 @@ Available commands:
 ### Headless mode
 
 ```bash
-bun run headless -- --prompt "Fix the type error in src/index.ts"
+pnpm run headless -- "Fix the type error in src/index.ts"
 ```
 
 Outputs structured JSONL events (`user`, `tool_call`, `tool_result`, `assistant`, `error`) for programmatic consumption.
@@ -121,21 +122,22 @@ plugsuits/
 ## Development
 
 ```bash
-bun install          # Install dependencies
-bun start            # Interactive TUI
-bun run headless     # Headless JSONL mode
-bun test             # Run all tests (436 tests)
-bun run typecheck    # Type check (harness + cea)
-bun run check        # Lint — non-mutating
-bun run lint         # Lint — auto-fix
-bun run build        # Build (harness → cea)
+pnpm install         # Install dependencies
+pnpm dev             # Interactive TUI (source mode)
+pnpm run headless -- "Fix the bug"  # Headless JSONL mode
+pnpm test            # Run all tests
+pnpm run typecheck   # Type check all packages
+pnpm run check       # Lint — non-mutating
+pnpm run lint        # Lint — auto-fix
+pnpm run build       # Build (harness → cea)
 ```
 
 ## Built With
 
 - [Vercel AI SDK](https://sdk.vercel.ai) — Model provider abstraction and streaming
 - [FriendliAI](https://friendli.ai) — Default model provider
-- [Bun](https://bun.sh) — Runtime and package manager
+- [pnpm](https://pnpm.io) — Workspace package manager
+- [Turborepo](https://turbo.build/repo) — Task orchestration and caching
 - [TypeScript](https://www.typescriptlang.org) — Strict mode throughout
 
 ## License

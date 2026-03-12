@@ -1,4 +1,3 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -8,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { executeReadFile } from "./read-file";
 
 const ISO_DATE_PATTERN = /\d{4}-\d{2}-\d{2}T/;
@@ -199,6 +199,27 @@ describe("executeReadFile", () => {
       await expect(
         executeReadFile({ path: join(tempDir, "nonexistent.txt") })
       ).rejects.toThrow();
+    });
+
+    it("explains cwd resolution for missing relative files", async () => {
+      const originalCwd = process.cwd();
+      const repoDir = mkdtempSync(join(tmpdir(), "read-missing-relative-"));
+      const nestedDir = join(repoDir, "nested");
+
+      try {
+        mkdirSync(nestedDir);
+        process.chdir(nestedDir);
+        const currentCwd = process.cwd();
+
+        await expect(executeReadFile({ path: "README.md" })).rejects.toThrow(
+          `File not found: 'README.md' (resolved to '${join(currentCwd, "README.md")}' from working directory '${currentCwd}')`
+        );
+      } finally {
+        process.chdir(originalCwd);
+        if (existsSync(repoDir)) {
+          rmSync(repoDir, { recursive: true });
+        }
+      }
     });
 
     it("respects .ignore and .fdignore by default", async () => {

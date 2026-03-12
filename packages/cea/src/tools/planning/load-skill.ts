@@ -3,7 +3,12 @@ import { isAbsolute, join, normalize, relative } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { loadSkillById, type SkillInfo } from "../../context/skills";
-import LOAD_SKILL_DESCRIPTION from "./load-skill.txt";
+import { readTextAsset } from "../../utils/text-asset";
+
+const LOAD_SKILL_DESCRIPTION = readTextAsset(
+  "./load-skill.txt",
+  import.meta.url
+);
 
 const inputSchema = z.object({
   skillName: z

@@ -13,6 +13,7 @@ import type {
 
 export type {
   LanguageModel,
+  LanguageModelUsage,
   ModelMessage,
   Tool,
   ToolCallPart,
@@ -39,6 +40,13 @@ export interface Agent {
   stream(opts: AgentStreamOptions): AgentStreamResult;
 }
 
+/** Shared runtime stream surface consumed by shell packages. */
+export interface RunnableAgent {
+  stream(
+    opts: AgentStreamOptions
+  ): AgentStreamResult | Promise<AgentStreamResult>;
+}
+
 /** Options passed to {@link Agent.stream} for a single turn. */
 export interface AgentStreamOptions {
   abortSignal?: AbortSignal;
@@ -53,6 +61,10 @@ export interface AgentStreamResult {
   finishReason: CoreStreamResult["finishReason"];
   fullStream: CoreStreamResult["fullStream"];
   response: CoreStreamResult["response"];
+  /** Aggregated token usage across all steps in this turn. */
+  totalUsage: CoreStreamResult["totalUsage"];
+  /** Token usage for this turn (last step). Resolves after streaming completes. */
+  usage: CoreStreamResult["usage"];
 }
 
 export type AgentFinishReason = Awaited<AgentStreamResult["finishReason"]>;

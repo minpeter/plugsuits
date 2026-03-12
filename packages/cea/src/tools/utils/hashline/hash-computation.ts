@@ -1,20 +1,26 @@
+import { createHash } from "node:crypto";
 import { HASHLINE_DICT } from "./constants";
 import { createHashlineChunkFormatter } from "./hashline-chunk-formatter";
 
 const RE_SIGNIFICANT = /[\p{L}\p{N}]/u;
+
+function hashToUInt32(input: string): number {
+  const digest = createHash("sha256").update(input).digest();
+  return digest.readUInt32BE(0);
+}
 
 export function computeLineHash(lineNumber: number, content: string): string {
   const stripped = content.endsWith("\r")
     ? content.slice(0, -1).replace(/\s+/g, "")
     : content.replace(/\s+/g, "");
   const seed = RE_SIGNIFICANT.test(stripped) ? 0 : lineNumber;
-  const hash = Bun.hash.xxHash32(stripped, seed);
+  const hash = hashToUInt32(`${seed}:${stripped}`);
   const index = hash % 256;
   return HASHLINE_DICT[index];
 }
 
 export function computeFileHash(content: string): string {
-  const rawHash = Bun.hash.xxHash32(content, 0);
+  const rawHash = hashToUInt32(content);
   const normalized =
     ((rawHash % 0x1_00_00_00_00) + 0x1_00_00_00_00) % 0x1_00_00_00_00;
   return normalized.toString(16).padStart(8, "0");

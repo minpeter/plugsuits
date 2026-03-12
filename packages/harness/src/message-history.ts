@@ -1,6 +1,6 @@
 import type { ModelMessage, TextPart, ToolResultPart } from "ai";
-import { pruneToolOutputs } from "./tool-pruning";
 import type { PruningConfig } from "./tool-pruning";
+import { pruneToolOutputs } from "./tool-pruning";
 
 const TRAILING_NEWLINES = /\n+$/;
 
@@ -26,14 +26,19 @@ function sanitizeSummaryText(text: string): string {
   // Remove XML-like tags that could be interpreted as system boundaries
   return text
     .replace(/<\s*(\/?)\s*(system|user|assistant)\s*>/gi, "[$1$2]")
-    .replace(/[\x00-\x09\x0B-\x1F]/g, ""); // Remove control characters except newlines (\x0A)
+    .split("")
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code === 0x0a || code > 0x1f;
+    })
+    .join("");
 }
 
 /**
  * Improved token estimator that accounts for CJK characters.
  * CJK characters typically map to ~1-2 tokens each (vs ~4 chars/token for Latin).
  */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   const cjkMatches = text.match(CJK_REGEX);
   const cjkCount = cjkMatches ? cjkMatches.length : 0;
   const nonCjkCount = text.length - cjkCount;
@@ -42,6 +47,56 @@ function estimateTokens(text: string): number {
   const nonCjkTokens = nonCjkCount / LATIN_CHARS_PER_TOKEN;
 
   return Math.ceil(cjkTokens + nonCjkTokens);
+}
+
+const SPECULATIVE_BUFFER_TOKENS = 4096;
+const FALLBACK_SPECULATIVE_RATIO = 0.6;
+const MAX_SPECULATIVE_RATIO = 0.95;
+const MIN_SPECULATIVE_RATIO = 0.15;
+
+/**
+ * Compute the speculative compaction start ratio for a given context window.
+ *
+ * Tuned for medium-to-large contexts (20k+ tokens). The fixed 4096-token
+ * headroom buffer becomes meaningless for tiny windows (e.g. 600 tokens),
+ * where the fallback heuristic in {@link shouldStartSpeculativeCompactionForNextTurn}
+ * (`contextLimit - 2 * reserveTokens`) is more appropriate.
+ *
+ * For sub-8k contexts, prefer omitting `speculativeStartRatio` from the
+ * compaction config and letting the fallback take over.
+ */
+export function computeSpeculativeStartRatio(
+  contextLength: number,
+  reserveTokens = 0
+): number {
+  if (
+    !(Number.isFinite(contextLength) && Number.isFinite(reserveTokens)) ||
+    contextLength <= 0
+  ) {
+    return FALLBACK_SPECULATIVE_RATIO;
+  }
+
+  // Normalize reserveTokens: clamp to [0, contextLength - 1]
+  const normalizedReserve = Math.max(
+    0,
+    Math.min(reserveTokens, contextLength - 1)
+  );
+
+  const ratio =
+    (contextLength - normalizedReserve - SPECULATIVE_BUFFER_TOKENS) /
+    contextLength;
+
+  // Final clamp: ratio must satisfy floor(ctx * ratio) < (ctx - reserve).
+  // -1 ensures strict inequality; applied AFTER min/max to override MIN_SPECULATIVE_RATIO.
+  const hardThresholdRatio =
+    (contextLength - normalizedReserve - 1) / contextLength;
+
+  const clamped = Math.max(
+    MIN_SPECULATIVE_RATIO,
+    Math.min(MAX_SPECULATIVE_RATIO, ratio)
+  );
+
+  return Math.min(clamped, hardThresholdRatio);
 }
 
 /**
@@ -83,14 +138,167 @@ function estimateMessagesTokens(messages: ModelMessage[]): number {
   }, 0);
 }
 
+function removeToolMessagesAtIndex(
+  messages: ModelMessage[],
+  startIndex: number,
+  totalTokens: number
+): number {
+  let nextTotalTokens = totalTokens;
+
+  while (
+    startIndex < messages.length - 1 &&
+    messages[startIndex].role === "tool"
+  ) {
+    nextTotalTokens -= estimateTokens(extractMessageText(messages[startIndex]));
+    messages.splice(startIndex, 1);
+  }
+
+  return nextTotalTokens;
+}
+
+function removeDanglingToolCallAtIndex(
+  messages: ModelMessage[],
+  index: number,
+  totalTokens: number
+): number {
+  if (
+    index >= messages.length ||
+    !hasToolCalls(messages[index]) ||
+    (index + 1 < messages.length && messages[index + 1].role === "tool")
+  ) {
+    return totalTokens;
+  }
+
+  const nextTotalTokens =
+    totalTokens - estimateTokens(extractMessageText(messages[index]));
+  messages.splice(index, 1);
+  return nextTotalTokens;
+}
+
+function truncateSystemMessageToBudget(
+  messages: ModelMessage[],
+  totalTokens: number,
+  maxMessageTokens: number
+): number {
+  const systemIdx = messages.findIndex((m) => m.role === "system");
+  if (systemIdx === -1) {
+    return totalTokens;
+  }
+
+  const systemMessage = messages[systemIdx];
+  const systemText =
+    typeof systemMessage.content === "string" ? systemMessage.content : "";
+  const systemTokens = estimateTokens(systemText);
+  const otherTokens = totalTokens - systemTokens;
+  const allowedSystemTokens = Math.max(0, maxMessageTokens - otherTokens);
+
+  if (allowedSystemTokens <= 0) {
+    messages.splice(systemIdx, 1);
+    return totalTokens - systemTokens;
+  }
+
+  if (allowedSystemTokens >= systemTokens) {
+    return totalTokens;
+  }
+
+  const charBudget = allowedSystemTokens * LATIN_CHARS_PER_TOKEN;
+  const truncated = `${systemText.slice(0, charBudget)}... [truncated]`;
+  messages[systemIdx] = { role: "system", content: truncated };
+  return otherTokens + estimateTokens(truncated);
+}
+
+function ensureValidToolSequence(messages: ModelMessage[]): ModelMessage[] {
+  while (messages.length > 0 && messages[0].role === "tool") {
+    messages.shift();
+  }
+
+  let i = 1;
+  while (i < messages.length) {
+    if (messages[i].role === "tool") {
+      const prev = messages[i - 1];
+      if (prev.role !== "assistant" || !hasToolCalls(prev)) {
+        messages.splice(i, 1);
+        continue;
+      }
+    }
+    i++;
+  }
+
+  i = 0;
+  while (i < messages.length) {
+    if (hasToolCalls(messages[i])) {
+      const nextIdx = i + 1;
+      if (nextIdx >= messages.length || messages[nextIdx].role !== "tool") {
+        messages.splice(i, 1);
+        continue;
+      }
+    }
+    i++;
+  }
+
+  return messages;
+}
+
 /**
  * Check if a message contains tool-call parts.
  */
 function hasToolCalls(message: ModelMessage): boolean {
-  if (message.role !== "assistant") return false;
-  if (!Array.isArray(message.content)) return false;
+  if (message.role !== "assistant") {
+    return false;
+  }
+  if (!Array.isArray(message.content)) {
+    return false;
+  }
   return message.content.some(
-    (part) => typeof part === "object" && part !== null && part.type === "tool-call"
+    (part) =>
+      typeof part === "object" && part !== null && part.type === "tool-call"
+  );
+}
+
+function isToolResultContentPart(part: unknown): part is {
+  output: unknown;
+  toolName: string;
+  type: "tool-result";
+} {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    part.type === "tool-result" &&
+    "toolName" in part &&
+    "output" in part
+  );
+}
+
+function moveSplitIndexPastToolResults(
+  messages: { modelMessage: ModelMessage }[],
+  index: number
+): number {
+  let adjustedIndex = index;
+  while (
+    adjustedIndex < messages.length &&
+    messages[adjustedIndex].modelMessage.role === "tool"
+  ) {
+    adjustedIndex++;
+  }
+  return adjustedIndex;
+}
+
+function shouldPullAssistantIntoKeptMessages(
+  messages: { modelMessage: ModelMessage }[],
+  proposedIndex: number,
+  adjustedIndex: number
+): boolean {
+  if (adjustedIndex !== proposedIndex || adjustedIndex <= 0) {
+    return false;
+  }
+
+  const previousMessage = messages[adjustedIndex - 1];
+  return (
+    previousMessage !== undefined &&
+    hasToolCalls(previousMessage.modelMessage) &&
+    adjustedIndex < messages.length &&
+    messages[adjustedIndex].modelMessage.role === "tool"
   );
 }
 
@@ -107,40 +315,18 @@ function adjustSplitIndexForToolPairs(
     return proposedIndex;
   }
 
-  // If the message at splitIndex is a tool result, we'd be separating it from
-  // its tool-call. Move splitIndex forward to include tool results with their calls.
-  let idx = proposedIndex;
-  while (idx < messages.length && messages[idx].modelMessage.role === "tool") {
-    idx++;
+  const adjustedIndex = moveSplitIndexPastToolResults(messages, proposedIndex);
+  if (adjustedIndex <= 0) {
+    return proposedIndex;
   }
 
-  // If the message just before splitIndex is an assistant with tool-calls,
-  // the tool results are being kept but the tool-call is being summarized.
-  // Move splitIndex back to include the assistant message too.
-  if (idx > 0 && idx <= messages.length) {
-    const prevMsg = messages[idx - 1];
-    if (prevMsg && hasToolCalls(prevMsg.modelMessage)) {
-      // The assistant message at idx-1 has tool-calls. Check if idx has the tool results.
-      // If so, we need to keep the assistant message too — move split back.
-      // But only if we haven't already adjusted past it.
-      if (idx === proposedIndex) {
-        // No tool messages at split point, check if we're splitting a pair
-        const prevPrev = idx >= 2 ? messages[idx - 1] : null;
-        if (prevPrev && hasToolCalls(prevPrev.modelMessage)) {
-          // assistant with tool-calls is being summarized, but its results might be at idx
-          if (idx < messages.length && messages[idx].modelMessage.role === "tool") {
-            // Results are being kept — include the assistant too
-            idx--;
-          }
-        }
-      }
-    }
+  if (
+    shouldPullAssistantIntoKeptMessages(messages, proposedIndex, adjustedIndex)
+  ) {
+    return adjustedIndex - 1;
   }
 
-  // Final check: if idx would leave nothing to summarize, return original
-  if (idx <= 0) return proposedIndex;
-
-  return idx;
+  return adjustedIndex;
 }
 
 function trimTrailingNewlines(message: ModelMessage): ModelMessage {
@@ -196,18 +382,58 @@ export interface Message {
 }
 
 /**
+ * Actual token usage reported by the API after a streaming turn.
+ * Preferred over character-based estimation for compaction decisions.
+ */
+export interface ActualTokenUsage {
+  completionTokens: number;
+  promptTokens: number;
+  totalTokens: number;
+  updatedAt: Date;
+}
+
+/**
+ * Snapshot of context utilization for display purposes.
+ * Returned by `getContextUsage()`.
+ */
+export interface ContextUsage {
+  limit: number;
+  percentage: number;
+  remaining: number;
+  source: "actual" | "estimated";
+  used: number;
+}
+
+/**
  * Summary entry representing a compacted batch of messages.
  */
 export interface CompactionSummary {
-  id: string;
   createdAt: Date;
-  summary: string;
   /** ID of the first message that was kept after this summary */
   firstKeptMessageId: string;
-  /** Estimated tokens before compaction */
-  tokensBefore: number;
+  id: string;
+  summary: string;
   /** Estimated tokens in the summary */
   summaryTokens: number;
+  /** Estimated tokens before compaction */
+  tokensBefore: number;
+}
+
+export interface PreparedCompaction {
+  actualUsage: ActualTokenUsage | null;
+  baseMessageIds: string[];
+  baseRevision: number;
+  baseSummaryIds: string[];
+  compactionMaxTokensAtCreation: number;
+  contextLimitAtCreation: number;
+  didChange: boolean;
+  keepRecentTokensAtCreation: number;
+  messages: Message[];
+  pendingCompaction: boolean;
+  phase: "intermediate-step" | "new-turn";
+  rejected: boolean;
+  summaries: CompactionSummary[];
+  tokenDelta: number;
 }
 
 /**
@@ -222,18 +448,18 @@ export interface CompactionConfig {
   enabled?: boolean;
 
   /**
-   * Maximum total tokens before triggering compaction.
-   * When exceeded, older messages will be summarized.
-   * @default 8000
-   */
-  maxTokens?: number;
-
-  /**
    * Number of recent tokens to preserve from compaction.
    * These messages are always kept in full form.
    * @default 2000
    */
   keepRecentTokens?: number;
+
+  /**
+   * Maximum total tokens before triggering compaction.
+   * When exceeded, older messages will be summarized.
+   * @default 8000
+   */
+  maxTokens?: number;
 
   /**
    * Reserve tokens for the response. Compaction triggers when
@@ -243,29 +469,44 @@ export interface CompactionConfig {
   reserveTokens?: number;
 
   /**
+   * Optional ratio for starting speculative/background compaction early.
+   * When set, speculative compaction starts once current usage reaches
+   * `maxTokens * speculativeStartRatio`.
+   *
+   * If omitted or invalid, the fallback heuristic is used:
+   * `maxTokens - 2 * reserveTokens`.
+   *
+   * For sub-8k contexts, omit this field and let the fallback heuristic
+   * handle it. See {@link computeSpeculativeStartRatio} for details.
+   */
+  speculativeStartRatio?: number;
+
+  /**
    * Custom function to summarize a batch of messages.
    * If not provided, an improved extraction-based fallback is used.
    *
    * @param messages - The messages to summarize
    * @param previousSummary - Optional previous summary to build upon (iterative compaction)
    */
-  summarizeFn?: (messages: ModelMessage[], previousSummary?: string) => Promise<string>;
+  summarizeFn?: (
+    messages: ModelMessage[],
+    previousSummary?: string
+  ) => Promise<string>;
 }
 
 export interface MessageHistoryOptions {
-  /**
-   * Maximum number of messages to retain. When exceeded, older messages
-   * are trimmed from the front while preserving the initial user message
-   * for context continuity. Defaults to 1000.
-   */
-  maxMessages?: number;
-
   /**
    * Incremental compaction configuration for managing long contexts.
    * When enabled, older messages are summarized to reduce token usage
    * while preserving important context.
    */
   compaction?: CompactionConfig;
+  /**
+   * Maximum number of messages to retain. When exceeded, older messages
+   * are trimmed from the front while preserving the initial user message
+   * for context continuity. Defaults to 1000.
+   */
+  maxMessages?: number;
 
   /**
    * Tool output pruning configuration.
@@ -288,6 +529,36 @@ const DEFAULT_MAX_MESSAGES = 1000;
 const DEFAULT_COMPACTION_MAX_TOKENS = 8000;
 const DEFAULT_COMPACTION_KEEP_RECENT = 2000;
 const DEFAULT_COMPACTION_RESERVE = 2000;
+const INTERMEDIATE_STEP_RESERVE_MULTIPLIER = 2;
+
+type MessagePreparationPhase = "new-turn" | "intermediate-step";
+
+interface CompactionCheckOptions {
+  phase?: MessagePreparationPhase;
+}
+
+type SummaryDeltaCallback = (delta: string) => void | Promise<void>;
+
+type CompactOptions = CompactionCheckOptions & {
+  aggressive?: boolean;
+  allowPruning?: boolean;
+  onSummaryDelta?: SummaryDeltaCallback;
+  summarizeFn?: (
+    messages: ModelMessage[],
+    previousSummary?: string,
+    onSummaryDelta?: SummaryDeltaCallback
+  ) => Promise<string>;
+};
+
+type MessagePreparationOptions = CompactionCheckOptions & {
+  allowPruning?: boolean;
+  onSummaryDelta?: SummaryDeltaCallback;
+  summarizeFn?: (
+    messages: ModelMessage[],
+    previousSummary?: string,
+    onSummaryDelta?: SummaryDeltaCallback
+  ) => Promise<string>;
+};
 
 /**
  * Improved default summarizer that extracts conversation essence.
@@ -296,131 +567,225 @@ const DEFAULT_COMPACTION_RESERVE = 2000;
  * Output is sanitized to prevent prompt injection and structured with
  * clear sections for context preservation.
  */
-async function defaultSummarizeFn(messages: ModelMessage[], previousSummary?: string): Promise<string> {
-  if (messages.length === 0) {
-    return sanitizeSummaryText(`${SUMMARY_PREFIX}\n(empty conversation)`);
+function truncateWithEllipsis(text: string, maxLength: number): string {
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function getToolNamesFromMessage(message: ModelMessage): string {
+  if (!Array.isArray(message.content)) {
+    return "tool";
   }
 
-  // Extract user intents (what the user asked/said)
-  const userIntents: string[] = [];
-  // Extract assistant key responses
-  const assistantResponses: string[] = [];
-  // Extract tool usage summary
-  const toolUsage: string[] = [];
+  const toolNames: string[] = [];
+  for (const part of message.content) {
+    if (isToolResultContentPart(part)) {
+      toolNames.push(part.toolName);
+    }
+  }
 
-  const turns: string[] = [];
-  let currentTurn: string[] = [];
+  return toolNames.join(", ") || "tool";
+}
 
-  for (const msg of messages) {
-    const role = msg.role;
-    const text = extractMessageText(msg);
+function buildTopicEntries(userIntents: string[]): string[] {
+  if (userIntents.length <= 4) {
+    return userIntents;
+  }
 
-    if (role === "tool") {
-      // For tool results, only include a brief indicator
-      const toolName = Array.isArray(msg.content)
-        ? msg.content
-            .filter(
-              (p: any) =>
-                typeof p === "object" && p !== null && p.type === "tool-result"
-            )
-            .map((p: any) => p.toolName)
-            .join(", ")
-        : "tool";
-      const briefOutput = text.slice(0, 100);
-      const suffix = text.length > 100 ? "..." : "";
-      currentTurn.push(`  [tool:${sanitizeSummaryText(toolName)}]: ${sanitizeSummaryText(briefOutput + suffix)}`);
-      if (!toolUsage.includes(toolName)) {
-        toolUsage.push(sanitizeSummaryText(toolName));
-      }
+  const lastIntent = userIntents.at(-1);
+  return lastIntent
+    ? [
+        ...userIntents.slice(0, 2),
+        `(... ${userIntents.length - 3} more)`,
+        lastIntent,
+      ]
+    : userIntents;
+}
+
+function buildConversationSection(turns: string[]): string {
+  if (turns.length <= 6) {
+    return turns.join("\n---\n");
+  }
+
+  return [
+    ...turns.slice(0, 2),
+    `[... ${turns.length - 4} turns omitted ...]`,
+    ...turns.slice(-2),
+  ].join("\n---\n");
+}
+
+interface SummaryBuildState {
+  assistantResponses: string[];
+  currentTurn: string[];
+  toolUsage: string[];
+  turns: string[];
+  userIntents: string[];
+}
+
+function createSummaryBuildState(): SummaryBuildState {
+  return {
+    assistantResponses: [],
+    currentTurn: [],
+    toolUsage: [],
+    turns: [],
+    userIntents: [],
+  };
+}
+
+function finalizeSummaryTurn(state: SummaryBuildState): void {
+  if (state.currentTurn.length === 0) {
+    return;
+  }
+
+  state.turns.push(state.currentTurn.join("\n"));
+  state.currentTurn = [];
+}
+
+function appendToolMessageToSummaryState(
+  state: SummaryBuildState,
+  message: ModelMessage,
+  text: string
+): void {
+  const toolName = sanitizeSummaryText(getToolNamesFromMessage(message));
+  const briefOutput = sanitizeSummaryText(truncateWithEllipsis(text, 100));
+  state.currentTurn.push(`  [tool:${toolName}]: ${briefOutput}`);
+  if (!state.toolUsage.includes(toolName)) {
+    state.toolUsage.push(toolName);
+  }
+}
+
+function appendConversationMessageToSummaryState(
+  state: SummaryBuildState,
+  message: ModelMessage,
+  text: string
+): void {
+  if (message.role === "user" && state.currentTurn.length > 0) {
+    finalizeSummaryTurn(state);
+  }
+
+  const truncated = truncateWithEllipsis(text, MAX_TEXT_LENGTH_PER_MESSAGE);
+  const sanitizedRole = sanitizeSummaryText(message.role);
+  const sanitizedContent = sanitizeSummaryText(truncated);
+  state.currentTurn.push(`[${sanitizedRole}]: ${sanitizedContent}`);
+
+  if (message.role === "user") {
+    const intent = sanitizeSummaryText(text.slice(0, 150));
+    if (intent.trim()) {
+      state.userIntents.push(intent);
+    }
+  }
+
+  if (message.role === "assistant" && text.trim()) {
+    const response = sanitizeSummaryText(text.slice(0, 150));
+    if (response.trim()) {
+      state.assistantResponses.push(response);
+    }
+  }
+}
+
+function collectSummaryBuildState(messages: ModelMessage[]): SummaryBuildState {
+  const state = createSummaryBuildState();
+
+  for (const message of messages) {
+    const text = extractMessageText(message);
+    if (message.role === "tool") {
+      appendToolMessageToSummaryState(state, message, text);
       continue;
     }
 
-    // New user message starts a new turn
-    if (role === "user" && currentTurn.length > 0) {
-      turns.push(currentTurn.join("\n"));
-      currentTurn = [];
-    }
-
-    const truncated = text.slice(0, MAX_TEXT_LENGTH_PER_MESSAGE);
-    const suffix = text.length > MAX_TEXT_LENGTH_PER_MESSAGE ? "..." : "";
-    const sanitizedRole = sanitizeSummaryText(role);
-    const sanitizedContent = sanitizeSummaryText(truncated + suffix);
-    currentTurn.push(`[${sanitizedRole}]: ${sanitizedContent}`);
-
-    // Track user intents (first 150 chars)
-    if (role === "user") {
-      const intent = sanitizeSummaryText(text.slice(0, 150));
-      if (intent.trim()) {
-        userIntents.push(intent);
-      }
-    }
-
-    // Track assistant key points (first 150 chars)
-    if (role === "assistant" && text.trim()) {
-      const response = sanitizeSummaryText(text.slice(0, 150));
-      if (response.trim()) {
-        assistantResponses.push(response);
-      }
-    }
+    appendConversationMessageToSummaryState(state, message, text);
   }
 
-  if (currentTurn.length > 0) {
-    turns.push(currentTurn.join("\n"));
-  }
+  finalizeSummaryTurn(state);
+  return state;
+}
 
-  // Build structured summary
+function buildSummarySections(
+  state: SummaryBuildState,
+  previousSummary?: string
+): string[] {
   const sections: string[] = [];
 
-  // Section 0: Previous context (if iterative compaction)
   if (previousSummary) {
     sections.push(`Previous Context:\n${sanitizeSummaryText(previousSummary)}`);
   }
 
-  // Section 1: Key Topics (from user messages)
-  if (userIntents.length > 0) {
-    const topicEntries = userIntents.length > 4
-      ? [...userIntents.slice(0, 2), `(... ${userIntents.length - 3} more)`, userIntents[userIntents.length - 1]]
-      : userIntents;
-    sections.push(`Key Topics:\n${topicEntries.map(t => `- ${t}`).join("\n")}`);
+  if (state.userIntents.length > 0) {
+    const topicEntries = buildTopicEntries(state.userIntents);
+    sections.push(
+      `Key Topics:\n${topicEntries.map((topic) => `- ${topic}`).join("\n")}`
+    );
   }
 
-  // Section 2: Tools Used
-  if (toolUsage.length > 0) {
-    sections.push(`Tools Used: ${toolUsage.join(", ")}`);
+  if (state.toolUsage.length > 0) {
+    sections.push(`Tools Used: ${state.toolUsage.join(", ")}`);
   }
 
-  // Section 3: Conversation Flow (condensed turns)
-  let turnBody: string;
-  if (turns.length > 6) {
-    const kept = [
-      ...turns.slice(0, 2),
-      `[... ${turns.length - 4} turns omitted ...]`,
-      ...turns.slice(-2),
-    ];
-    turnBody = kept.join("\n---\n");
-  } else {
-    turnBody = turns.join("\n---\n");
-  }
-  sections.push(`Conversation:\n${turnBody}`);
+  sections.push(`Conversation:\n${buildConversationSection(state.turns)}`);
 
-  // Section 4: Last state (most recent assistant response)
-  if (assistantResponses.length > 0) {
-    const lastResponse = assistantResponses[assistantResponses.length - 1];
+  if (state.assistantResponses.length > 0) {
+    const lastResponse = state.assistantResponses.at(-1);
     sections.push(`Last Response: ${lastResponse}`);
   }
 
+  return sections;
+}
+
+function defaultSummarizeFn(
+  messages: ModelMessage[],
+  previousSummary?: string
+): Promise<string> {
+  if (messages.length === 0) {
+    return Promise.resolve(
+      sanitizeSummaryText(`${SUMMARY_PREFIX}\n(empty conversation)`)
+    );
+  }
+
+  const state = collectSummaryBuildState(messages);
+  const sections = buildSummarySections(state, previousSummary);
   const summary = `${SUMMARY_PREFIX}\n${sections.join("\n\n")}`;
-  return sanitizeSummaryText(summary);
+  return Promise.resolve(sanitizeSummaryText(summary));
+}
+
+function cloneActualUsage(
+  usage: ActualTokenUsage | null
+): ActualTokenUsage | null {
+  if (!usage) {
+    return null;
+  }
+
+  return {
+    ...usage,
+    updatedAt: new Date(usage.updatedAt),
+  };
+}
+
+function cloneCompactionSummary(summary: CompactionSummary): CompactionSummary {
+  return {
+    ...summary,
+    createdAt: new Date(summary.createdAt),
+  };
+}
+
+function cloneMessage(message: Message): Message {
+  return {
+    ...message,
+    createdAt: new Date(message.createdAt),
+  };
 }
 
 export class MessageHistory {
   private messages: Message[] = [];
   private readonly maxMessages: number;
-  private compaction: CompactionConfig;
-  private pruning: PruningConfig;
+  private readonly compaction: CompactionConfig;
+  private readonly pruning: PruningConfig;
   private summaries: CompactionSummary[] = [];
+  private _lastCompactionRejected = false;
   private compactionInProgress = false;
   private pendingCompaction = false;
+  private actualUsage: ActualTokenUsage | null = null;
+  private contextLimit = 0;
+  private systemPromptTokens = 0;
+  private revision = 0;
 
   constructor(options?: MessageHistoryOptions) {
     const max = options?.maxMessages ?? DEFAULT_MAX_MESSAGES;
@@ -433,11 +798,13 @@ export class MessageHistory {
 
     this.compaction = {
       enabled: options?.compaction?.enabled ?? false,
-      maxTokens: options?.compaction?.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS,
+      maxTokens:
+        options?.compaction?.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS,
       keepRecentTokens:
         options?.compaction?.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT,
       reserveTokens:
         options?.compaction?.reserveTokens ?? DEFAULT_COMPACTION_RESERVE,
+      speculativeStartRatio: options?.compaction?.speculativeStartRatio,
       summarizeFn: options?.compaction?.summarizeFn,
     };
 
@@ -458,9 +825,16 @@ export class MessageHistory {
     return [...this.summaries];
   }
 
+  get lastCompactionRejected(): boolean {
+    return this._lastCompactionRejected;
+  }
+
   clear(): void {
     this.messages = [];
     this.summaries = [];
+    this.actualUsage = null;
+    this.pendingCompaction = false;
+    this.touch();
   }
 
   /**
@@ -484,11 +858,136 @@ export class MessageHistory {
     return this.pruning.enabled === true;
   }
 
-  /**
-   * Get the current pruning configuration.
-   */
   getPruningConfig(): Readonly<PruningConfig> {
     return { ...this.pruning };
+  }
+
+  setContextLimit(limit: number): void {
+    if (this.contextLimit === limit) {
+      return;
+    }
+    this.contextLimit = limit;
+    this.touch();
+  }
+
+  getContextLimit(): number {
+    return this.contextLimit;
+  }
+
+  setSystemPromptTokens(tokens: number): void {
+    this.systemPromptTokens = Math.max(0, tokens);
+  }
+
+  getSystemPromptTokens(): number {
+    return this.systemPromptTokens;
+  }
+
+  getRecommendedMaxOutputTokens(
+    messagesForLLM?: ModelMessage[]
+  ): number | undefined {
+    if (this.contextLimit <= 0) {
+      return undefined;
+    }
+
+    let estimatedInputTokens: number;
+    if (messagesForLLM) {
+      estimatedInputTokens =
+        this.systemPromptTokens + estimateMessagesTokens(messagesForLLM);
+    } else {
+      const summaryTokens = this.summaries.reduce(
+        (total, s) => total + s.summaryTokens,
+        0
+      );
+      const messageTokens = estimateMessagesTokens(this.toModelMessages());
+      estimatedInputTokens =
+        this.systemPromptTokens + summaryTokens + messageTokens;
+    }
+
+    const reserveTokens = this.getEffectiveReserveTokens();
+    const remaining = this.contextLimit - estimatedInputTokens - reserveTokens;
+    const SAFETY_MARGIN = 0.85;
+    const MIN_OUTPUT = 0;
+
+    return Math.max(MIN_OUTPUT, Math.floor(remaining * SAFETY_MARGIN));
+  }
+
+  private invalidateActualUsage(): void {
+    this.actualUsage = null;
+  }
+
+  private adjustActualUsageAfterReduction(estimatedTokensSaved: number): void {
+    if (!this.actualUsage || estimatedTokensSaved <= 0) {
+      return;
+    }
+    this.actualUsage = {
+      ...this.actualUsage,
+      totalTokens: Math.max(
+        0,
+        this.actualUsage.totalTokens - estimatedTokensSaved
+      ),
+      updatedAt: new Date(),
+    };
+  }
+
+  private touch(): void {
+    this.revision += 1;
+  }
+
+  private setPendingCompaction(value: boolean): void {
+    if (this.pendingCompaction === value) {
+      return;
+    }
+    this.pendingCompaction = value;
+    this.touch();
+  }
+
+  updateActualUsage(usage: {
+    completionTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    promptTokens?: number;
+    totalTokens?: number;
+  }): void {
+    const prompt = usage.promptTokens ?? usage.inputTokens ?? 0;
+    const completion = usage.completionTokens ?? usage.outputTokens ?? 0;
+    const total = usage.totalTokens ?? prompt + completion;
+
+    this.actualUsage = {
+      promptTokens: prompt,
+      completionTokens: completion,
+      totalTokens: total,
+      updatedAt: new Date(),
+    };
+    this.touch();
+  }
+
+  getActualUsage(): Readonly<ActualTokenUsage> | null {
+    return this.actualUsage ? { ...this.actualUsage } : null;
+  }
+
+  getContextUsage(): ContextUsage | null {
+    const limit = this.contextLimit;
+    if (limit <= 0) {
+      return null;
+    }
+
+    if (this.actualUsage) {
+      const used = this.actualUsage.totalTokens;
+      const remaining = Math.max(0, limit - used);
+      const percentage = Math.min(100, Math.round((used / limit) * 100));
+      return { used, limit, remaining, percentage, source: "actual" };
+    }
+
+    const estimated = this.getEstimatedTokens();
+    const remaining = Math.max(0, limit - estimated);
+    const percentage = Math.min(100, Math.round((estimated / limit) * 100));
+    return {
+      used: estimated,
+      limit,
+      remaining,
+      percentage,
+      source: "estimated",
+    };
   }
 
   /**
@@ -496,20 +995,36 @@ export class MessageHistory {
    * Useful when switching models with different context limits.
    */
   updateCompaction(config: Partial<CompactionConfig>): void {
+    let didChange = false;
     if (config.enabled !== undefined) {
+      didChange ||= this.compaction.enabled !== config.enabled;
       this.compaction.enabled = config.enabled;
     }
     if (config.maxTokens !== undefined) {
+      didChange ||= this.compaction.maxTokens !== config.maxTokens;
       this.compaction.maxTokens = config.maxTokens;
     }
     if (config.keepRecentTokens !== undefined) {
+      didChange ||=
+        this.compaction.keepRecentTokens !== config.keepRecentTokens;
       this.compaction.keepRecentTokens = config.keepRecentTokens;
     }
     if (config.reserveTokens !== undefined) {
+      didChange ||= this.compaction.reserveTokens !== config.reserveTokens;
       this.compaction.reserveTokens = config.reserveTokens;
     }
+    if (config.speculativeStartRatio !== undefined) {
+      didChange ||=
+        this.compaction.speculativeStartRatio !== config.speculativeStartRatio;
+      this.compaction.speculativeStartRatio = config.speculativeStartRatio;
+    }
     if (config.summarizeFn !== undefined) {
+      didChange ||= this.compaction.summarizeFn !== config.summarizeFn;
       this.compaction.summarizeFn = config.summarizeFn;
+    }
+
+    if (didChange) {
+      this.touch();
     }
   }
 
@@ -525,21 +1040,239 @@ export class MessageHistory {
     return messagesTokens + summariesTokens;
   }
 
+  private getActiveContextLimit(): number {
+    if (this.contextLimit > 0) {
+      return this.contextLimit;
+    }
+
+    return this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
+  }
+
+  private getCurrentUsageTokens(): number {
+    if (this.actualUsage && this.contextLimit > 0) {
+      return this.actualUsage.totalTokens;
+    }
+
+    return this.getEstimatedTokens();
+  }
+
+  shouldStartSpeculativeCompactionForNextTurn(): boolean {
+    if (
+      !(this.compaction.enabled || this.pruning.enabled) ||
+      this.messages.length === 0
+    ) {
+      return false;
+    }
+
+    const contextLimit = this.getActiveContextLimit();
+    const speculativeStartRatio = this.compaction.speculativeStartRatio;
+    const predictiveThreshold =
+      typeof speculativeStartRatio === "number" &&
+      Number.isFinite(speculativeStartRatio) &&
+      speculativeStartRatio > 0 &&
+      speculativeStartRatio < 1
+        ? Math.floor(contextLimit * speculativeStartRatio)
+        : Math.max(
+            0,
+            contextLimit -
+              this.getEffectiveReserveTokens({ phase: "new-turn" }) * 2
+          );
+
+    return this.getCurrentUsageTokens() >= predictiveThreshold;
+  }
+
+  async prepareSpeculativeCompaction(
+    options?: MessagePreparationOptions
+  ): Promise<PreparedCompaction | null> {
+    if (
+      !(this.compaction.enabled || this.pruning.enabled) ||
+      this.messages.length === 0
+    ) {
+      return null;
+    }
+
+    const baseRevision = this.revision;
+    const baseMessageIds = this.messages.map((message) => message.id);
+    const baseSummaryIds = this.summaries.map((summary) => summary.id);
+    const contextLimitAtCreation = this.getContextLimit();
+    const compactionMaxTokensAtCreation =
+      this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
+    const keepRecentTokensAtCreation = this.compaction.keepRecentTokens ?? 0;
+    const clone = this.cloneForSpeculativeCompaction();
+    const preCompactionTokens = clone.actualUsage?.totalTokens ?? 0;
+    const allowPruning =
+      options?.allowPruning ?? options?.phase !== "intermediate-step";
+    await clone.compact({
+      allowPruning,
+      onSummaryDelta: options?.onSummaryDelta,
+      summarizeFn: options?.summarizeFn,
+      phase: options?.phase,
+    });
+    clone.setPendingCompaction(false);
+    const postCompactionTokens = clone.actualUsage?.totalTokens ?? 0;
+
+    return {
+      actualUsage: cloneActualUsage(clone.actualUsage),
+      baseMessageIds,
+      baseRevision,
+      baseSummaryIds,
+      compactionMaxTokensAtCreation,
+      contextLimitAtCreation,
+      didChange: clone.revision !== baseRevision,
+      keepRecentTokensAtCreation,
+      messages: clone.messages.map(cloneMessage),
+      pendingCompaction: clone.pendingCompaction,
+      phase: options?.phase ?? "new-turn",
+      rejected: clone.lastCompactionRejected,
+      summaries: clone.summaries.map(cloneCompactionSummary),
+      tokenDelta: Math.max(0, preCompactionTokens - postCompactionTokens),
+    };
+  }
+
+  applyPreparedCompaction(prepared: PreparedCompaction): {
+    applied: boolean;
+    reason: "applied" | "noop" | "stale" | "rejected";
+  } {
+    if (
+      prepared.contextLimitAtCreation !== this.getContextLimit() ||
+      prepared.compactionMaxTokensAtCreation !==
+        (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS) ||
+      prepared.keepRecentTokensAtCreation !==
+        (this.compaction.keepRecentTokens ?? 0)
+    ) {
+      return { applied: false, reason: "stale" };
+    }
+
+    const hasExactRevisionMatch = prepared.baseRevision === this.revision;
+    const hasMatchingSummaryPrefix =
+      this.summaries.length === prepared.baseSummaryIds.length &&
+      this.summaries.every(
+        (summary, index) => summary.id === prepared.baseSummaryIds[index]
+      );
+    const hasMatchingMessagePrefix =
+      this.messages.length >= prepared.baseMessageIds.length &&
+      prepared.baseMessageIds.every(
+        (messageId, index) => this.messages[index]?.id === messageId
+      );
+
+    if (
+      !(
+        hasExactRevisionMatch ||
+        (hasMatchingSummaryPrefix && hasMatchingMessagePrefix)
+      )
+    ) {
+      return { applied: false, reason: "stale" };
+    }
+
+    if (prepared.rejected) {
+      return { applied: false, reason: "rejected" };
+    }
+
+    if (!prepared.didChange) {
+      return { applied: false, reason: "noop" };
+    }
+
+    const appendedMessages = hasExactRevisionMatch
+      ? []
+      : this.messages.slice(prepared.baseMessageIds.length).map(cloneMessage);
+
+    this.messages = [
+      ...prepared.messages.map(cloneMessage),
+      ...appendedMessages,
+    ];
+    this.summaries = prepared.summaries.map(cloneCompactionSummary);
+    this.pendingCompaction =
+      appendedMessages.length > 0 ? true : prepared.pendingCompaction;
+    this.adjustActualUsageAfterReduction(prepared.tokenDelta);
+    this.touch();
+
+    return { applied: true, reason: "applied" };
+  }
+
+  wouldExceedContextWithAdditionalMessage(
+    content: string,
+    options?: CompactionCheckOptions
+  ): boolean {
+    if (!(this.compaction.enabled || this.pruning.enabled)) {
+      return false;
+    }
+
+    const reserveTokens = this.getEffectiveReserveTokens(options);
+    const totalTokens =
+      this.getCurrentUsageTokens() + estimateTokens(content) + reserveTokens;
+
+    return totalTokens >= this.getActiveContextLimit();
+  }
+
+  private cloneForSpeculativeCompaction(): MessageHistory {
+    const clone = new MessageHistory({
+      compaction: { ...this.compaction },
+      maxMessages: this.maxMessages,
+      pruning: { ...this.pruning },
+    });
+
+    clone.messages = this.messages.map(cloneMessage);
+    clone.summaries = this.summaries.map(cloneCompactionSummary);
+    clone.pendingCompaction = this.pendingCompaction;
+    clone.actualUsage = cloneActualUsage(this.actualUsage);
+    clone.contextLimit = this.contextLimit;
+    clone.revision = this.revision;
+
+    return clone;
+  }
+
+  private getEffectiveReserveTokens(options?: CompactionCheckOptions): number {
+    const reserveTokens =
+      this.compaction.reserveTokens ?? DEFAULT_COMPACTION_RESERVE;
+
+    if (options?.phase === "intermediate-step") {
+      return reserveTokens * INTERMEDIATE_STEP_RESERVE_MULTIPLIER;
+    }
+
+    return reserveTokens;
+  }
+
   /**
    * Check if compaction is needed based on current token count.
    * This is a synchronous check — no compaction is performed.
    */
-  needsCompaction(): boolean {
+  needsCompaction(options?: CompactionCheckOptions): boolean {
     if (!this.compaction.enabled || this.messages.length === 0) {
       return false;
+    }
+
+    const reserveTokens = this.getEffectiveReserveTokens(options);
+
+    // Prefer actual API-reported usage over character-based estimation
+    if (this.actualUsage && this.contextLimit > 0) {
+      return this.actualUsage.totalTokens + reserveTokens >= this.contextLimit;
     }
 
     const totalTokens = this.getEstimatedTokens();
     const threshold =
       (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS) -
-      (this.compaction.reserveTokens ?? DEFAULT_COMPACTION_RESERVE);
+      reserveTokens;
 
     return totalTokens >= threshold;
+  }
+
+  isAtHardContextLimit(
+    additionalTokens?: number,
+    options?: CompactionCheckOptions
+  ): boolean {
+    if (!(this.compaction.enabled || this.pruning.enabled)) {
+      return false;
+    }
+
+    const currentUsageTokens =
+      this.actualUsage?.totalTokens ?? this.getEstimatedTokens();
+    const effectiveReserveTokens = this.getEffectiveReserveTokens(options);
+    const activeContextLimit = this.getActiveContextLimit();
+
+    return (
+      currentUsageTokens + (additionalTokens ?? 0) + effectiveReserveTokens >=
+      activeContextLimit
+    );
   }
 
   /**
@@ -547,7 +1280,7 @@ export class MessageHistory {
    * When pruning is enabled, it runs first. If pruning alone brings
    * the token count below the compaction threshold, compaction is skipped.
    */
-  async compact(): Promise<boolean> {
+  async compact(options?: CompactOptions): Promise<boolean> {
     if (this.messages.length === 0) {
       return false;
     }
@@ -559,7 +1292,8 @@ export class MessageHistory {
 
     // Run pruning first if enabled
     let pruned = false;
-    if (this.pruning.enabled) {
+    const allowPruning = options?.allowPruning ?? true;
+    if (allowPruning && this.pruning.enabled) {
       pruned = this.performPruning();
     }
 
@@ -568,11 +1302,15 @@ export class MessageHistory {
     }
 
     // If pruning brought us below threshold, skip compaction
-    if (pruned && !this.needsCompaction()) {
+    if (pruned && !this.needsCompaction(options)) {
       return true;
     }
 
-    const compacted = await this.performCompaction();
+    const compacted = await this.performCompaction(
+      options?.summarizeFn,
+      options?.onSummaryDelta,
+      options?.aggressive ?? false
+    );
     return pruned || compacted;
   }
 
@@ -588,6 +1326,8 @@ export class MessageHistory {
     };
     this.messages.push(message);
     this.enforceLimit();
+    this.invalidateActualUsage();
+    this.touch();
     // Mark that compaction may be needed — actual compaction happens
     // at getMessagesForLLM() or via explicit compact() call
     this.markCompactionNeeded();
@@ -609,6 +1349,8 @@ export class MessageHistory {
     }
     this.messages.push(...created);
     this.enforceLimit();
+    this.invalidateActualUsage();
+    this.touch();
     // Mark that compaction may be needed
     this.markCompactionNeeded();
     return created;
@@ -619,8 +1361,10 @@ export class MessageHistory {
    * No async work is done here — avoids the fire-and-forget race condition.
    */
   private markCompactionNeeded(): void {
-    if (!this.compaction.enabled && !this.pruning.enabled) return;
-    this.pendingCompaction = true;
+    if (!(this.compaction.enabled || this.pruning.enabled)) {
+      return;
+    }
+    this.setPendingCompaction(true);
   }
 
   /**
@@ -638,53 +1382,93 @@ export class MessageHistory {
   getMessagesForLLM(): ModelMessage[] {
     const modelMessages = this.toModelMessages();
 
+    let result: ModelMessage[];
+
     if (this.summaries.length === 0) {
-      return modelMessages;
+      result = modelMessages;
+    } else {
+      const combinedSummary = this.summaries
+        .map((s) => `---\n${sanitizeSummaryText(s.summary)}`)
+        .join("\n");
+
+      const systemMessage: ModelMessage = {
+        role: "system",
+        content: `${SYSTEM_CONTEXT_PREFIX}\n${combinedSummary}`,
+      };
+
+      result = [systemMessage, ...modelMessages];
     }
 
-    // Combine summaries into a single system message
-    // Each summary is already sanitized during creation, but we double-check here
-    const combinedSummary = this.summaries
-      .map((s) => `---\n${sanitizeSummaryText(s.summary)}`)
-      .join("\n");
+    if (this.contextLimit > 0) {
+      result = this.truncateToContextBudget(result);
+    }
 
-    // Use sanitized prefix constant to prevent injection through prefix
-    const systemMessage: ModelMessage = {
-      role: "system",
-      content: `${SYSTEM_CONTEXT_PREFIX}\n${combinedSummary}`,
-    };
+    return result;
+  }
 
-    return [systemMessage, ...modelMessages];
+  private truncateToContextBudget(messages: ModelMessage[]): ModelMessage[] {
+    const reserveTokens =
+      this.compaction.reserveTokens ?? DEFAULT_COMPACTION_RESERVE;
+    const SAFETY_MARGIN = 0.85;
+    const maxMessageTokens = Math.floor(
+      (this.contextLimit - reserveTokens - this.systemPromptTokens) *
+        SAFETY_MARGIN
+    );
+
+    if (maxMessageTokens <= 0) {
+      const last = messages.at(-1);
+      return ensureValidToolSequence(last ? [last] : []);
+    }
+
+    let totalTokens = estimateMessagesTokens(messages);
+    if (totalTokens <= maxMessageTokens) {
+      return messages;
+    }
+
+    const result = [...messages];
+
+    let dropIndex = 0;
+    while (dropIndex < result.length && result[dropIndex].role === "system") {
+      dropIndex++;
+    }
+
+    while (totalTokens > maxMessageTokens && dropIndex < result.length - 1) {
+      const dropped = result[dropIndex];
+      totalTokens -= estimateTokens(extractMessageText(dropped));
+      result.splice(dropIndex, 1);
+
+      totalTokens = removeToolMessagesAtIndex(result, dropIndex, totalTokens);
+      totalTokens = removeDanglingToolCallAtIndex(
+        result,
+        dropIndex,
+        totalTokens
+      );
+    }
+
+    if (totalTokens > maxMessageTokens && result.length > 0) {
+      totalTokens = truncateSystemMessageToBudget(
+        result,
+        totalTokens,
+        maxMessageTokens
+      );
+    }
+
+    return ensureValidToolSequence(result);
   }
 
   /**
    * Async version of getMessagesForLLM that performs pending compaction
    * before returning messages. This ensures compaction happens at the
    * point of use rather than fire-and-forget.
+   *
+   * @deprecated Use getMessagesForLLM() instead. This method no longer performs
+   * inline compaction. Compaction is now handled separately via
+   * prepareSpeculativeCompaction() and applyPreparedCompaction().
    */
-  async getMessagesForLLMAsync(): Promise<ModelMessage[]> {
-    if (this.pendingCompaction) {
-      this.pendingCompaction = false;
-
-      // Run pruning first if enabled
-      if (this.pruning.enabled) {
-        try {
-          this.performPruning();
-        } catch (error) {
-          console.error("Pruning error in getMessagesForLLMAsync:", error);
-        }
-      }
-
-      // Only run compaction if still needed
-      if (this.compaction.enabled && this.needsCompaction()) {
-        try {
-          await this.performCompaction();
-        } catch (error) {
-          console.error("Compaction error in getMessagesForLLMAsync:", error);
-        }
-      }
-    }
-
+  // biome-ignore lint/suspicious/useAwait: deprecated method kept async for backward compatibility
+  async getMessagesForLLMAsync(
+    _options?: MessagePreparationOptions
+  ): Promise<ModelMessage[]> {
     return this.getMessagesForLLM();
   }
 
@@ -710,10 +1494,76 @@ export class MessageHistory {
       }
     }
 
+    this.adjustActualUsageAfterReduction(result.prunedTokens);
+    this.touch();
+
     return true;
   }
 
-  private async performCompaction(): Promise<boolean> {
+  private calculateCompactionSplitIndex(aggressive: boolean): number | null {
+    return aggressive
+      ? this.calculateAggressiveCompactionSplitIndex()
+      : this.calculateDefaultCompactionSplitIndex();
+  }
+
+  private calculateDefaultCompactionSplitIndex(): number | null {
+    const keepRecentTokens =
+      this.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT;
+
+    let keptTokens = 0;
+    let splitIndex = this.messages.length;
+
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const msgTokens = estimateTokens(
+        extractMessageText(this.messages[i].modelMessage)
+      );
+
+      if (keptTokens + msgTokens > keepRecentTokens) {
+        splitIndex = i + 1;
+        break;
+      }
+
+      keptTokens += msgTokens;
+
+      if (i === 0) {
+        splitIndex = 0;
+      }
+    }
+
+    if (splitIndex === 0) {
+      if (this.messages.length <= 1) {
+        return null;
+      }
+      splitIndex = Math.max(1, Math.floor(this.messages.length / 2));
+    }
+
+    if (splitIndex >= this.messages.length) {
+      return null;
+    }
+
+    splitIndex = adjustSplitIndexForToolPairs(this.messages, splitIndex);
+    if (splitIndex >= this.messages.length || splitIndex <= 0) {
+      return null;
+    }
+
+    return splitIndex;
+  }
+
+  private calculateAggressiveCompactionSplitIndex(): number | null {
+    return this.messages.length > 1 ? this.messages.length : null;
+  }
+
+  private async performCompaction(
+    summarizeFnOverride?: (
+      messages: ModelMessage[],
+      previousSummary?: string,
+      onSummaryDelta?: SummaryDeltaCallback
+    ) => Promise<string>,
+    onSummaryDelta?: SummaryDeltaCallback,
+    aggressive = false
+  ): Promise<boolean> {
+    this._lastCompactionRejected = false;
+
     if (this.messages.length === 0) {
       return false;
     }
@@ -721,60 +1571,15 @@ export class MessageHistory {
     this.compactionInProgress = true;
 
     try {
-      // Calculate tokens from the end to find what to keep
-      const keepRecentTokens =
-        this.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT;
-
-      let keptTokens = 0;
-      let splitIndex = this.messages.length;
-
-      // Walk backwards to find where to split
-      for (let i = this.messages.length - 1; i >= 0; i--) {
-        const msgTokens = estimateTokens(
-          extractMessageText(this.messages[i].modelMessage)
-        );
-
-        if (keptTokens + msgTokens > keepRecentTokens) {
-          splitIndex = i + 1;
-          break;
-        }
-
-        keptTokens += msgTokens;
-
-        if (i === 0) {
-          splitIndex = 0;
-        }
-      }
-
-      // Edge case: all messages fit in keepRecentTokens
-      if (splitIndex === 0) {
-        // Don't force splitIndex to 1 blindly.
-        // If we have only 1 message, there's nothing to summarize.
-        if (this.messages.length <= 1) {
-          return false;
-        }
-        // Need to summarize at least something — find a reasonable split
-        // Summarize the first half
-        splitIndex = Math.max(1, Math.floor(this.messages.length / 2));
-      }
-
-      // If all messages would be kept, nothing to compact
-      if (splitIndex >= this.messages.length) {
-        return false;
-      }
-
-      // Adjust split index to preserve tool-call/tool-result pairs
-      splitIndex = adjustSplitIndexForToolPairs(this.messages, splitIndex);
-
-      // Re-check after adjustment
-      if (splitIndex >= this.messages.length || splitIndex <= 0) {
+      const splitIndex = this.calculateCompactionSplitIndex(aggressive);
+      if (splitIndex === null) {
         return false;
       }
 
       // Messages to summarize (before splitIndex)
       const messagesToSummarize = this.messages.slice(0, splitIndex);
       // Messages to keep as-is (splitIndex onwards)
-      const messagesToKeep = this.messages.slice(splitIndex);
+      const messagesToKeep = aggressive ? [] : this.messages.slice(splitIndex);
 
       if (messagesToSummarize.length === 0) {
         return false;
@@ -782,7 +1587,9 @@ export class MessageHistory {
 
       // Get the first kept message ID
       const firstKeptMessageId =
-        messagesToKeep.length > 0 ? messagesToKeep[0].id : "end";
+        aggressive || messagesToKeep.length === 0
+          ? "end"
+          : messagesToKeep[0].id;
 
       // Combine existing summaries into previousSummary for iterative compaction
       // The iterative compaction invariant guarantees at most one summary entry.
@@ -790,18 +1597,28 @@ export class MessageHistory {
       const previousSummary = this.summaries[0]?.summary;
 
       // Summarize with error handling and fallback
-      const summarizeFn = this.compaction.summarizeFn ?? defaultSummarizeFn;
+      const summarizeFn =
+        summarizeFnOverride ??
+        this.compaction.summarizeFn ??
+        defaultSummarizeFn;
       const modelMessagesToSummarize = messagesToSummarize.map(
         (m) => m.modelMessage
       );
 
       let summary: string;
       try {
-        summary = await summarizeFn(modelMessagesToSummarize, previousSummary);
+        summary = await summarizeFn(
+          modelMessagesToSummarize,
+          previousSummary,
+          onSummaryDelta
+        );
       } catch (error) {
         // Fallback to default summarizer if custom one fails
         console.warn("Custom summarizeFn failed, using fallback:", error);
-        summary = await defaultSummarizeFn(modelMessagesToSummarize, previousSummary);
+        summary = await defaultSummarizeFn(
+          modelMessagesToSummarize,
+          previousSummary
+        );
       }
 
       // Sanitize summary to prevent prompt injection
@@ -819,11 +1636,23 @@ export class MessageHistory {
         summaryTokens,
       };
 
+      const totalTokensReplaced =
+        summaryEntry.tokensBefore +
+        this.summaries.reduce((sum, s) => sum + s.summaryTokens, 0);
+      if (summaryEntry.summaryTokens >= totalTokensReplaced) {
+        this._lastCompactionRejected = true;
+        return false;
+      }
+
       // Replace all previous summaries with the new one (iterative compaction)
       // The new summary already incorporates previous context via previousSummary parameter
       this.summaries = [summaryEntry];
       this.messages = messagesToKeep;
       this.ensureNoOrphanedToolResults();
+      this.adjustActualUsageAfterReduction(
+        summaryEntry.tokensBefore - summaryEntry.summaryTokens
+      );
+      this.touch();
 
       return true;
     } catch (error) {
@@ -841,7 +1670,8 @@ export class MessageHistory {
     }
 
     if (this.maxMessages === 1) {
-      this.messages = [this.messages[this.messages.length - 1]];
+      const lastMessage = this.messages.at(-1);
+      this.messages = lastMessage ? [lastMessage] : [];
       this.ensureNoOrphanedToolResults();
       return;
     }
@@ -870,7 +1700,10 @@ export class MessageHistory {
       }
     }
 
-    const lastBoundary = turnBoundaries[turnBoundaries.length - 1];
+    const lastBoundary = turnBoundaries.at(-1);
+    if (lastBoundary === undefined) {
+      return;
+    }
     const lastBoundaryCandidate = [
       this.messages[0],
       ...this.messages.slice(lastBoundary),
@@ -954,8 +1787,8 @@ export class MessageHistory {
       return message;
     }
 
-    const sanitizedContent = message.content.map((part: any) => {
-      if (part.type !== "tool-result") {
+    const sanitizedContent = message.content.map((part) => {
+      if (!isToolResultContentPart(part)) {
         return part;
       }
 

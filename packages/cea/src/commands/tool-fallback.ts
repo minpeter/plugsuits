@@ -1,9 +1,9 @@
+import type { Command } from "@ai-sdk-tool/harness";
 import { agentManager } from "../agent";
 import {
   parseToolFallbackMode,
   TOOL_FALLBACK_MODES,
 } from "../tool-fallback-mode";
-import type { Command } from "./types";
 
 const TOOL_FALLBACK_USAGE = TOOL_FALLBACK_MODES.join("|");
 

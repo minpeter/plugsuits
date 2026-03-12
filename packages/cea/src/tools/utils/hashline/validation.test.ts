@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { parseHashlineText } from "./edit-text-normalization";
 import { computeLineHash } from "./hash-computation";
 import {

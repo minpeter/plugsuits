@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import { agentManager } from "../agent";
 import { createTranslateCommand } from "./translate";
 

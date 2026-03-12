@@ -1,0 +1,7 @@
+Intermediate-step hard limit handling is now explicit.
+
+Evidence:
+- prepareMessages(phase) is called by both new-turn and intermediate-step streaming passes.
+- For tool-loop accumulation, prepareMessages("intermediate-step") checks isAtHardContextLimit(0, { phase: "intermediate-step" }).
+- On hard limit, blockAtHardContextLimitCore first attempts rescue with phase "intermediate-step" and second attempt with phase "new-turn".
+- This matches the required phase semantics for stricter intermediate reserve followed by maximum reduction fallback.

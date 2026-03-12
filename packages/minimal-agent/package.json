@@ -1,0 +1,27 @@
+{
+  "name": "@plugsuits/minimal-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk-tool/harness": "workspace:*",
+    "@ai-sdk-tool/tui": "workspace:*",
+    "@ai-sdk-tool/headless": "workspace:*",
+    "@friendliai/ai-provider": "^1.1.7",
+    "@t3-oss/env-core": "^0.13.10",
+    "ai": "^6.0.116",
+    "citty": "^0.2.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.9.3"
+  }
+}

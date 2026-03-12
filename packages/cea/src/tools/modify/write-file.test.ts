@@ -1,4 +1,3 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -9,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { executeWriteFile } from "./write-file";
 
 const PATH_TRAVERSAL_BLOCKED_RE = /[Pp]ath traversal blocked/;

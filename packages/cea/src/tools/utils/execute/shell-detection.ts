@@ -8,6 +8,10 @@ const WINDOWS_CMD_PATH = "cmd.exe";
 
 let cachedShell: string | null = null;
 
+export function resetCacheForTesting(): void {
+  cachedShell = null;
+}
+
 function resolveShellBasenames(shellPath: string): Set<string> {
   const primary = basename(shellPath).toLowerCase();
   const windows = win32.basename(shellPath).toLowerCase();

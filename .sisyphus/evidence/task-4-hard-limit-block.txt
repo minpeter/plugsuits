@@ -1,0 +1,9 @@
+Hard limit path blocks with bounded retries.
+
+Evidence:
+- blockOnlyIfAtHardContextLimit(userContent) routes to blockAtHardContextLimit(..., "new-turn").
+- blockAtHardContextLimitCore blocks only when isAtHardContextLimit(additionalTokens, { phase }) is true.
+- It waits running speculative job when present; otherwise it performs a rescue prepare/apply.
+- Attempts are capped to 2 phases: first caller phase, second forced "new-turn" for maximal reduction.
+- If still above hard limit, it logs:
+  [compaction] Hard limit still exceeded after 2 compaction attempts. Proceeding with current context.

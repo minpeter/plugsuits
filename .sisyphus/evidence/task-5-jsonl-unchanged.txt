@@ -1,0 +1,7 @@
+JSONL event types remain unchanged.
+
+Evidence:
+- packages/headless/src/types.ts was not modified.
+- The TrajectoryEvent union is still: user | assistant | tool_call | tool_result | error.
+- The test "keeps JSONL event types unchanged" emits user/tool_call/tool_result/assistant events and confirms the existing names are preserved.
+- runner.ts changes stayed inside compaction orchestration and did not alter event emission fields or ordering.

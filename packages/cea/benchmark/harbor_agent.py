@@ -219,8 +219,7 @@ class CodeEditingAgent(BaseInstalledAgent):
 
         env = {
             "FRIENDLI_TOKEN": os.environ.get("FRIENDLI_TOKEN", ""),
-            "BUN_INSTALL": "/root/.bun",
-            "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
         }
         env = {k: v for k, v in env.items() if v}
 
@@ -246,7 +245,7 @@ class CodeEditingAgent(BaseInstalledAgent):
             ),
             ExecInput(
                 command=(
-                    f"/root/.bun/bin/bun /agent/packages/cea/src/entrypoints/headless.ts -p {escaped_instruction} {model_arg} {flags_str} "
+                    f"node --conditions=@ai-sdk-tool/source --import tsx /agent/packages/cea/src/entrypoints/main.ts -p {escaped_instruction} {model_arg} {flags_str} "
                     f"2>&1 | tee /logs/agent/output.jsonl"
                 ),
                 env=env,

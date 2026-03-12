@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { runAgentLoop } from "./loop";
-import type { Agent, AgentStreamResult, ModelMessage } from "./types";
+import type { Agent, AgentStreamResult } from "./types";
 
 /**
  * Creates a mock agent that simulates streaming behavior.
@@ -9,7 +9,9 @@ import type { Agent, AgentStreamResult, ModelMessage } from "./types";
 function createMockAgent(
   finishReasons: string[],
   options?: {
-    toolCallsPerIteration?: Array<Array<{ toolName: string; args: Record<string, unknown> }>>;
+    toolCallsPerIteration?: Array<
+      Array<{ toolName: string; args: Record<string, unknown> }>
+    >;
   }
 ): Agent {
   let callIndex = 0;
@@ -23,11 +25,13 @@ function createMockAgent(
       callIndex++;
 
       const finishReason = finishReasons[currentIndex] ?? "stop";
-      const toolCallsForThisIteration = options?.toolCallsPerIteration?.[currentIndex] ?? [];
+      const toolCallsForThisIteration =
+        options?.toolCallsPerIteration?.[currentIndex] ?? [];
 
       // Simulate async iterator for fullStream
       async function* fullStreamGenerator() {
         for (const call of toolCallsForThisIteration) {
+          await Promise.resolve();
           yield {
             type: "tool-call" as const,
             toolName: call.toolName,
@@ -51,7 +55,9 @@ function createMockAgent(
       return {
         fullStream,
         finishReason: Promise.resolve(finishReason),
-        response: Promise.resolve(response as unknown as Awaited<AgentStreamResult["response"]>),
+        response: Promise.resolve(
+          response as unknown as Awaited<AgentStreamResult["response"]>
+        ),
       };
     },
   };
@@ -84,7 +90,13 @@ describe("runAgentLoop", () => {
 
   it("respects maxIterations limit", async () => {
     // Agent would loop forever with 'tool-calls'
-    const agent = createMockAgent(["tool-calls", "tool-calls", "tool-calls", "tool-calls", "tool-calls"]);
+    const agent = createMockAgent([
+      "tool-calls",
+      "tool-calls",
+      "tool-calls",
+      "tool-calls",
+      "tool-calls",
+    ]);
 
     const result = await runAgentLoop({
       agent,
@@ -98,7 +110,7 @@ describe("runAgentLoop", () => {
   it("default maxIterations is Infinity (loops until stop condition)", async () => {
     // Simulate an agent that makes many tool calls before stopping
     // Without explicit maxIterations, this should run until the agent stops naturally
-    const manyToolCalls = Array(1000).fill("tool-calls");
+    const manyToolCalls = new Array(1000).fill("tool-calls");
     manyToolCalls.push("stop"); // Eventually stops
 
     const agent = createMockAgent(manyToolCalls);
@@ -132,7 +144,13 @@ describe("runAgentLoop", () => {
   });
 
   it("stops on abort signal", async () => {
-    const agent = createMockAgent(["tool-calls", "tool-calls", "tool-calls", "tool-calls", "tool-calls"]);
+    const agent = createMockAgent([
+      "tool-calls",
+      "tool-calls",
+      "tool-calls",
+      "tool-calls",
+      "tool-calls",
+    ]);
 
     const controller = new AbortController();
 

@@ -1,11 +1,11 @@
 # @ai-sdk-tool/harness
 
-A lightweight, model-agnostic agent harness built on the [Vercel AI SDK](https://sdk.vercel.ai). Provides the core loop, message history management, and tool orchestration primitives for building AI agents.
+A lightweight, model-agnostic agent harness built on the [Vercel AI SDK](https://sdk.vercel.ai). Provides the core loop, message history management, session lifecycle, skills loading, TODO continuation, command registry, and tool orchestration primitives for building AI agents.
 
 ## Installation
 
 ```bash
-bun add @ai-sdk-tool/harness
+pnpm add @ai-sdk-tool/harness
 # or
 npm install @ai-sdk-tool/harness
 ```
@@ -13,7 +13,7 @@ npm install @ai-sdk-tool/harness
 **Peer dependencies:**
 
 ```bash
-bun add ai zod
+pnpm add ai zod
 ```
 
 ## Quick Start
@@ -140,6 +140,195 @@ history.enforceLimit();
 
 ---
 
+### `SessionManager`
+
+Manages a UUID-based session ID lifecycle. Useful for stamping events and file paths with a consistent identifier.
+
+```typescript
+import { SessionManager } from "@ai-sdk-tool/harness";
+
+const session = new SessionManager("my-agent"); // optional prefix, default: "session"
+
+const sessionId = session.initialize(); // => "my-agent-<uuid>"
+console.log(session.getId());           // => "my-agent-<uuid>"
+console.log(session.isActive());        // => true
+```
+
+**Methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `initialize()` | `string` | Generates and stores a new session ID |
+| `getId()` | `string` | Returns the current session ID; throws if not initialized |
+| `isActive()` | `boolean` | Returns `true` if `initialize()` has been called |
+
+---
+
+### `SkillsEngine`
+
+Discovers and loads skills from up to five directories: bundled, global skills, global commands, project skills, and project commands.
+
+```typescript
+import { SkillsEngine, type SkillsConfig } from "@ai-sdk-tool/harness";
+
+const config: SkillsConfig = {
+  bundledDir: "./skills",           // Bundled skills shipped with the agent
+  globalSkillsDir: "~/.agent/skills",
+  globalCommandsDir: "~/.agent/commands",
+  projectSkillsDir: ".agent/skills",
+  projectCommandsDir: ".agent/commands",
+};
+
+const engine = new SkillsEngine(config);
+const skills = await engine.loadSkills(); // SkillInfo[]
+
+// Get content of a specific skill
+const content = await engine.getSkillContent("my-skill");
+```
+
+**`SkillInfo` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique skill identifier |
+| `name` | `string` | Display name |
+| `description` | `string` | Short description for autocomplete |
+| `path` | `string` | Absolute path to the skill file |
+| `format` | `"legacy" \| "v2" \| "command"` | Skill file format |
+| `source` | `"bundled" \| "global" \| "project" \| "global-command" \| "project-command"` | Where the skill was found |
+| `argumentHint` | `string?` | Hint shown in autocomplete for skills that take arguments |
+
+---
+
+### `TodoContinuation`
+
+Reads a todo JSON file and generates reminder messages for incomplete tasks. Used with `runHeadless` to keep the agent running until all TODOs are done.
+
+```typescript
+import { TodoContinuation, type TodoConfig } from "@ai-sdk-tool/harness";
+
+const todo = new TodoContinuation({
+  todoDir: ".sisyphus/todos",   // Directory containing todo JSON files
+  sessionId: "session-abc123",  // Used to locate the correct todo file
+  promptTemplate: (todos) => `You have ${todos.length} tasks remaining.`,
+  userMessageTemplate: (todos) => `Continue with: ${todos[0].content}`,
+});
+
+const reminder = await todo.getReminder();
+// => { hasReminder: true, message: "..." }
+// or { hasReminder: false, message: null }
+```
+
+**`TodoItem` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique task ID |
+| `content` | `string` | Task description |
+| `status` | `"pending" \| "in_progress" \| "completed" \| "cancelled"` | Current status |
+| `priority` | `"high" \| "medium" \| "low"` | Task priority |
+| `description` | `string?` | Optional longer description |
+
+---
+
+### Command Registry
+
+A global registry for slash commands. Commands are registered once and available to both TUI and headless runtimes.
+
+```typescript
+import {
+  registerCommand,
+  executeCommand,
+  getCommands,
+  isCommand,
+  parseCommand,
+  configureCommandRegistry,
+  createHelpCommand,
+  resolveRegisteredCommandName,
+  isSkillCommandResult,
+} from "@ai-sdk-tool/harness";
+
+// Register a command
+registerCommand({
+  name: "model",
+  description: "Switch the active model",
+  aliases: ["m"],
+  execute: async ({ args }) => {
+    const newModel = args[0];
+    return { success: true, message: `Switched to ${newModel}` };
+  },
+});
+
+// Check if input is a command
+if (isCommand("/model gpt-4o")) {
+  const result = await executeCommand("/model gpt-4o");
+  console.log(result?.message);
+}
+
+// Configure skill loading for /skill-name commands
+configureCommandRegistry({
+  skillLoader: async (name) => {
+    const content = await loadSkillFile(name);
+    return content ? { content, id: name } : null;
+  },
+});
+```
+
+**Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `registerCommand(command)` | Adds a command to the global registry |
+| `executeCommand(input)` | Parses and executes a command string |
+| `getCommands()` | Returns the full `Map<string, Command>` |
+| `isCommand(input)` | Returns `true` if input starts with `/` |
+| `parseCommand(input)` | Parses `"/name arg1 arg2"` into `{ name, args }` |
+| `configureCommandRegistry(config)` | Sets the skill loader for skill-based commands |
+| `createHelpCommand(getCommands)` | Creates a `/help` command listing all registered commands |
+| `resolveRegisteredCommandName(name)` | Resolves an alias to its canonical command name |
+| `isSkillCommandResult(result)` | Type guard for `SkillCommandResult` |
+
+---
+
+### `buildMiddlewareChain(config)`
+
+Builds a middleware chain for wrapping language model calls. Useful for logging, caching, or modifying requests/responses.
+
+```typescript
+import { buildMiddlewareChain, type MiddlewareConfig } from "@ai-sdk-tool/harness";
+import { wrapLanguageModel } from "ai";
+
+const middlewares = buildMiddlewareChain({
+  middlewares: [loggingMiddleware, cachingMiddleware],
+});
+
+const wrappedModel = wrapLanguageModel({
+  model: openai("gpt-4o"),
+  middleware: middlewares[0], // or compose them
+});
+```
+
+---
+
+### `createAgentPaths(options)`
+
+Creates a consistent set of filesystem paths for agent configuration and TODO storage.
+
+```typescript
+import { createAgentPaths } from "@ai-sdk-tool/harness";
+
+const paths = createAgentPaths({
+  configDirName: ".my-agent",
+  todoDirName: "todos",
+  todoBaseDir: "/tmp",  // optional, defaults to os.tmpdir()
+});
+
+// paths.configDir => ".my-agent"
+// paths.todoDir   => "/tmp/todos"
+```
+
+---
+
 ### `shouldContinueManualToolLoop(finishReason, context)`
 
 The default continuation predicate used by `runAgentLoop`. Returns `true` when `finishReason` is `"tool-calls"`.
@@ -172,6 +361,30 @@ const normalized = normalizeFinishReason("tool_calls"); // => "tool-calls"
 
 ---
 
+### Compaction prompts
+
+Built-in summarization prompts for `MessageHistory` compaction.
+
+```typescript
+import {
+  createModelSummarizer,
+  DEFAULT_SUMMARIZATION_PROMPT,
+  ITERATIVE_SUMMARIZATION_PROMPT,
+} from "@ai-sdk-tool/harness";
+
+const summarize = createModelSummarizer({
+  model: openai("gpt-4o-mini"),
+  prompt: DEFAULT_SUMMARIZATION_PROMPT,
+});
+
+const history = new MessageHistory({
+  maxMessages: 100,
+  compactionConfig: { triggerRatio: 0.8, summarize },
+});
+```
+
+---
+
 ## Types
 
 ```typescript
@@ -197,6 +410,28 @@ import type {
   CompactionSummary,
   Message,
   MessageHistoryOptions,
+  // Session:
+  // (SessionManager is a class, not a type)
+  // Skills:
+  SkillInfo,
+  SkillsConfig,
+  // TODO:
+  TodoConfig,
+  TodoItem,
+  // Commands:
+  Command,
+  CommandContext,
+  CommandRegistryConfig,
+  CommandResult,
+  SkillCommandResult,
+  // Middleware:
+  MiddlewareConfig,
+  // Paths:
+  AgentPaths,
+  AgentPathsOptions,
+  // Tool pruning:
+  PruneResult,
+  PruningConfig,
 } from "@ai-sdk-tool/harness";
 ```
 
@@ -244,6 +479,47 @@ const result = await runAgentLoop({
   messages,
   abortSignal: controller.signal,
 });
+```
+
+### Full session setup
+
+```typescript
+import {
+  createAgent,
+  MessageHistory,
+  SessionManager,
+  SkillsEngine,
+  TodoContinuation,
+  registerCommand,
+  createHelpCommand,
+  getCommands,
+  createAgentPaths,
+} from "@ai-sdk-tool/harness";
+
+const paths = createAgentPaths({
+  configDirName: ".my-agent",
+  todoDirName: "todos",
+});
+
+const session = new SessionManager("my-agent");
+const sessionId = session.initialize();
+
+const history = new MessageHistory({ maxMessages: 200 });
+
+const skillsEngine = new SkillsEngine({
+  bundledDir: "./skills",
+  projectSkillsDir: ".my-agent/skills",
+});
+const skills = await skillsEngine.loadSkills();
+
+const todo = new TodoContinuation({
+  todoDir: paths.todoDir,
+  sessionId,
+});
+
+registerCommand(createHelpCommand(getCommands));
+
+const agent = createAgent({ model, instructions: "..." });
 ```
 
 ## License

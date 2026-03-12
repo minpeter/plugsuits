@@ -13,6 +13,8 @@ export interface FriendliReasoningModelConfig {
 export interface FriendliModelInfo {
   /** Actual model ID sent to the provider API. Defaults to `id` if omitted. */
   apiModelId?: string;
+  /** Optional override for compaction reserve heuristic. */
+  compactionReserveTokens?: number;
   contextLength: number;
   /** Internal identifier used for model selection and config lookup. */
   id: string;
@@ -86,13 +88,14 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
     },
   },
   {
-    id: "test-8k",
-    apiModelId: "zai-org/GLM-5",
-    name: "GLM 5 (8k)",
+    id: "test-compact",
+    apiModelId: "MiniMaxAI/MiniMax-M2.5",
+    name: "minimax 2.5 (20k compact test)",
     provider: "friendli",
     type: "serverless",
-    contextLength: 8192,
-    maxCompletionTokens: 1024,
+    contextLength: 20_480,
+    compactionReserveTokens: 2048,
+    maxCompletionTokens: 20_480,
     reasoning: {
       ...DEFAULT_FRIENDLI_REASONING,
     },

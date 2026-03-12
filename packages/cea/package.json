@@ -1,6 +1,6 @@
 {
   "name": "plugsuits",
-  "version": "1.1.3",
+  "version": "2.0.0",
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
   "type": "module",
   "main": "dist/index.js",
@@ -30,24 +30,25 @@
     "pss": "cli.js"
   },
   "scripts": {
-    "start": "bun run src/entrypoints/cli.ts",
-    "headless": "bun run src/entrypoints/headless.ts",
-    "dev": "bun run --watch src/entrypoints/cli.ts",
-    "build": "tsc",
-    "test": "bun test",
+    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx src/entrypoints/main.ts",
+    "build": "tsc && node scripts/postbuild.mjs",
+    "test": "vitest run src",
     "typecheck": "tsc --noEmit",
-    "check": "bunx ultracite check",
-    "lint": "bunx ultracite fix"
+    "check": "pnpm exec ultracite check .",
+    "lint": "pnpm exec ultracite fix ."
   },
   "dependencies": {
-    "@ai-sdk-tool/harness": "^0.3.1",
-    "@ai-sdk-tool/parser": "^4.1.3",
-    "@ai-sdk/anthropic": "^3.0.47",
-    "@ai-sdk/openai-compatible": "^2.0.30",
-    "@friendliai/ai-provider": "^1.1.4",
-    "@mariozechner/pi-tui": "^0.55.1",
+    "@ai-sdk-tool/harness": "workspace:*",
+    "@ai-sdk-tool/headless": "workspace:*",
+    "@ai-sdk-tool/parser": "^4.1.5",
+    "@ai-sdk-tool/tui": "workspace:*",
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@ai-sdk/openai-compatible": "^2.0.35",
+    "@friendliai/ai-provider": "^1.1.7",
+    "@mariozechner/pi-tui": "^0.57.1",
     "@t3-oss/env-core": "^0.13.10",
-    "ai": "^6.0.101",
+    "ai": "^6.0.116",
+    "citty": "^0.2.1",
     "diff": "^8.0.3",
     "glob": "^13.0.6",
     "ignore": "^7.0.5",
@@ -56,11 +57,10 @@
   },
   "devDependencies": {
     "@ai-sdk/provider": "^3.0.8",
-    "@biomejs/biome": "2.4.4",
-    "@types/bun": "^1.3.9",
-    "@types/node": "^25.3.1",
-    "tsx": "^4.21.0",
+    "@ai-sdk/provider-utils": "^3.0.22",
+    "@biomejs/biome": "2.4.6",
+    "@types/node": "^25.4.0",
     "typescript": "^5.9.3",
-    "ultracite": "^7.2.4"
+    "ultracite": "^7.2.5"
   }
 }

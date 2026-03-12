@@ -1,0 +1,8 @@
+Intermediate tool-loop steps now use hard-limit-only blocking in headless mode.
+
+Evidence:
+- processAgentResponse() calls blockAtHardContextLimit(0, phase) before every stream turn.
+- When phase is "intermediate-step", the hard-limit check still uses the intermediate reserve via isAtHardContextLimit(0, { phase }).
+- Rescue compaction always prepares with phase "new-turn" in headless runner for maximum context reduction, matching the requested simplification.
+- The test "can apply speculative compaction between internal tool-loop steps" verifies that a second internal stream turn receives a system summary after blocking rescue.
+- processAgentResponse() now stays on sync getMessagesForLLM(), so intermediate-step blocking no longer depends on async message preparation.

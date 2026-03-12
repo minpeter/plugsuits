@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { type Command, createHelpCommand } from "@ai-sdk-tool/harness";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { agentManager } from "../agent";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
@@ -6,11 +7,9 @@ import {
   TOOL_FALLBACK_MODES,
   type ToolFallbackMode,
 } from "../tool-fallback-mode";
-import { createHelpCommand } from "./help";
 import { executeCommand, getCommands, registerCommand } from "./index";
 import { createReasoningModeCommand } from "./reasoning-mode";
 import { createToolFallbackCommand } from "./tool-fallback";
-import type { Command } from "./types";
 
 let commandCounter = 0;
 
@@ -48,7 +47,7 @@ describe("Command aliases", () => {
       displayName: "clear (new)",
       aliases: ["new"],
       description: "Start a new session",
-      execute: () => ({ success: true, action: "new-session" }),
+      execute: () => ({ success: true, action: { type: "new-session" } }),
     });
 
     const help = createHelpCommand(() => commandMap);

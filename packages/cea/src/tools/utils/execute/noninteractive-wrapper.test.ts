@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
   buildEnvPrefix,
   getFullWrappedCommand,
@@ -112,7 +112,7 @@ describe("wrapCommandNonInteractive", () => {
     });
   });
 
-  describe("npm/yarn/pnpm/bun commands", () => {
+  describe("npm/yarn/pnpm commands", () => {
     it("wraps npm install with CI=true", () => {
       const result = wrapCommandNonInteractive("npm install");
 
@@ -134,14 +134,6 @@ describe("wrapCommandNonInteractive", () => {
 
       expect(result.wrapped).toBe(true);
       expect(result.tool).toBe("pnpm");
-      expect(result.env.CI).toBe("true");
-    });
-
-    it("wraps bun install with CI=true", () => {
-      const result = wrapCommandNonInteractive("bun install");
-
-      expect(result.wrapped).toBe(true);
-      expect(result.tool).toBe("bun");
       expect(result.env.CI).toBe("true");
     });
   });
@@ -280,7 +272,7 @@ describe("buildEnvPrefix", () => {
 
     expect(result).toContain("DEBIAN_FRONTEND='noninteractive'");
     expect(result).toContain("CI='true'");
-    expect(result).toEndWith(" ");
+    expect(result.endsWith(" ")).toBe(true);
   });
 });
 
