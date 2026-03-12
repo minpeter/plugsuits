@@ -16,6 +16,7 @@
     "@ai-sdk-tool/headless": "workspace:*",
     "@friendliai/ai-provider": "^1.1.7",
     "@t3-oss/env-core": "^0.13.10",
+    "ai": "^6.0.116",
     "citty": "^0.2.1",
     "zod": "^4.3.6"
   },

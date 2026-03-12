@@ -158,6 +158,9 @@ importers:
       '@t3-oss/env-core':
         specifier: ^0.13.10
         version: 0.13.10(typescript@5.9.3)(zod@4.3.6)
+      ai:
+        specifier: ^6.0.116
+        version: 6.0.116(zod@4.3.6)
       citty:
         specifier: ^0.2.1
         version: 0.2.1
