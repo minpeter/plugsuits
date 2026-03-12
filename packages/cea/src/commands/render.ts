@@ -137,8 +137,7 @@ async function renderChatPrompt({
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    },
-    { preconnect: fetch.preconnect }
+    }
   );
 
   const friendli = createOpenAICompatible({

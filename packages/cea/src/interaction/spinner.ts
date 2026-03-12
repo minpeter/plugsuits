@@ -5,7 +5,7 @@ export const setSpinnerOutputEnabled = (enabled: boolean): void => {
 };
 
 export class Spinner {
-  private interval: Timer | null = null;
+  private interval: ReturnType<typeof setInterval> | null = null;
   private readonly frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   private currentFrame = 0;
   private readonly message: string;
