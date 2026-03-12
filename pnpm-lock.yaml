@@ -14,6 +14,9 @@ importers:
       '@changesets/cli':
         specifier: ^2.30.0
         version: 2.30.0(@types/node@25.4.0)
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -96,6 +99,9 @@ importers:
 
   packages/harness:
     dependencies:
+      '@ai-sdk/provider':
+        specifier: ^3.0.8
+        version: 3.0.8
       ai:
         specifier: ^6.0.116
         version: 6.0.116(zod@4.3.6)
@@ -112,6 +118,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.41
         version: 3.0.41(zod@4.3.6)
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -125,6 +134,9 @@ importers:
       '@ai-sdk-tool/harness':
         specifier: workspace:*
         version: link:../harness
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -153,6 +165,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -172,6 +187,9 @@ importers:
       '@ai-sdk-tool/harness':
         specifier: workspace:*
         version: link:../harness
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
