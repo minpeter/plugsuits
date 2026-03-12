@@ -1,11 +1,16 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import {
   formatBackgroundMessage,
   formatTimeoutMessage,
 } from "../utils/execute/format-utils";
 import { executeCommand as pmExecuteCommand } from "../utils/execute/process-manager";
-import SHELL_EXECUTE_DESCRIPTION from "./shell-execute.txt";
+
+const SHELL_EXECUTE_DESCRIPTION = readTextAsset(
+  "./shell-execute.txt",
+  import.meta.url
+);
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 

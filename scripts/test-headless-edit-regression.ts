@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Headless regression test: edit_file pig→cat replacement
  *
@@ -10,7 +10,7 @@
  * 5. Assert final file content has "cat" replacing "pig"
  *
  * Usage:
- *   bun run scripts/test-headless-edit-regression.ts [-m <model>] [--provider <provider>]
+ *   node --import tsx scripts/test-headless-edit-regression.ts [-m <model>] [--provider <provider>]
  *
  * Requires: FRIENDLI_TOKEN or appropriate API key set in environment.
  */
@@ -18,7 +18,10 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ── Test fixture ──────────────────────────────────────────────
 const STORY_CONTENT = `Once upon a time, there were three little pigs.
@@ -105,7 +108,7 @@ const warn = (msg: string) => console.log(`  ${YELLOW}⚠${RESET} ${msg}`);
 
 function createHeadlessArgs(): string[] {
   const headlessScript = resolve(
-    import.meta.dir,
+    SCRIPT_DIR,
     "..",
     "packages",
     "cea",
@@ -114,7 +117,16 @@ function createHeadlessArgs(): string[] {
     "main.ts"
   );
 
-  return ["run", headlessScript, "-p", PROMPT, "--no-translate", ...extraArgs];
+  return [
+    "--conditions=@ai-sdk-tool/source",
+    "--import",
+    "tsx",
+    headlessScript,
+    "-p",
+    PROMPT,
+    "--no-translate",
+    ...extraArgs,
+  ];
 }
 
 function printToolInput(
@@ -175,16 +187,13 @@ function runHeadlessMode(
   testDir: string,
   headlessArgs: string[]
 ): Promise<string> {
-  info(`Running: bun ${headlessArgs.join(" ")}`);
+  info(`Running: node ${headlessArgs.join(" ")}`);
   console.log();
 
   return new Promise<string>((resolvePromise, rejectPromise) => {
-    const proc = spawn("bun", headlessArgs, {
+    const proc = spawn("node", headlessArgs, {
       cwd: testDir,
-      env: {
-        ...process.env,
-        BUN_INSTALL: process.env.BUN_INSTALL,
-      },
+      env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

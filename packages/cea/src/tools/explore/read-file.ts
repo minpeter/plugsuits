@@ -1,8 +1,10 @@
 import { basename } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import { formatBlock, safeReadFileEnhanced } from "../utils/safety-utils";
-import READ_FILE_DESCRIPTION from "./read-file.txt";
+
+const READ_FILE_DESCRIPTION = readTextAsset("./read-file.txt", import.meta.url);
 
 const inputSchema = z.object({
   path: z.string().describe("File path (absolute or relative)"),

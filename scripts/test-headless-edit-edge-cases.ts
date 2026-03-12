@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Comprehensive headless edit_file stress test: 25 edge cases
  *
@@ -6,13 +6,16 @@
  * Each runs via headless mode with its own demo file + prompt.
  *
  * Usage:
- *   bun run scripts/test-headless-edit-edge-cases.ts [-m <model>] [--provider <provider>]
+ *   node --import tsx scripts/test-headless-edit-edge-cases.ts [-m <model>] [--provider <provider>]
  */
 
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ── CLI arg passthrough ───────────────────────────────────────
 const extraArgs: string[] = [];
@@ -912,7 +915,7 @@ async function runTestCase(
   writeFileSync(testFile, tc.fileContent, "utf-8");
 
   const headlessScript = resolve(
-    import.meta.dir,
+    SCRIPT_DIR,
     "..",
     "packages",
     "cea",
@@ -921,7 +924,9 @@ async function runTestCase(
     "main.ts"
   );
   const headlessArgs = [
-    "run",
+    "--conditions=@ai-sdk-tool/source",
+    "--import",
+    "tsx",
     headlessScript,
     "-p",
     tc.prompt,
@@ -932,9 +937,9 @@ async function runTestCase(
   const startTime = Date.now();
 
   const output = await new Promise<string>((res, reject) => {
-    const proc = spawn("bun", headlessArgs, {
+    const proc = spawn("node", headlessArgs, {
       cwd: testDir,
-      env: { ...process.env, BUN_INSTALL: process.env.BUN_INSTALL },
+      env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

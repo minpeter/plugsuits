@@ -1,5 +1,3 @@
-#!/usr/bin/env bun
-
 import {
   type Command,
   type CommandContext,

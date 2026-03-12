@@ -1,6 +1,11 @@
 import { tool } from "ai";
 import { z } from "zod";
-import SHELL_INTERACT_DESCRIPTION from "./shell-interact.txt";
+import { readTextAsset } from "../../utils/text-asset";
+
+const SHELL_INTERACT_DESCRIPTION = readTextAsset(
+  "./shell-interact.txt",
+  import.meta.url
+);
 
 const SPECIAL_KEYS: Record<string, string> = {
   enter: "Enter",

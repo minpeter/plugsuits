@@ -2,6 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
+import { readTextAsset } from "../../utils/text-asset";
 import { applyHashlineEditsWithReport } from "../utils/hashline/edit-operations";
 import {
   canonicalizeFileText,
@@ -10,7 +11,9 @@ import {
 import { normalizeHashlineEdits } from "../utils/hashline/normalize-edits";
 import type { HashlineEdit } from "../utils/hashline/types";
 import { assertWriteSafety, safeAtomicWriteFile } from "../utils/safety-utils";
-import EDIT_FILE_DESCRIPTION from "./edit-file.txt";
+
+const EDIT_FILE_DESCRIPTION = readTextAsset("./edit-file.txt", import.meta.url);
+
 import { buildEscalationBailMessage } from "./edit-file-diagnostics";
 import type { HashlineToolEdit } from "./edit-file-repair";
 import {

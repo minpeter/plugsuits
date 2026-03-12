@@ -4,7 +4,12 @@ import { SessionManager } from "@ai-sdk-tool/harness";
 import { tool } from "ai";
 import { z } from "zod";
 import { TODO_DIR } from "../../context/paths";
-import TODO_WRITE_DESCRIPTION from "./todo-write.txt";
+import { readTextAsset } from "../../utils/text-asset";
+
+const TODO_WRITE_DESCRIPTION = readTextAsset(
+  "./todo-write.txt",
+  import.meta.url
+);
 
 const typedGlobalThis = globalThis as typeof globalThis & {
   __ceaSessionManager?: SessionManager;

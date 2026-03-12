@@ -30,19 +30,19 @@
     "pss": "cli.js"
   },
   "scripts": {
-    "start": "bun run src/entrypoints/main.ts",
-    "dev": "bun run --watch src/entrypoints/main.ts",
-    "build": "tsc && cp src/tools/execute/*.txt dist/tools/execute/ && cp src/tools/explore/*.txt dist/tools/explore/ && cp src/tools/modify/*.txt dist/tools/modify/ && cp src/tools/planning/*.txt dist/tools/planning/ && rm -rf dist/skills && cp -r src/skills dist/skills",
-    "test": "bun test",
+    "start": "node dist/entrypoints/main.js",
+    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx src/entrypoints/main.ts",
+    "build": "tsc && node scripts/postbuild.mjs",
+    "test": "vitest run src",
     "typecheck": "tsc --noEmit",
-    "check": "bunx ultracite check",
-    "lint": "bunx ultracite fix"
+    "check": "pnpm exec ultracite check .",
+    "lint": "pnpm exec ultracite fix ."
   },
   "dependencies": {
-    "@ai-sdk-tool/harness": "^1.0.0",
-    "@ai-sdk-tool/headless": "^0.1.0",
-    "@ai-sdk-tool/parser": "^4.1.4",
-    "@ai-sdk-tool/tui": "^0.1.0",
+    "@ai-sdk-tool/harness": "workspace:*",
+    "@ai-sdk-tool/headless": "workspace:*",
+    "@ai-sdk-tool/parser": "^4.1.5",
+    "@ai-sdk-tool/tui": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/openai-compatible": "^2.0.35",
     "@friendliai/ai-provider": "^1.1.7",
@@ -59,9 +59,7 @@
   "devDependencies": {
     "@ai-sdk/provider": "^3.0.8",
     "@biomejs/biome": "2.4.6",
-    "@types/bun": "^1.3.10",
     "@types/node": "^25.4.0",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "ultracite": "^7.2.5"
   }

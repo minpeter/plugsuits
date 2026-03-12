@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Multi-model edit_file test runner
  *
@@ -6,11 +6,14 @@
  * and produces a summary table.
  *
  * Usage:
- *   bun run scripts/test-multi-model-edit.ts [--timeout <seconds>]
+ *   node --import tsx scripts/test-multi-model-edit.ts [--timeout <seconds>]
  */
 
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ── Models ────────────────────────────────────────────────────
 const MODELS = [
@@ -205,16 +208,16 @@ function parseOpsOutput(stdout: string): TestResult[] {
 
 // ── Run one model ────────────────────────────────────────────
 function runModel(model: { id: string; short: string }): Promise<ModelResult> {
-  const opsScript = resolve(import.meta.dir, "test-headless-edit-ops.ts");
+  const opsScript = resolve(SCRIPT_DIR, "test-headless-edit-ops.ts");
   const startTime = Date.now();
 
   return new Promise<ModelResult>((resolvePromise) => {
     const proc = spawn(
-      "bun",
-      ["run", opsScript, "-m", model.id, "--no-translate"],
+      "node",
+      ["--import", "tsx", opsScript, "-m", model.id, "--no-translate"],
       {
-        cwd: resolve(import.meta.dir, ".."),
-        env: { ...process.env, BUN_INSTALL: process.env.BUN_INSTALL },
+        cwd: resolve(SCRIPT_DIR, ".."),
+        env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       }
     );

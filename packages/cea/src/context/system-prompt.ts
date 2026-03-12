@@ -1,13 +1,45 @@
-import SHELL_EXECUTE_CONTEXT from "../tools/execute/shell-execute.txt";
-import SHELL_INTERACT_CONTEXT from "../tools/execute/shell-interact.txt";
-import GLOB_FILES_CONTEXT from "../tools/explore/glob-files.txt";
-import GREP_FILES_CONTEXT from "../tools/explore/grep-files.txt";
-import READ_FILE_CONTEXT from "../tools/explore/read-file.txt";
-import DELETE_FILE_CONTEXT from "../tools/modify/delete-file.txt";
-import EDIT_FILE_CONTEXT from "../tools/modify/edit-file.txt";
-import WRITE_FILE_CONTEXT from "../tools/modify/write-file.txt";
-import LOAD_SKILL_CONTEXT from "../tools/planning/load-skill.txt";
-import TODO_WRITE_CONTEXT from "../tools/planning/todo-write.txt";
+import { readTextAsset } from "../utils/text-asset";
+
+const SHELL_EXECUTE_CONTEXT = readTextAsset(
+  "../tools/execute/shell-execute.txt",
+  import.meta.url
+);
+const SHELL_INTERACT_CONTEXT = readTextAsset(
+  "../tools/execute/shell-interact.txt",
+  import.meta.url
+);
+const GLOB_FILES_CONTEXT = readTextAsset(
+  "../tools/explore/glob-files.txt",
+  import.meta.url
+);
+const GREP_FILES_CONTEXT = readTextAsset(
+  "../tools/explore/grep-files.txt",
+  import.meta.url
+);
+const READ_FILE_CONTEXT = readTextAsset(
+  "../tools/explore/read-file.txt",
+  import.meta.url
+);
+const DELETE_FILE_CONTEXT = readTextAsset(
+  "../tools/modify/delete-file.txt",
+  import.meta.url
+);
+const EDIT_FILE_CONTEXT = readTextAsset(
+  "../tools/modify/edit-file.txt",
+  import.meta.url
+);
+const WRITE_FILE_CONTEXT = readTextAsset(
+  "../tools/modify/write-file.txt",
+  import.meta.url
+);
+const LOAD_SKILL_CONTEXT = readTextAsset(
+  "../tools/planning/load-skill.txt",
+  import.meta.url
+);
+const TODO_WRITE_CONTEXT = readTextAsset(
+  "../tools/planning/todo-write.txt",
+  import.meta.url
+);
 
 export const SYSTEM_PROMPT = `You are an expert software engineer assistant.
 
