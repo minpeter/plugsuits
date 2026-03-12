@@ -19,6 +19,30 @@ export {
   registerCommand,
   resolveRegisteredCommandName,
 } from "./commands";
+export type {
+  CompactionAppliedDetail,
+  CompactionOrchestratorCallbacks,
+  CompactionPhase,
+  SpeculativeCompactionJob,
+} from "./compaction-orchestrator";
+export {
+  applyReadyCompactionCore,
+  blockAtHardLimitCore,
+  CompactionOrchestrator,
+  discardAllJobsCore,
+} from "./compaction-orchestrator";
+export {
+  calculateAggressiveCompactionSplitIndex,
+  calculateCompactionSplitIndex,
+  calculateDefaultCompactionSplitIndex,
+} from "./compaction-planner";
+export type { CompactionPolicyInput } from "./compaction-policy";
+export {
+  getRecommendedMaxOutputTokens,
+  isAtHardContextLimitFromUsage,
+  needsCompactionFromUsage,
+  shouldStartSpeculativeCompaction,
+} from "./compaction-policy";
 export type { ModelSummarizerOptions } from "./compaction-prompts";
 export {
   createModelSummarizer,
@@ -30,11 +54,13 @@ export { runAgentLoop } from "./loop";
 export type {
   ActualTokenUsage,
   CompactionConfig,
+  CompactionSegment,
   CompactionSummary,
   ContextUsage,
   Message,
   MessageHistoryOptions,
   PreparedCompaction,
+  PreparedCompactionSegment,
 } from "./message-history";
 export {
   computeSpeculativeStartRatio,
