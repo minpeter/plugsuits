@@ -6,6 +6,7 @@ import {
 } from "./message-history";
 
 const TRAILING_NEWLINES = /\n+$/;
+const SEGMENT_SUMMARY_ID_PATTERN = /^segment_summary_/;
 
 function trimTrailingNewlines(
   message: AssistantModelMessage
@@ -429,7 +430,7 @@ describe("MessageHistory compaction", () => {
     ]);
 
     // Manual compaction
-    await history.compact();
+    await history.compact({ aggressive: true });
 
     // Recent messages should still be accessible
     const messages = history.getAll();
@@ -1091,7 +1092,10 @@ describe("MessageHistory speculative compaction", () => {
 
     expect(prepared).not.toBeNull();
     expect(prepared?.didChange).toBe(true);
-    expect(prepared?.summaries).toHaveLength(1);
+    expect(prepared?.segments.length).toBeGreaterThan(0);
+    expect(
+      prepared?.segments.filter((segment) => segment.summary !== null)
+    ).toHaveLength(1);
     expect(history.getAll()).toHaveLength(liveMessageCount);
     expect(history.getSummaries()).toHaveLength(liveSummaryCount);
   });
@@ -1464,6 +1468,7 @@ describe("MessageHistory PreparedCompaction config tracking", () => {
       phase: "new-turn",
     });
     expect(prepared).not.toBeNull();
+    expect(prepared?.baseSegmentIds.length).toBe(history.getSegments().length);
     // biome-ignore lint/style/noNonNullAssertion: asserted non-null above
     expect(prepared!.contextLimitAtCreation).toBe(800);
     // biome-ignore lint/style/noNonNullAssertion: asserted non-null above
@@ -1872,5 +1877,144 @@ describe("truncateToContextBudget tool sequence validity", () => {
       expect(idx).toBeGreaterThan(0);
       expect(messages[idx - 1].role).toBe("assistant");
     }
+  });
+
+  it("preserves the last valid tool pair when zero-budget truncation would otherwise empty the request", () => {
+    const history = new MessageHistory({
+      compaction: {
+        enabled: true,
+        maxTokens: 100,
+        reserveTokens: 999,
+        keepRecentTokens: 20,
+        summarizeFn: async () => "Summary",
+      },
+    });
+    history.setContextLimit(10);
+
+    history.addUserMessage("question");
+    history.addModelMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "tc-preserve",
+            toolName: "test_tool",
+            input: {},
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tc-preserve",
+            toolName: "test_tool",
+            output: { type: "text", value: "output" },
+          },
+        ],
+      },
+    ]);
+
+    const messages = history.getMessagesForLLM();
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.role).toBe("assistant");
+    expect(messages[1]?.role).toBe("tool");
+  });
+
+  it("tracks raw message segments as messages are added", () => {
+    const history = new MessageHistory();
+
+    const userMessage = history.addUserMessage("hello");
+    const [assistantMessage, toolMessage] = history.addModelMessages([
+      { role: "assistant", content: "world" },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_1",
+            toolName: "read_file",
+            output: { type: "text", value: "ok" },
+          },
+        ],
+      },
+    ]);
+
+    expect(history.getSegments()).toEqual([
+      expect.objectContaining({
+        id: `segment_message_${userMessage.id}`,
+        messageIds: [userMessage.id],
+        summary: null,
+      }),
+      expect.objectContaining({
+        id: `segment_message_${assistantMessage?.id}`,
+        messageIds: [assistantMessage?.id],
+        summary: null,
+      }),
+      expect.objectContaining({
+        id: `segment_message_${toolMessage?.id}`,
+        messageIds: [toolMessage?.id],
+        summary: null,
+      }),
+    ]);
+  });
+
+  it("rebuilds segments after compaction", () => {
+    const history = new MessageHistory({ compaction: { enabled: true } });
+
+    history.addUserMessage("one two three four five six seven eight nine ten");
+    history.addModelMessages([
+      { role: "assistant", content: "eleven twelve thirteen" },
+    ]);
+
+    const baseMessageIds = history.getAll().map((message) => message.id);
+    history.applyPreparedCompaction({
+      actualUsage: null,
+      baseMessageIds,
+      baseRevision: 0,
+      baseSegmentIds: history.getSegments().map((segment) => segment.id),
+      compactionMaxTokensAtCreation:
+        history.getCompactionConfig().maxTokens ?? 8000,
+      contextLimitAtCreation: history.getContextLimit(),
+      didChange: true,
+      keepRecentTokensAtCreation:
+        history.getCompactionConfig().keepRecentTokens ?? 0,
+      pendingCompaction: false,
+      phase: "new-turn",
+      rejected: false,
+      segments: [
+        {
+          createdAt: new Date(),
+          endMessageId: "end",
+          estimatedTokens: 2,
+          id: "segment_summary_summary_test",
+          messageCount: 0,
+          messageIds: [],
+          messages: [],
+          startMessageId: "summary_test",
+          summary: {
+            createdAt: new Date(),
+            firstKeptMessageId: "end",
+            id: "summary_test",
+            summary: "rolled up",
+            summaryTokens: 2,
+            tokensBefore: 20,
+          },
+        },
+      ],
+      tokenDelta: 18,
+    });
+
+    const segments = history.getSegments();
+    const summarySegment = segments.find((segment) => segment.summary !== null);
+    expect(summarySegment).toEqual(
+      expect.objectContaining({
+        id: expect.stringMatching(SEGMENT_SUMMARY_ID_PATTERN),
+        summary: expect.objectContaining({ summary: "rolled up" }),
+      })
+    );
   });
 });

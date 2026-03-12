@@ -1,4 +1,11 @@
 import type { ModelMessage, TextPart, ToolResultPart } from "ai";
+import { calculateCompactionSplitIndex } from "./compaction-planner";
+import {
+  getRecommendedMaxOutputTokens,
+  isAtHardContextLimitFromUsage,
+  needsCompactionFromUsage,
+  shouldStartSpeculativeCompaction,
+} from "./compaction-policy";
 import type { PruningConfig } from "./tool-pruning";
 import { pruneToolOutputs } from "./tool-pruning";
 
@@ -239,6 +246,39 @@ function ensureValidToolSequence(messages: ModelMessage[]): ModelMessage[] {
   return messages;
 }
 
+function preserveMinimumValidMessages(
+  messages: ModelMessage[]
+): ModelMessage[] {
+  const sanitized = ensureValidToolSequence([...messages]);
+  if (sanitized.length > 0) {
+    const last = sanitized.at(-1);
+    const previous = sanitized.at(-2);
+
+    if (
+      last?.role === "tool" &&
+      previous?.role === "assistant" &&
+      hasToolCalls(previous)
+    ) {
+      return [previous, last];
+    }
+
+    return last ? [last] : [];
+  }
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const candidate = messages[i];
+    if (!candidate) {
+      continue;
+    }
+
+    if (candidate.role !== "tool" && !hasToolCalls(candidate)) {
+      return [candidate];
+    }
+  }
+
+  return [];
+}
+
 /**
  * Check if a message contains tool-call parts.
  */
@@ -419,20 +459,43 @@ export interface CompactionSummary {
   tokensBefore: number;
 }
 
+export interface CompactionSegment {
+  createdAt: Date;
+  endMessageId: string;
+  estimatedTokens: number;
+  id: string;
+  messageCount: number;
+  messageIds: string[];
+  messages: Message[];
+  startMessageId: string;
+  summary: CompactionSummary | null;
+}
+
+export interface PreparedCompactionSegment {
+  createdAt: Date;
+  endMessageId: string;
+  estimatedTokens: number;
+  id: string;
+  messageCount: number;
+  messageIds: string[];
+  messages: Message[];
+  startMessageId: string;
+  summary: CompactionSummary | null;
+}
+
 export interface PreparedCompaction {
   actualUsage: ActualTokenUsage | null;
   baseMessageIds: string[];
   baseRevision: number;
-  baseSummaryIds: string[];
+  baseSegmentIds: string[];
   compactionMaxTokensAtCreation: number;
   contextLimitAtCreation: number;
   didChange: boolean;
   keepRecentTokensAtCreation: number;
-  messages: Message[];
   pendingCompaction: boolean;
   phase: "intermediate-step" | "new-turn";
   rejected: boolean;
-  summaries: CompactionSummary[];
+  segments: PreparedCompactionSegment[];
   tokenDelta: number;
 }
 
@@ -773,12 +836,21 @@ function cloneMessage(message: Message): Message {
   };
 }
 
+function cloneCompactionSegment(segment: CompactionSegment): CompactionSegment {
+  return {
+    ...segment,
+    createdAt: new Date(segment.createdAt),
+    messageIds: [...segment.messageIds],
+    messages: segment.messages.map(cloneMessage),
+    summary: segment.summary ? cloneCompactionSummary(segment.summary) : null,
+  };
+}
+
 export class MessageHistory {
-  private messages: Message[] = [];
   private readonly maxMessages: number;
   private readonly compaction: CompactionConfig;
   private readonly pruning: PruningConfig;
-  private summaries: CompactionSummary[] = [];
+  private segments: CompactionSegment[] = [];
   private _lastCompactionRejected = false;
   private compactionInProgress = false;
   private pendingCompaction = false;
@@ -818,11 +890,15 @@ export class MessageHistory {
   }
 
   getAll(): Message[] {
-    return [...this.messages];
+    return this.getMaterializedMessages();
   }
 
   getSummaries(): CompactionSummary[] {
-    return [...this.summaries];
+    return this.getMaterializedSummaries();
+  }
+
+  getSegments(): CompactionSegment[] {
+    return this.segments.map(cloneCompactionSegment);
   }
 
   get lastCompactionRejected(): boolean {
@@ -830,8 +906,7 @@ export class MessageHistory {
   }
 
   clear(): void {
-    this.messages = [];
-    this.summaries = [];
+    this.segments = [];
     this.actualUsage = null;
     this.pendingCompaction = false;
     this.touch();
@@ -885,16 +960,12 @@ export class MessageHistory {
   getRecommendedMaxOutputTokens(
     messagesForLLM?: ModelMessage[]
   ): number | undefined {
-    if (this.contextLimit <= 0) {
-      return undefined;
-    }
-
     let estimatedInputTokens: number;
     if (messagesForLLM) {
       estimatedInputTokens =
         this.systemPromptTokens + estimateMessagesTokens(messagesForLLM);
     } else {
-      const summaryTokens = this.summaries.reduce(
+      const summaryTokens = this.getMaterializedSummaries().reduce(
         (total, s) => total + s.summaryTokens,
         0
       );
@@ -903,12 +974,11 @@ export class MessageHistory {
         this.systemPromptTokens + summaryTokens + messageTokens;
     }
 
-    const reserveTokens = this.getEffectiveReserveTokens();
-    const remaining = this.contextLimit - estimatedInputTokens - reserveTokens;
-    const SAFETY_MARGIN = 0.85;
-    const MIN_OUTPUT = 0;
-
-    return Math.max(MIN_OUTPUT, Math.floor(remaining * SAFETY_MARGIN));
+    return getRecommendedMaxOutputTokens({
+      contextLimit: this.contextLimit,
+      estimatedInputTokens,
+      reserveTokens: this.getEffectiveReserveTokens(),
+    });
   }
 
   private invalidateActualUsage(): void {
@@ -1033,7 +1103,7 @@ export class MessageHistory {
    */
   getEstimatedTokens(): number {
     const messagesTokens = estimateMessagesTokens(this.toModelMessages());
-    const summariesTokens = this.summaries.reduce(
+    const summariesTokens = this.getMaterializedSummaries().reduce(
       (total, s) => total + s.summaryTokens,
       0
     );
@@ -1057,43 +1127,37 @@ export class MessageHistory {
   }
 
   shouldStartSpeculativeCompactionForNextTurn(): boolean {
-    if (
-      !(this.compaction.enabled || this.pruning.enabled) ||
-      this.messages.length === 0
-    ) {
-      return false;
-    }
-
-    const contextLimit = this.getActiveContextLimit();
-    const speculativeStartRatio = this.compaction.speculativeStartRatio;
-    const predictiveThreshold =
-      typeof speculativeStartRatio === "number" &&
-      Number.isFinite(speculativeStartRatio) &&
-      speculativeStartRatio > 0 &&
-      speculativeStartRatio < 1
-        ? Math.floor(contextLimit * speculativeStartRatio)
-        : Math.max(
-            0,
-            contextLimit -
-              this.getEffectiveReserveTokens({ phase: "new-turn" }) * 2
-          );
-
-    return this.getCurrentUsageTokens() >= predictiveThreshold;
+    return shouldStartSpeculativeCompaction({
+      contextLimit: this.getActiveContextLimit(),
+      input: {
+        currentUsageTokens: this.getCurrentUsageTokens(),
+        enabled: Boolean(this.compaction.enabled || this.pruning.enabled),
+        hasMessages: this.segments.some((segment) => segment.messageCount > 0),
+        phaseReserveTokens: this.getEffectiveReserveTokens({
+          phase: "new-turn",
+        }),
+        speculativeStartRatio: this.compaction.speculativeStartRatio,
+      },
+    });
   }
 
   async prepareSpeculativeCompaction(
     options?: MessagePreparationOptions
   ): Promise<PreparedCompaction | null> {
     if (
-      !(this.compaction.enabled || this.pruning.enabled) ||
-      this.messages.length === 0
+      !(
+        (this.compaction.enabled || this.pruning.enabled) &&
+        this.segments.some((segment) => segment.messageCount > 0)
+      )
     ) {
       return null;
     }
 
     const baseRevision = this.revision;
-    const baseMessageIds = this.messages.map((message) => message.id);
-    const baseSummaryIds = this.summaries.map((summary) => summary.id);
+    const baseMessageIds = this.getMaterializedMessages().map(
+      (message) => message.id
+    );
+    const baseSegmentIds = this.segments.map((segment) => segment.id);
     const contextLimitAtCreation = this.getContextLimit();
     const compactionMaxTokensAtCreation =
       this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS;
@@ -1115,16 +1179,15 @@ export class MessageHistory {
       actualUsage: cloneActualUsage(clone.actualUsage),
       baseMessageIds,
       baseRevision,
-      baseSummaryIds,
+      baseSegmentIds,
       compactionMaxTokensAtCreation,
       contextLimitAtCreation,
       didChange: clone.revision !== baseRevision,
       keepRecentTokensAtCreation,
-      messages: clone.messages.map(cloneMessage),
       pendingCompaction: clone.pendingCompaction,
       phase: options?.phase ?? "new-turn",
       rejected: clone.lastCompactionRejected,
-      summaries: clone.summaries.map(cloneCompactionSummary),
+      segments: clone.buildPreparedSegments(),
       tokenDelta: Math.max(0, preCompactionTokens - postCompactionTokens),
     };
   }
@@ -1144,21 +1207,22 @@ export class MessageHistory {
     }
 
     const hasExactRevisionMatch = prepared.baseRevision === this.revision;
-    const hasMatchingSummaryPrefix =
-      this.summaries.length === prepared.baseSummaryIds.length &&
-      this.summaries.every(
-        (summary, index) => summary.id === prepared.baseSummaryIds[index]
+    const hasMatchingSegmentPrefix =
+      this.segments.length >= prepared.baseSegmentIds.length &&
+      prepared.baseSegmentIds.every(
+        (segmentId, index) => this.segments[index]?.id === segmentId
       );
     const hasMatchingMessagePrefix =
-      this.messages.length >= prepared.baseMessageIds.length &&
+      this.getMaterializedMessages().length >= prepared.baseMessageIds.length &&
       prepared.baseMessageIds.every(
-        (messageId, index) => this.messages[index]?.id === messageId
+        (messageId, index) =>
+          this.getMaterializedMessages()[index]?.id === messageId
       );
 
     if (
       !(
         hasExactRevisionMatch ||
-        (hasMatchingSummaryPrefix && hasMatchingMessagePrefix)
+        (hasMatchingSegmentPrefix && hasMatchingMessagePrefix)
       )
     ) {
       return { applied: false, reason: "stale" };
@@ -1174,13 +1238,22 @@ export class MessageHistory {
 
     const appendedMessages = hasExactRevisionMatch
       ? []
-      : this.messages.slice(prepared.baseMessageIds.length).map(cloneMessage);
+      : this.getMaterializedMessages()
+          .slice(prepared.baseMessageIds.length)
+          .map(cloneMessage);
 
-    this.messages = [
-      ...prepared.messages.map(cloneMessage),
-      ...appendedMessages,
+    this.segments = [
+      ...prepared.segments.map((segment) => ({
+        ...segment,
+        createdAt: new Date(segment.createdAt),
+        messageIds: [...segment.messageIds],
+        messages: segment.messages.map(cloneMessage),
+        summary: segment.summary
+          ? cloneCompactionSummary(segment.summary)
+          : null,
+      })),
+      ...appendedMessages.map((message) => this.createMessageSegment(message)),
     ];
-    this.summaries = prepared.summaries.map(cloneCompactionSummary);
     this.pendingCompaction =
       appendedMessages.length > 0 ? true : prepared.pendingCompaction;
     this.adjustActualUsageAfterReduction(prepared.tokenDelta);
@@ -1211,14 +1284,122 @@ export class MessageHistory {
       pruning: { ...this.pruning },
     });
 
-    clone.messages = this.messages.map(cloneMessage);
-    clone.summaries = this.summaries.map(cloneCompactionSummary);
+    clone.segments = this.segments.map(cloneCompactionSegment);
     clone.pendingCompaction = this.pendingCompaction;
     clone.actualUsage = cloneActualUsage(this.actualUsage);
     clone.contextLimit = this.contextLimit;
     clone.revision = this.revision;
 
     return clone;
+  }
+
+  private createMessageSegment(message: Message): CompactionSegment {
+    return {
+      createdAt: new Date(message.createdAt),
+      endMessageId: message.id,
+      estimatedTokens: estimateTokens(extractMessageText(message.modelMessage)),
+      id: `segment_message_${message.id}`,
+      messageCount: 1,
+      messageIds: [message.id],
+      messages: [cloneMessage(message)],
+      startMessageId: message.id,
+      summary: null,
+    };
+  }
+
+  private createSummarySegment(summary: CompactionSummary): CompactionSegment {
+    return {
+      createdAt: new Date(summary.createdAt),
+      endMessageId: summary.firstKeptMessageId,
+      estimatedTokens: summary.summaryTokens,
+      id: `segment_summary_${summary.id}`,
+      messageCount: 0,
+      messageIds: [],
+      messages: [],
+      startMessageId: summary.id,
+      summary: cloneCompactionSummary(summary),
+    };
+  }
+
+  private buildPreparedSegments(): PreparedCompactionSegment[] {
+    return this.segments.map((segment) => {
+      return {
+        createdAt: new Date(segment.createdAt),
+        endMessageId: segment.endMessageId,
+        estimatedTokens: segment.estimatedTokens,
+        id: segment.id,
+        messageCount: segment.messageCount,
+        messageIds: [...segment.messageIds],
+        messages: segment.messages.map(cloneMessage),
+        startMessageId: segment.startMessageId,
+        summary: segment.summary
+          ? cloneCompactionSummary(segment.summary)
+          : null,
+      };
+    });
+  }
+
+  private getMaterializedMessages(): Message[] {
+    return this.segments.flatMap((segment) =>
+      segment.messages.map(cloneMessage)
+    );
+  }
+
+  private getMaterializedSummaries(): CompactionSummary[] {
+    return this.segments.flatMap((segment) =>
+      segment.summary ? [cloneCompactionSummary(segment.summary)] : []
+    );
+  }
+
+  private getSummarySegments(): CompactionSegment[] {
+    return this.segments
+      .filter((segment) => segment.summary !== null)
+      .map(cloneCompactionSegment);
+  }
+
+  private applyRawMessages(rawMessages: Message[]): void {
+    this.segments = [
+      ...this.getSummarySegments(),
+      ...rawMessages.map((message) => this.createMessageSegment(message)),
+    ];
+  }
+
+  private sanitizeMessageSequence(messages: Message[]): Message[] {
+    const sanitized = messages.map(cloneMessage);
+
+    while (sanitized.length > 0 && sanitized[0]?.modelMessage.role === "tool") {
+      sanitized.shift();
+    }
+
+    let index = 1;
+    while (index < sanitized.length) {
+      if (sanitized[index]?.modelMessage.role === "tool") {
+        const previous = sanitized[index - 1];
+        if (previous?.modelMessage.role !== "assistant") {
+          sanitized.splice(index, 1);
+          continue;
+        }
+      }
+      index += 1;
+    }
+
+    let toolCallIndex = 0;
+    while (toolCallIndex < sanitized.length) {
+      const message = sanitized[toolCallIndex];
+      if (message && hasToolCalls(message.modelMessage)) {
+        const nextIndex = toolCallIndex + 1;
+        if (
+          nextIndex >= sanitized.length ||
+          sanitized[nextIndex]?.modelMessage.role !== "tool"
+        ) {
+          sanitized.splice(toolCallIndex, 1);
+          continue;
+        }
+      }
+      toolCallIndex += 1;
+    }
+
+    return sanitized;
   }
 
   private getEffectiveReserveTokens(options?: CompactionCheckOptions): number {
@@ -1237,42 +1418,36 @@ export class MessageHistory {
    * This is a synchronous check — no compaction is performed.
    */
   needsCompaction(options?: CompactionCheckOptions): boolean {
-    if (!this.compaction.enabled || this.messages.length === 0) {
-      return false;
-    }
-
     const reserveTokens = this.getEffectiveReserveTokens(options);
+    const thresholdLimit =
+      this.actualUsage && this.contextLimit > 0
+        ? this.contextLimit - reserveTokens
+        : (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS) -
+          reserveTokens;
 
-    // Prefer actual API-reported usage over character-based estimation
-    if (this.actualUsage && this.contextLimit > 0) {
-      return this.actualUsage.totalTokens + reserveTokens >= this.contextLimit;
-    }
-
-    const totalTokens = this.getEstimatedTokens();
-    const threshold =
-      (this.compaction.maxTokens ?? DEFAULT_COMPACTION_MAX_TOKENS) -
-      reserveTokens;
-
-    return totalTokens >= threshold;
+    return needsCompactionFromUsage({
+      currentUsageTokens:
+        this.actualUsage && this.contextLimit > 0
+          ? this.actualUsage.totalTokens
+          : this.getEstimatedTokens(),
+      enabled: Boolean(this.compaction.enabled),
+      hasMessages: this.segments.some((segment) => segment.messageCount > 0),
+      thresholdLimit,
+    });
   }
 
   isAtHardContextLimit(
     additionalTokens?: number,
     options?: CompactionCheckOptions
   ): boolean {
-    if (!(this.compaction.enabled || this.pruning.enabled)) {
-      return false;
-    }
-
-    const currentUsageTokens =
-      this.actualUsage?.totalTokens ?? this.getEstimatedTokens();
-    const effectiveReserveTokens = this.getEffectiveReserveTokens(options);
-    const activeContextLimit = this.getActiveContextLimit();
-
-    return (
-      currentUsageTokens + (additionalTokens ?? 0) + effectiveReserveTokens >=
-      activeContextLimit
-    );
+    return isAtHardContextLimitFromUsage({
+      additionalTokens,
+      contextLimit: this.getActiveContextLimit(),
+      currentUsageTokens:
+        this.actualUsage?.totalTokens ?? this.getEstimatedTokens(),
+      enabled: Boolean(this.compaction.enabled || this.pruning.enabled),
+      reserveTokens: this.getEffectiveReserveTokens(options),
+    });
   }
 
   /**
@@ -1281,7 +1456,7 @@ export class MessageHistory {
    * the token count below the compaction threshold, compaction is skipped.
    */
   async compact(options?: CompactOptions): Promise<boolean> {
-    if (this.messages.length === 0) {
+    if (!this.segments.some((segment) => segment.messageCount > 0)) {
       return false;
     }
 
@@ -1324,8 +1499,12 @@ export class MessageHistory {
       },
       originalContent,
     };
-    this.messages.push(message);
-    this.enforceLimit();
+    const nextMessages = [...this.getMaterializedMessages(), message];
+    if (nextMessages.length > this.maxMessages) {
+      this.enforceLimit(nextMessages);
+    } else {
+      this.applyRawMessages(nextMessages);
+    }
     this.invalidateActualUsage();
     this.touch();
     // Mark that compaction may be needed — actual compaction happens
@@ -1347,8 +1526,12 @@ export class MessageHistory {
       };
       created.push(message);
     }
-    this.messages.push(...created);
-    this.enforceLimit();
+    const nextMessages = [...this.getMaterializedMessages(), ...created];
+    if (nextMessages.length > this.maxMessages) {
+      this.enforceLimit(nextMessages);
+    } else {
+      this.applyRawMessages(nextMessages);
+    }
     this.invalidateActualUsage();
     this.touch();
     // Mark that compaction may be needed
@@ -1384,10 +1567,12 @@ export class MessageHistory {
 
     let result: ModelMessage[];
 
-    if (this.summaries.length === 0) {
+    const summaries = this.getMaterializedSummaries();
+
+    if (summaries.length === 0) {
       result = modelMessages;
     } else {
-      const combinedSummary = this.summaries
+      const combinedSummary = summaries
         .map((s) => `---\n${sanitizeSummaryText(s.summary)}`)
         .join("\n");
 
@@ -1416,8 +1601,7 @@ export class MessageHistory {
     );
 
     if (maxMessageTokens <= 0) {
-      const last = messages.at(-1);
-      return ensureValidToolSequence(last ? [last] : []);
+      return preserveMinimumValidMessages(messages);
     }
 
     let totalTokens = estimateMessagesTokens(messages);
@@ -1477,23 +1661,39 @@ export class MessageHistory {
    * Returns true if any outputs were pruned.
    */
   private performPruning(): boolean {
-    const modelMessages = this.messages.map((m) => m.modelMessage);
+    const modelMessages = this.getMaterializedMessages().map(
+      (m) => m.modelMessage
+    );
     const result = pruneToolOutputs(modelMessages, this.pruning);
 
     if (result.prunedTokens === 0) {
       return false;
     }
 
-    // Update messages with pruned model messages
-    for (let i = 0; i < this.messages.length; i++) {
-      if (this.messages[i].modelMessage !== result.messages[i]) {
-        this.messages[i] = {
-          ...this.messages[i],
-          modelMessage: result.messages[i],
-        };
+    const materializedMessages = this.getMaterializedMessages();
+    const updatedMessages: Message[] = [];
+
+    for (let i = 0; i < materializedMessages.length; i++) {
+      const currentMessage = materializedMessages[i];
+      const nextModelMessage = result.messages[i];
+      if (!(currentMessage && nextModelMessage)) {
+        continue;
       }
+
+      updatedMessages.push(
+        currentMessage.modelMessage !== nextModelMessage
+          ? {
+              ...currentMessage,
+              modelMessage: nextModelMessage,
+            }
+          : currentMessage
+      );
     }
 
+    this.segments = [
+      ...this.getSummarySegments(),
+      ...updatedMessages.map((message) => this.createMessageSegment(message)),
+    ];
     this.adjustActualUsageAfterReduction(result.prunedTokens);
     this.touch();
 
@@ -1501,56 +1701,19 @@ export class MessageHistory {
   }
 
   private calculateCompactionSplitIndex(aggressive: boolean): number | null {
-    return aggressive
-      ? this.calculateAggressiveCompactionSplitIndex()
-      : this.calculateDefaultCompactionSplitIndex();
-  }
-
-  private calculateDefaultCompactionSplitIndex(): number | null {
-    const keepRecentTokens =
-      this.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT;
-
-    let keptTokens = 0;
-    let splitIndex = this.messages.length;
-
-    for (let i = this.messages.length - 1; i >= 0; i--) {
-      const msgTokens = estimateTokens(
-        extractMessageText(this.messages[i].modelMessage)
-      );
-
-      if (keptTokens + msgTokens > keepRecentTokens) {
-        splitIndex = i + 1;
-        break;
-      }
-
-      keptTokens += msgTokens;
-
-      if (i === 0) {
-        splitIndex = 0;
-      }
-    }
-
-    if (splitIndex === 0) {
-      if (this.messages.length <= 1) {
-        return null;
-      }
-      splitIndex = Math.max(1, Math.floor(this.messages.length / 2));
-    }
-
-    if (splitIndex >= this.messages.length) {
-      return null;
-    }
-
-    splitIndex = adjustSplitIndexForToolPairs(this.messages, splitIndex);
-    if (splitIndex >= this.messages.length || splitIndex <= 0) {
-      return null;
-    }
-
-    return splitIndex;
-  }
-
-  private calculateAggressiveCompactionSplitIndex(): number | null {
-    return this.messages.length > 1 ? this.messages.length : null;
+    return calculateCompactionSplitIndex({
+      adjustSplitIndex: (splitIndex) =>
+        adjustSplitIndexForToolPairs(
+          this.getMaterializedMessages(),
+          splitIndex
+        ),
+      aggressive,
+      estimateMessageTokens: (message: Message) =>
+        estimateTokens(extractMessageText(message.modelMessage)),
+      keepRecentTokens:
+        this.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_KEEP_RECENT,
+      messages: this.getMaterializedMessages(),
+    });
   }
 
   private async performCompaction(
@@ -1564,7 +1727,9 @@ export class MessageHistory {
   ): Promise<boolean> {
     this._lastCompactionRejected = false;
 
-    if (this.messages.length === 0) {
+    const materializedMessages = this.getMaterializedMessages();
+
+    if (materializedMessages.length === 0) {
       return false;
     }
 
@@ -1577,9 +1742,11 @@ export class MessageHistory {
       }
 
       // Messages to summarize (before splitIndex)
-      const messagesToSummarize = this.messages.slice(0, splitIndex);
+      const messagesToSummarize = materializedMessages.slice(0, splitIndex);
       // Messages to keep as-is (splitIndex onwards)
-      const messagesToKeep = aggressive ? [] : this.messages.slice(splitIndex);
+      const messagesToKeep = aggressive
+        ? []
+        : materializedMessages.slice(splitIndex);
 
       if (messagesToSummarize.length === 0) {
         return false;
@@ -1594,7 +1761,7 @@ export class MessageHistory {
       // Combine existing summaries into previousSummary for iterative compaction
       // The iterative compaction invariant guarantees at most one summary entry.
       // Access directly rather than mapping/joining.
-      const previousSummary = this.summaries[0]?.summary;
+      const previousSummary = this.getMaterializedSummaries()[0]?.summary;
 
       // Summarize with error handling and fallback
       const summarizeFn =
@@ -1638,7 +1805,10 @@ export class MessageHistory {
 
       const totalTokensReplaced =
         summaryEntry.tokensBefore +
-        this.summaries.reduce((sum, s) => sum + s.summaryTokens, 0);
+        this.getMaterializedSummaries().reduce(
+          (sum, s) => sum + s.summaryTokens,
+          0
+        );
       if (summaryEntry.summaryTokens >= totalTokensReplaced) {
         this._lastCompactionRejected = true;
         return false;
@@ -1646,9 +1816,14 @@ export class MessageHistory {
 
       // Replace all previous summaries with the new one (iterative compaction)
       // The new summary already incorporates previous context via previousSummary parameter
-      this.summaries = [summaryEntry];
-      this.messages = messagesToKeep;
-      this.ensureNoOrphanedToolResults();
+      const sanitizedMessagesToKeep =
+        this.sanitizeMessageSequence(messagesToKeep);
+      this.segments = [
+        this.createSummarySegment(summaryEntry),
+        ...sanitizedMessagesToKeep.map((message) =>
+          this.createMessageSegment(message)
+        ),
+      ];
       this.adjustActualUsageAfterReduction(
         summaryEntry.tokensBefore - summaryEntry.summaryTokens
       );
@@ -1664,38 +1839,49 @@ export class MessageHistory {
     }
   }
 
-  private enforceLimit(): void {
-    if (this.messages.length <= this.maxMessages) {
+  private enforceLimit(inputMessages?: Message[]): void {
+    const messages = (inputMessages ?? this.getMaterializedMessages()).map(
+      cloneMessage
+    );
+
+    if (messages.length <= this.maxMessages) {
       return;
     }
 
     if (this.maxMessages === 1) {
-      const lastMessage = this.messages.at(-1);
-      this.messages = lastMessage ? [lastMessage] : [];
-      this.ensureNoOrphanedToolResults();
+      const lastMessage = messages.at(-1);
+      this.applyRawMessages(
+        this.sanitizeMessageSequence(lastMessage ? [lastMessage] : [])
+      );
       return;
     }
 
     const turnBoundaries: number[] = [];
-    for (let i = 1; i < this.messages.length; i++) {
-      if (this.messages[i].modelMessage.role === "user") {
+    for (let i = 1; i < messages.length; i++) {
+      if (messages[i]?.modelMessage.role === "user") {
         turnBoundaries.push(i);
       }
     }
 
     if (turnBoundaries.length === 0) {
-      this.messages = [
-        this.messages[0],
-        ...this.messages.slice(-(this.maxMessages - 1)),
-      ];
-      this.ensureNoOrphanedToolResults();
+      this.applyRawMessages(
+        this.sanitizeMessageSequence(
+          [messages[0], ...messages.slice(-(this.maxMessages - 1))].filter(
+            (message): message is Message => message !== undefined
+          )
+        )
+      );
       return;
     }
 
     for (const boundary of turnBoundaries) {
-      const keptCount = 1 + (this.messages.length - boundary);
+      const keptCount = 1 + (messages.length - boundary);
       if (keptCount <= this.maxMessages) {
-        this.messages = [this.messages[0], ...this.messages.slice(boundary)];
+        this.applyRawMessages(
+          [messages[0], ...messages.slice(boundary)].filter(
+            (message): message is Message => message !== undefined
+          )
+        );
         return;
       }
     }
@@ -1705,77 +1891,26 @@ export class MessageHistory {
       return;
     }
     const lastBoundaryCandidate = [
-      this.messages[0],
-      ...this.messages.slice(lastBoundary),
+      messages[0],
+      ...messages.slice(lastBoundary),
     ];
 
     if (lastBoundaryCandidate.length <= this.maxMessages) {
-      this.messages = lastBoundaryCandidate;
+      this.applyRawMessages(
+        lastBoundaryCandidate.filter(
+          (message): message is Message => message !== undefined
+        )
+      );
       return;
     }
 
-    this.messages = [
-      this.messages[0],
-      ...this.messages.slice(-(this.maxMessages - 1)),
-    ];
-    this.ensureNoOrphanedToolResults();
-  }
-
-  /**
-   * Remove orphaned tool_result messages that lack a preceding tool_call.
-   * Also removes assistant messages with tool-calls whose tool-results are missing.
-   * Called after enforceLimit() and performCompaction() trim the message array.
-   */
-  private ensureNoOrphanedToolResults(): void {
-    // Remove leading 'tool' messages (handles maxMessages=1 edge case)
-    while (
-      this.messages.length > 0 &&
-      this.messages[0]?.modelMessage.role === "tool"
-    ) {
-      this.messages.shift();
-    }
-
-    // Remove 'tool' messages at subsequent positions that lack a preceding
-    // 'assistant' message
-    let i = 1;
-    while (i < this.messages.length) {
-      if (this.messages[i]?.modelMessage.role === "tool") {
-        const prev = this.messages[i - 1];
-        if (prev?.modelMessage.role !== "assistant") {
-          this.messages.splice(i, 1);
-          continue;
-        }
-      }
-      i++;
-    }
-
-    // Remove assistant messages with tool-calls that have no following tool results
-    this.removeOrphanedToolCalls();
-  }
-
-  /**
-   * Remove assistant messages that contain tool-calls but have no
-   * corresponding tool-result messages following them.
-   * This prevents sending incomplete tool sequences to the LLM.
-   */
-  private removeOrphanedToolCalls(): void {
-    let i = 0;
-    while (i < this.messages.length) {
-      const msg = this.messages[i];
-      if (hasToolCalls(msg.modelMessage)) {
-        // Check if next message(s) are tool results
-        const nextIdx = i + 1;
-        if (
-          nextIdx >= this.messages.length ||
-          this.messages[nextIdx].modelMessage.role !== "tool"
-        ) {
-          // Orphaned tool-call — remove it
-          this.messages.splice(i, 1);
-          continue;
-        }
-      }
-      i++;
-    }
+    this.applyRawMessages(
+      this.sanitizeMessageSequence(
+        [messages[0], ...messages.slice(-(this.maxMessages - 1))].filter(
+          (message): message is Message => message !== undefined
+        )
+      )
+    );
   }
 
   private sanitizeMessage(message: ModelMessage): ModelMessage {
@@ -1840,6 +1975,8 @@ export class MessageHistory {
   }
 
   toModelMessages(): ModelMessage[] {
-    return this.messages.map((message) => message.modelMessage);
+    return this.getMaterializedMessages().map(
+      (message) => message.modelMessage
+    );
   }
 }

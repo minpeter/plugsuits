@@ -616,16 +616,15 @@ describe("compaction integration with model-specific configs", () => {
         actualUsage: null,
         baseMessageIds: [],
         baseRevision: 0,
-        baseSummaryIds: [],
+        baseSegmentIds: [],
         compactionMaxTokensAtCreation: 1000,
         contextLimitAtCreation: 1000,
         didChange: true,
         keepRecentTokensAtCreation: 200,
-        messages: [],
         pendingCompaction: false,
         phase: "new-turn",
         rejected: true,
-        summaries: [],
+        segments: [],
         tokenDelta: 0,
       });
 
