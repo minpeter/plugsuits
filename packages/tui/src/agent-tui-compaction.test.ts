@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import type { PreparedCompaction } from "@ai-sdk-tool/harness";
+import { describe, expect, it } from "vitest";
 import {
   applyReadySpeculativeCompactionCore,
   blockAtHardContextLimitCore,

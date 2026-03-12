@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import type { Command } from "@ai-sdk-tool/harness";
+import { describe, expect, it } from "vitest";
 import { buildTuiCommandSet } from "./command-set";
 
 describe("buildTuiCommandSet", () => {

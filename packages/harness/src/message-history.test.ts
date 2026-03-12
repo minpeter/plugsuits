@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import type { AssistantModelMessage, TextPart, ToolCallPart } from "ai";
+import { describe, expect, it } from "vitest";
 import {
   computeSpeculativeStartRatio,
   MessageHistory,

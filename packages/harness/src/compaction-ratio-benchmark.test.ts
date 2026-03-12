@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import { createOpenAI } from "@ai-sdk/openai";
+import { describe, expect, it } from "vitest";
 import type { PreparedCompaction } from "./index";
 import { createAgent, MessageHistory } from "./index";
 
@@ -10,7 +10,7 @@ import { createAgent, MessageHistory } from "./index";
  * values with the same conversation. Measures speculative preparations,
  * applied compactions, wasted preparations, and blocking compactions.
  *
- * Run: OPENAI_API_KEY=... OPENAI_BASE_URL=... bun test compaction-ratio-benchmark
+ * Run: OPENAI_API_KEY=... OPENAI_BASE_URL=... pnpm --filter @ai-sdk-tool/harness test -- compaction-ratio-benchmark
  */
 
 const OPENAI_API_KEY =

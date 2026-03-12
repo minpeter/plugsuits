@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
 import { createOpenAI } from "@ai-sdk/openai";
 import { tool } from "ai";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createAgent, MessageHistory, runAgentLoop } from "./index";
 
@@ -11,7 +11,7 @@ import { createAgent, MessageHistory, runAgentLoop } from "./index";
  * Uses a small model with intentionally low maxTokens to trigger compaction
  * reliably across providers.
  *
- * Run with: OPENAI_API_KEY=... OPENAI_BASE_URL=... bun test compaction-e2e
+ * Run with: OPENAI_API_KEY=... OPENAI_BASE_URL=... pnpm --filter @ai-sdk-tool/harness test -- compaction-e2e
  */
 
 const OPENAI_API_KEY =

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
 import type { ModelMessage } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
+import { describe, expect, it } from "vitest";
 import {
   createModelSummarizer,
   DEFAULT_COMPACTION_USER_PROMPT,

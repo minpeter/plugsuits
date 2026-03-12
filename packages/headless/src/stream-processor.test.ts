@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import type { AgentStreamResult } from "@ai-sdk-tool/harness";
+import { describe, expect, it } from "vitest";
 import { processStream } from "./stream-processor";
 import type { TrajectoryEvent } from "./types";
 

@@ -1,6 +1,6 @@
-import { describe, expect, it, mock } from "bun:test";
 import type { AgentStreamResult, ModelMessage } from "@ai-sdk-tool/harness";
 import { MessageHistory } from "@ai-sdk-tool/harness";
+import { describe, expect, it, vi } from "vitest";
 import { runHeadless } from "./runner";
 import type { TrajectoryEvent } from "./types";
 
@@ -276,7 +276,7 @@ describe("runHeadless", () => {
   });
 
   it("can apply speculative compaction between internal tool-loop steps", async () => {
-    const summarizeFn = mock(async () => "Prepared summary");
+    const summarizeFn = vi.fn(async () => "Prepared summary");
     const history = new MessageHistory({
       compaction: {
         enabled: true,
@@ -334,7 +334,7 @@ describe("runHeadless", () => {
     let secondCallMessages: ModelMessage[] = [];
     const secondCallSeen = createDeferred<void>();
 
-    const prepareSpeculativeCompaction = mock(async () => {
+    const prepareSpeculativeCompaction = vi.fn(async () => {
       prepareCallCount += 1;
 
       if (prepareCallCount === 1) {
