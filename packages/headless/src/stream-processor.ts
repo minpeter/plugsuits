@@ -339,7 +339,7 @@ export const processStream = async (
     });
 
     return {
-      shouldContinue: true,
+      shouldContinue: false,
       currentText,
       currentReasoning,
       usage: null,
