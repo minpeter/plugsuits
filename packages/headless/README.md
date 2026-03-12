@@ -5,7 +5,7 @@ A non-interactive, JSONL event-streaming runtime for agent sessions. Instead of 
 ## Installation
 
 ```bash
-bun add @ai-sdk-tool/headless
+pnpm add @ai-sdk-tool/headless
 # or
 npm install @ai-sdk-tool/headless
 ```
@@ -13,7 +13,7 @@ npm install @ai-sdk-tool/headless
 **Peer dependencies:**
 
 ```bash
-bun add @ai-sdk-tool/harness ai
+pnpm add @ai-sdk-tool/harness ai
 ```
 
 ## Quick Start
@@ -297,7 +297,7 @@ await runHeadless({
 
 ```bash
 # Run headless and filter only assistant events
-bun run headless -- --prompt "Fix the bug" | grep '"type":"assistant"' | jq .content
+pnpm start -- --prompt "Fix the bug" | grep '"type":"assistant"' | jq .content
 ```
 
 ```typescript

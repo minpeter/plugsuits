@@ -6,6 +6,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "@ai-sdk-tool/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
@@ -25,7 +26,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run src"
   },
   "dependencies": {
     "ai": "^6.0.116",

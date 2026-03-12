@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "customConditions": ["@ai-sdk-tool/source"],
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,

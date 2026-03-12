@@ -5,7 +5,7 @@
 
 ## OVERVIEW
 
-`plugsuits` is a Bun + TypeScript monorepo with four packages. The core agent harness (`@ai-sdk-tool/harness`) is model-agnostic and reusable. Terminal UI rendering lives in `@ai-sdk-tool/tui`, JSONL event streaming in `@ai-sdk-tool/headless`, and the full code-editing agent implementation in `@ai-sdk-tool/cea`.
+`plugsuits` is a pnpm + Turborepo + TypeScript monorepo with four packages. The core agent harness (`@ai-sdk-tool/harness`) is model-agnostic and reusable. Terminal UI rendering lives in `@ai-sdk-tool/tui`, JSONL event streaming in `@ai-sdk-tool/headless`, and the full code-editing agent implementation in `@ai-sdk-tool/cea`.
 
 ## STRUCTURE
 
@@ -71,9 +71,9 @@ plugsuits/
 
 ## CONVENTIONS
 
-- Runtime and scripts are Bun-first (`packageManager: bun@1.2.x`); prefer `bun run <script>` over ad-hoc `npm exec`.
+- Runtime and scripts are pnpm + Node-first (`packageManager: pnpm@10.x`); prefer `pnpm run <script>` and `node --import tsx` for TypeScript entrypoints.
 - Canonical quality flow is `check` (non-mutating) and `lint` (mutating via `ultracite fix`).
-- Tests are colocated in `packages/harness/src/**` and `packages/cea/src/**` as `*.test.ts` and executed with `bun test`.
+- Tests are colocated in package `src/**` trees as `*.test.ts` and executed with `vitest` via package scripts.
 - `tsconfig.json` enforces `strict` in each package; do not treat `dist/` as source-of-truth.
 - Legacy code should always be fully deprecated; aggressive updates without backward-compatibility guarantees are acceptable.
 - Package build order: `harness` then `tui` and `headless` (both depend on harness), then `cea` (depends on all three).
@@ -97,16 +97,16 @@ plugsuits/
 
 ```bash
 # From workspace root
-bun install
-bun run build          # Build all packages in dependency order
-bun run typecheck      # Type-check all packages
-bun run check          # Lint — non-mutating
-bun run lint           # Lint — auto-fix
-bun run test           # Run all tests
+pnpm install
+pnpm run build          # Build all packages in dependency order
+pnpm run typecheck      # Type-check all packages
+pnpm run check          # Lint — non-mutating
+pnpm run lint           # Lint — auto-fix
+pnpm run test           # Run all tests
 
 # CEA-specific (from packages/cea or via workspace scripts)
-bun run start          # Interactive TUI
-bun run headless -- --prompt "<task>"   # Headless JSONL mode
+pnpm run start         # Interactive TUI
+pnpm run headless -- "<task>"   # Headless JSONL mode
 ```
 
 ## NOTES

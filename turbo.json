@@ -5,6 +5,15 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "start": {
+      "dependsOn": ["^build", "build"],
+      "cache": false,
+      "persistent": true
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "outputs": []
@@ -13,6 +22,12 @@
       "dependsOn": ["^build"],
       "outputs": [],
       "cache": false
+    },
+    "check": {
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
     }
   }
 }

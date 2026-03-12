@@ -6,6 +6,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "@ai-sdk-tool/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
@@ -25,10 +26,10 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run src"
   },
   "peerDependencies": {
-    "@ai-sdk-tool/harness": "workspace:*",
+    "@ai-sdk-tool/harness": "^1.0.0",
     "@mariozechner/pi-tui": "^0.57.1",
     "ai": "^6.0.116",
     "zod": "^4.3.6"

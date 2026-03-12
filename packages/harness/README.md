@@ -5,7 +5,7 @@ A lightweight, model-agnostic agent harness built on the [Vercel AI SDK](https:/
 ## Installation
 
 ```bash
-bun add @ai-sdk-tool/harness
+pnpm add @ai-sdk-tool/harness
 # or
 npm install @ai-sdk-tool/harness
 ```
@@ -13,7 +13,7 @@ npm install @ai-sdk-tool/harness
 **Peer dependencies:**
 
 ```bash
-bun add ai zod
+pnpm add ai zod
 ```
 
 ## Quick Start

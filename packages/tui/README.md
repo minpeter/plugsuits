@@ -5,7 +5,7 @@ Terminal UI components for building interactive agent sessions. Provides streami
 ## Installation
 
 ```bash
-bun add @ai-sdk-tool/tui
+pnpm add @ai-sdk-tool/tui
 # or
 npm install @ai-sdk-tool/tui
 ```
@@ -13,7 +13,7 @@ npm install @ai-sdk-tool/tui
 **Peer dependencies:**
 
 ```bash
-bun add @ai-sdk-tool/harness ai
+pnpm add @ai-sdk-tool/harness ai
 ```
 
 ## Quick Start

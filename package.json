@@ -3,23 +3,21 @@
   "version": "1.0.0",
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "build": "turbo run build",
-    "dev": "bun run --cwd packages/cea dev",
-    "test": "bun test packages/harness/src packages/tui/src packages/headless/src packages/cea/src",
-    "typecheck": "bun run typecheck:root && turbo run typecheck",
+    "dev": "turbo run dev --filter=plugsuits",
+    "start": "turbo run start --filter=plugsuits",
+    "headless": "turbo run start --filter=plugsuits -- --prompt",
+    "test": "turbo run test",
+    "typecheck": "pnpm run typecheck:root && turbo run typecheck",
     "typecheck:root": "tsc --noEmit -p tsconfig.root.json",
-    "check": "bunx ultracite check .",
-    "lint": "bunx ultracite fix .",
-    "start": "bun run --cwd packages/cea start",
-    "test:headless-edit": "bun run scripts/test-headless-edit-ops.ts",
-    "test:headless-edit-edge": "bun run scripts/test-headless-edit-edge-cases.ts",
+    "check": "pnpm exec ultracite check .",
+    "lint": "pnpm exec ultracite fix .",
+    "test:headless-edit": "node --import tsx scripts/test-headless-edit-ops.ts",
+    "test:headless-edit-edge": "node --import tsx scripts/test-headless-edit-edge-cases.ts",
     "changeset": "changeset",
-    "version-packages": "changeset version && bun install",
-    "release": "bun run build && changeset publish"
+    "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
+    "release": "pnpm run build && changeset publish"
   },
   "keywords": [
     "ai",
@@ -30,7 +28,7 @@
   ],
   "author": "",
   "license": "MIT",
-  "packageManager": "bun@1.3.10",
+  "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=18"
   },
@@ -38,6 +36,8 @@
     "@biomejs/biome": "2.4.6",
     "@changesets/cli": "^2.30.0",
     "turbo": "^2.8.16",
-    "ultracite": "^7.2.5"
+    "tsx": "^4.21.0",
+    "ultracite": "^7.2.5",
+    "vitest": "^4.0.18"
   }
 }
