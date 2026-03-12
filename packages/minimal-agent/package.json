@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
-    "start": "node --conditions=@ai-sdk-tool/source --import tsx index.ts",
+    "build": "tsc",
+    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx index.ts",
+    "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
