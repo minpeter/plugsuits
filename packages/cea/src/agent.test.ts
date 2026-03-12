@@ -96,4 +96,10 @@ describe("AgentManager compaction config", () => {
     expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);
     expect(history.needsCompaction()).toBe(false);
   });
+
+  it("fails fast with a clear error when stream is called with empty messages", async () => {
+    await expect(agentManager.stream([])).rejects.toThrow(
+      "Cannot call the model with an empty message list after context preparation."
+    );
+  });
 });

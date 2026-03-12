@@ -587,6 +587,12 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
           )
         : messages;
 
+    if (preparedMessages.length === 0) {
+      throw new Error(
+        "Cannot call the model with an empty message list after context preparation."
+      );
+    }
+
     const agent = createAgent({
       model,
       tools: this.toolRegistry,
