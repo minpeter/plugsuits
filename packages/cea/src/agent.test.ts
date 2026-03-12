@@ -78,10 +78,10 @@ describe("AgentManager compaction config", () => {
 
     expect(compaction.maxTokens).toBe(20_480);
     expect(agentManager.getModelTokenLimits().maxCompletionTokens).toBe(20_480);
-    expect(compaction.reserveTokens).toBe(512);
+    expect(compaction.reserveTokens).toBe(2048);
     expect(compaction.keepRecentTokens).toBe(Math.floor(20_480 * 0.3));
     expect(compaction.speculativeStartRatio).toBe(expectedRatio);
-    expect(expectedRatio).toBeCloseTo(0.775, 3);
+    expect(expectedRatio).toBeCloseTo(0.7, 2);
 
     history.updateActualUsage({ totalTokens: 16_000 });
     expect(history.shouldStartSpeculativeCompactionForNextTurn()).toBe(true);

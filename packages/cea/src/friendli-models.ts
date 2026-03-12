@@ -94,7 +94,7 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
     provider: "friendli",
     type: "serverless",
     contextLength: 20_480,
-    compactionReserveTokens: 512,
+    compactionReserveTokens: 2048,
     maxCompletionTokens: 20_480,
     reasoning: {
       ...DEFAULT_FRIENDLI_REASONING,
