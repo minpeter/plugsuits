@@ -997,14 +997,15 @@ export class CheckpointHistory {
       message: { role: "assistant", content: summaryText },
     };
 
-    const preActiveMessages = this.summaryMessageId
-      ? this.messages.slice(
-          0,
-          this.messages.findIndex(
-            (message) => message.id === this.summaryMessageId
-          )
-        )
-      : [];
+    let preActiveMessages: CheckpointMessage[] = [];
+    if (this.summaryMessageId) {
+      const summaryIdx = this.messages.findIndex(
+        (message) => message.id === this.summaryMessageId
+      );
+      if (summaryIdx !== -1) {
+        preActiveMessages = this.messages.slice(0, summaryIdx);
+      }
+    }
 
     this.messages = [...preActiveMessages, summaryMessage, ...messagesToKeep];
     this.summaryMessageId = summaryMessage.id;
