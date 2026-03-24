@@ -49,7 +49,10 @@ export {
   shouldCompactFromContextOverflow,
   shouldStartSpeculativeCompaction,
 } from "./compaction-policy";
-export type { ModelSummarizerOptions } from "./compaction-prompts";
+export type {
+  BuildSummaryInputOptions,
+  ModelSummarizerOptions,
+} from "./compaction-prompts";
 export {
   buildSummaryInput,
   createModelSummarizer,

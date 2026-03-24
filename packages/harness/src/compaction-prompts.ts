@@ -298,42 +298,6 @@ const DEFAULT_SUMMARIZER_MAX_OUTPUT = 4096;
 const MIN_SUMMARIZER_OUTPUT_TOKENS = 64;
 const SMALL_CONTEXT_THRESHOLD = 4096;
 
-function getTodoStatusIcon(
-  status: "pending" | "in_progress" | "completed" | "cancelled"
-): string {
-  switch (status) {
-    case "completed":
-      return "[x]";
-    case "in_progress":
-      return "[→]";
-    case "cancelled":
-      return "[✗]";
-    default:
-      return "[ ]";
-  }
-}
-
-function formatStructuredState(state: StructuredState): string {
-  const sections: string[] = [];
-
-  if (state.todos && state.todos.length > 0) {
-    sections.push("## Current Task List");
-    for (const todo of state.todos) {
-      const statusIcon = getTodoStatusIcon(todo.status);
-      sections.push(`- ${statusIcon} ${todo.content}`);
-    }
-  }
-
-  if (state.metadata && Object.keys(state.metadata).length > 0) {
-    sections.push("## Session Metadata");
-    for (const [key, value] of Object.entries(state.metadata)) {
-      sections.push(`- ${key}: ${JSON.stringify(value)}`);
-    }
-  }
-
-  return sections.join("\n");
-}
-
 export function buildSummaryInput(
   messages: CheckpointMessage[],
   options?: BuildSummaryInputOptions
@@ -355,14 +319,6 @@ export function buildSummaryInput(
           : msg.message.role.toUpperCase();
         parts.push(`${role}: ${text}`);
       }
-    }
-  }
-
-  const structuredState = options?.structuredState;
-  if (structuredState) {
-    const formatted = formatStructuredState(structuredState);
-    if (formatted) {
-      parts.push(formatted);
     }
   }
 
