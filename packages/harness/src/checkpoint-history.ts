@@ -863,10 +863,11 @@ export class CheckpointHistory {
     const reserveTokens =
       this.compactionConfig.reserveTokens ??
       DEFAULT_COMPACTION_CONFIG.reserveTokens;
-    // Use 5% reserve if reserveTokens is 0
-    return reserveTokens > 0
-      ? contextLimit - reserveTokens
-      : Math.floor(contextLimit * 0.95);
+    if (reserveTokens > 0) {
+      const budget = contextLimit - reserveTokens;
+      return budget > 0 ? budget : Math.floor(contextLimit * 0.95);
+    }
+    return Math.floor(contextLimit * 0.95);
   }
 
   private evaluateRecoveryAttempt(params: {

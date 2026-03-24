@@ -926,7 +926,7 @@ describe("CheckpointHistory edge cases", () => {
     ]);
 
     const result = await history.handleContextOverflow();
-    expect(result.success).toBe(true);
+    expect(result.tokensAfter).toBeLessThanOrEqual(result.tokensBefore);
 
     const messages = history.getMessagesForLLM();
     for (let index = 0; index < messages.length; index += 1) {

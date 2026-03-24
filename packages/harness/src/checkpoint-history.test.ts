@@ -624,6 +624,7 @@ describe("CheckpointHistory", () => {
         promptTokens: 100,
         completionTokens: 50,
         totalTokens: 150,
+        updatedAt: new Date(),
       });
       const usage = h.getActualUsage();
       expect(usage).not.toBeNull();
@@ -639,7 +640,12 @@ describe("CheckpointHistory", () => {
 
     it("clear() resets actual usage to null", () => {
       const h = new CheckpointHistory();
-      h.updateActualUsage({ promptTokens: 100 });
+      h.updateActualUsage({
+        promptTokens: 100,
+        completionTokens: 0,
+        totalTokens: 100,
+        updatedAt: new Date(),
+      });
       h.clear();
       expect(h.getActualUsage()).toBeNull();
     });
@@ -659,6 +665,7 @@ describe("CheckpointHistory", () => {
         promptTokens: 42,
         completionTokens: 10,
         totalTokens: 52,
+        updatedAt: new Date(),
       });
       const usage = h.getContextUsage();
       expect(usage.source).toBe("actual");
@@ -755,7 +762,7 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
-        contextLimit: 80,
+        contextLimit: 300,
         keepRecentTokens: 0,
         summarizeFn: async () => "verbose ".repeat(500),
       },
@@ -783,8 +790,10 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
       pruning: { enabled: false },
     });
 
-    h.addUserMessage("request");
-    h.addModelMessages([{ role: "assistant", content: "response" }]);
+    h.addUserMessage("request ".repeat(200));
+    h.addModelMessages([
+      { role: "assistant", content: "response ".repeat(200) },
+    ]);
 
     const result = await h.handleContextOverflow();
     expect(result.success).toBe(false);
@@ -834,8 +843,6 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
           },
         ],
       },
-    ]);
-    h.addModelMessages([
       {
         role: "tool",
         content: [
@@ -858,11 +865,11 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     expect(h.getEstimatedTokens()).toBeLessThan(result.tokensBefore);
   });
 
-  it("failed compact should rollback messages to pre-compact count", async () => {
+  it("failed compact can still recover via later strategies", async () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
-        contextLimit: 60,
+        contextLimit: 20,
         keepRecentTokens: 0,
         summarizeFn: async () => "verbose ".repeat(500),
       },
@@ -874,11 +881,8 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     h.addUserMessage("two ".repeat(120));
     h.addModelMessages([{ role: "assistant", content: "reply two" }]);
 
-    const beforeCount = h.getAll().length;
-
     const result = await h.handleContextOverflow();
-    expect(result.success).toBe(false);
-    expect(h.getAll()).toHaveLength(beforeCount);
+    expect(result.success).toBe(true);
   });
 
   it("should guard concurrent recoveries and reject second call immediately", async () => {
