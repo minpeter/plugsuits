@@ -78,9 +78,13 @@ export type {
   PreparedCompaction,
   PreparedCompactionSegment,
 } from "./message-history";
+/**
+ * @deprecated Use CheckpointHistory instead
+ */
 export {
   computeSpeculativeStartRatio,
   MessageHistory,
+  MessageHistory as DeprecatedMessageHistory,
 } from "./message-history";
 export type { MessageTextOptions } from "./message-text";
 export {
