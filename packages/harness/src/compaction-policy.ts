@@ -82,3 +82,25 @@ export function getRecommendedMaxOutputTokens(params: {
   const remaining = contextLimit - estimatedInputTokens - reserveTokens;
   return Math.max(0, Math.floor(remaining * safetyMargin));
 }
+
+/**
+ * Returns true if the error indicates a context length exceeded error from a provider.
+ * Used to trigger emergency overflow recovery compaction.
+ */
+export function shouldCompactFromContextOverflow(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("context length exceeded") ||
+    msg.includes("context window") ||
+    msg.includes("maximum context") ||
+    msg.includes("too many tokens") ||
+    msg.includes("input is too long") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("tokens exceeds") ||
+    msg.includes("token limit")
+  );
+}

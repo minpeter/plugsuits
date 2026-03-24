@@ -3,6 +3,7 @@ import {
   getRecommendedMaxOutputTokens,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
+  shouldCompactFromContextOverflow,
   shouldStartSpeculativeCompaction,
 } from "./compaction-policy";
 
@@ -67,5 +68,52 @@ describe("compaction-policy", () => {
         reserveTokens: 100,
       })
     ).toBe(340);
+  });
+});
+
+describe("shouldCompactFromContextOverflow", () => {
+  it("returns true for context_length_exceeded error", () => {
+    expect(
+      shouldCompactFromContextOverflow(new Error("context_length_exceeded"))
+    ).toBe(true);
+  });
+
+  it("returns true for context length exceeded error", () => {
+    expect(
+      shouldCompactFromContextOverflow(
+        new Error("Context Length Exceeded: input too large")
+      )
+    ).toBe(true);
+  });
+
+  it("returns true for context window exceeded error", () => {
+    expect(
+      shouldCompactFromContextOverflow(new Error("context window exceeded"))
+    ).toBe(true);
+  });
+
+  it("returns true for too many tokens error", () => {
+    expect(
+      shouldCompactFromContextOverflow(new Error("too many tokens in input"))
+    ).toBe(true);
+  });
+
+  it("returns true for input is too long error", () => {
+    expect(
+      shouldCompactFromContextOverflow(new Error("input is too long"))
+    ).toBe(true);
+  });
+
+  it("returns false for unrelated errors", () => {
+    expect(shouldCompactFromContextOverflow(new Error("network timeout"))).toBe(
+      false
+    );
+  });
+
+  it("returns false for non-Error values", () => {
+    expect(shouldCompactFromContextOverflow("string error")).toBe(false);
+    expect(shouldCompactFromContextOverflow(null)).toBe(false);
+    expect(shouldCompactFromContextOverflow(undefined)).toBe(false);
+    expect(shouldCompactFromContextOverflow({ message: "error" })).toBe(false);
   });
 });

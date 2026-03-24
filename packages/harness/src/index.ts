@@ -1,5 +1,7 @@
 export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
+export type { CheckpointHistoryOptions } from "./checkpoint-history";
+export { CheckpointHistory } from "./checkpoint-history";
 export type {
   Command,
   CommandAction,
@@ -41,6 +43,7 @@ export {
   getRecommendedMaxOutputTokens,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
+  shouldCompactFromContextOverflow,
   shouldStartSpeculativeCompaction,
 } from "./compaction-policy";
 export type { ModelSummarizerOptions } from "./compaction-prompts";
