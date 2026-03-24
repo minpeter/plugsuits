@@ -1,11 +1,11 @@
 import type {
+  CheckpointHistory,
   MessageHistory,
   ModelMessage,
   RunnableAgent,
 } from "@ai-sdk-tool/harness";
 import {
   CompactionOrchestrator,
-  estimateTokens,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
 import { emitEvent as defaultEmitEvent } from "./emit";
@@ -18,12 +18,68 @@ export interface InitialUserMessage {
   originalContent?: string;
 }
 
+type HeadlessMessageHistory = MessageHistory | CheckpointHistory;
+
+type UsageAwareMessageHistory = HeadlessMessageHistory & {
+  updateActualUsage: MessageHistory["updateActualUsage"];
+};
+
+type MaxOutputAwareMessageHistory = HeadlessMessageHistory & {
+  getRecommendedMaxOutputTokens: MessageHistory["getRecommendedMaxOutputTokens"];
+};
+
+function hasUsageTracking(
+  history: HeadlessMessageHistory
+): history is UsageAwareMessageHistory {
+  return (
+    "updateActualUsage" in history &&
+    typeof history.updateActualUsage === "function"
+  );
+}
+
+function hasRecommendedMaxOutputTokens(
+  history: HeadlessMessageHistory
+): history is MaxOutputAwareMessageHistory {
+  return (
+    "getRecommendedMaxOutputTokens" in history &&
+    typeof history.getRecommendedMaxOutputTokens === "function"
+  );
+}
+
+function getMessagesForLLM(
+  history: HeadlessMessageHistory
+): Promise<ModelMessage[]> {
+  return Promise.resolve(history.getMessagesForLLM());
+}
+
+function updateHistoryUsage(
+  history: HeadlessMessageHistory,
+  usage: NonNullable<Awaited<ReturnType<typeof processStream>>["usage"]>
+): void {
+  if (!hasUsageTracking(history)) {
+    return;
+  }
+
+  history.updateActualUsage(usage);
+}
+
+function getRecommendedMaxOutputTokens(
+  history: HeadlessMessageHistory,
+  messages: ModelMessage[]
+): number | undefined {
+  if (!hasRecommendedMaxOutputTokens(history)) {
+    return undefined;
+  }
+
+  return history.getRecommendedMaxOutputTokens(messages);
+}
+
 export interface HeadlessRunnerConfig {
   agent: RunnableAgent;
   emitEvent?: (event: TrajectoryEvent) => void;
   initialUserMessage?: InitialUserMessage;
   maxIterations?: number;
-  messageHistory: MessageHistory;
+  messageHistory: HeadlessMessageHistory;
   modelId: string;
   onTodoReminder?: () => Promise<{
     hasReminder: boolean;
@@ -90,7 +146,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       return;
     }
 
-    config.messageHistory.updateActualUsage(usage);
+    updateHistoryUsage(config.messageHistory, usage);
     if (!process.env.DEBUG_TOKENS) {
       return;
     }
@@ -125,10 +181,12 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
 
     await blockAtHardContextLimit(0, phase);
 
-    const messages = config.messageHistory.getMessagesForLLM();
+    const messages = await getMessagesForLLM(config.messageHistory);
     startSpeculativeCompaction();
-    const maxOutputTokens =
-      config.messageHistory.getRecommendedMaxOutputTokens(messages);
+    const maxOutputTokens = getRecommendedMaxOutputTokens(
+      config.messageHistory,
+      messages
+    );
     const stream = await config.agent.stream({
       messages,
       ...(maxOutputTokens ? { maxOutputTokens } : {}),
@@ -166,16 +224,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     content: string
   ): Promise<void> => {
     compactionOrchestrator.applyReady(config.messageHistory);
-
-    if (
-      !config.messageHistory.isAtHardContextLimit(estimateTokens(content), {
-        phase: "new-turn",
-      })
-    ) {
-      return;
-    }
-
-    await blockAtHardContextLimit(estimateTokens(content), "new-turn");
+    await compactionOrchestrator.blockIfNeeded(config.messageHistory, content);
   };
 
   const startSpeculativeCompaction = (): void => {
