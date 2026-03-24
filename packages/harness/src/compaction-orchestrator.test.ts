@@ -1,223 +1,211 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  applyReadyCompactionCore,
-  blockAtHardLimitCore,
-  CompactionOrchestrator,
-  discardAllJobsCore,
-  type SpeculativeCompactionJob,
-} from "./compaction-orchestrator";
-import { MessageHistory, type PreparedCompaction } from "./message-history";
+import { CheckpointHistory } from "./checkpoint-history";
+import { CompactionOrchestrator } from "./compaction-orchestrator";
 
-function createPreparedCompaction(id: string): PreparedCompaction {
-  return {
-    actualUsage: null,
-    baseMessageIds: [],
-    baseRevision: 0,
-    baseSegmentIds: [],
-    compactionMaxTokensAtCreation: 1000,
-    contextLimitAtCreation: 1000,
-    didChange: true,
-    keepRecentTokensAtCreation: 0,
-    pendingCompaction: false,
-    phase: "new-turn",
-    rejected: false,
-    segments: [
-      {
-        createdAt: new Date(),
-        endMessageId: "end",
-        estimatedTokens: 10,
-        id: `segment_summary_${id}`,
-        messageCount: 0,
-        messageIds: [],
-        messages: [],
-        startMessageId: id,
-        summary: {
-          createdAt: new Date(),
-          firstKeptMessageId: "end",
-          id,
-          summary: "summary",
-          summaryTokens: 10,
-          tokensBefore: 100,
-        },
-      },
-    ],
-    tokenDelta: 40,
-  };
+function createHistory(
+  options?: Partial<ReturnType<CheckpointHistory["getCompactionConfig"]>>
+): CheckpointHistory {
+  return new CheckpointHistory({
+    compaction: {
+      enabled: true,
+      contextLimit: 512,
+      maxTokens: 120,
+      keepRecentTokens: 40,
+      reserveTokens: 32,
+      summarizeFn: async () => "Summary",
+      ...options,
+    },
+  });
 }
 
-function createJob(
-  id: string,
-  overrides: Partial<SpeculativeCompactionJob> = {}
-): SpeculativeCompactionJob {
-  return {
-    discarded: false,
-    id,
-    phase: "new-turn",
-    prepared: createPreparedCompaction(id),
-    promise: Promise.resolve(),
-    state: "completed",
-    ...overrides,
-  };
-}
+describe("CompactionOrchestrator", () => {
+  describe("manualCompact()", () => {
+    it("calls compact with auto=false and returns result", async () => {
+      const history = createHistory();
+      history.addUserMessage("hello");
+      history.addModelMessages([{ role: "assistant", content: "world" }]);
 
-describe("compaction orchestrator", () => {
-  it("does not block when context is below hard limit", async () => {
-    let prepareCalls = 0;
-    let applyReadyCalls = 0;
+      const compactSpy = vi.spyOn(history, "compact");
+      const orchestrator = new CompactionOrchestrator(history);
+      const result = await orchestrator.manualCompact();
 
-    await blockAtHardLimitCore({
-      additionalTokens: 50,
-      phase: "new-turn",
-      isAtHardContextLimit: () => false,
-      getLatestRunningSpeculativeCompaction: () => null,
-      prepareSpeculativeCompaction: () => {
-        prepareCalls += 1;
-        return Promise.resolve(null);
-      },
-      applyPreparedCompaction: () => ({ applied: false, reason: "noop" }),
-      applyReadyCompaction: () => {
-        applyReadyCalls += 1;
-        return { applied: false, stale: false };
-      },
-      warnHardLimitStillExceeded: () => {
-        throw new Error("should not warn below hard limit");
-      },
+      expect(compactSpy).toHaveBeenCalledWith({ auto: false });
+      expect(result.success).toBe(true);
+      expect(history.getSummaryMessageId()).not.toBeNull();
     });
 
-    expect(prepareCalls).toBe(0);
-    expect(applyReadyCalls).toBe(0);
+    it("fires start/complete callbacks", async () => {
+      const history = createHistory();
+      history.addUserMessage("hello");
+      history.addModelMessages([{ role: "assistant", content: "world" }]);
+
+      const onStart = vi.fn();
+      const onComplete = vi.fn();
+      const orchestrator = new CompactionOrchestrator(history, {
+        onCompactionComplete: onComplete,
+        onCompactionStart: onStart,
+      });
+
+      await orchestrator.manualCompact();
+
+      expect(onStart).toHaveBeenCalledOnce();
+      expect(onComplete).toHaveBeenCalledOnce();
+    });
+
+    it("returns failure when another compaction is already running", async () => {
+      let resolveSummary: ((summary: string) => void) | undefined;
+      const history = createHistory({
+        summarizeFn: () =>
+          new Promise<string>((resolve) => {
+            resolveSummary = resolve;
+          }),
+      });
+      history.addUserMessage("hello");
+      history.addModelMessages([{ role: "assistant", content: "world" }]);
+
+      const orchestrator = new CompactionOrchestrator(history);
+      const first = orchestrator.manualCompact();
+      const second = await orchestrator.manualCompact();
+
+      expect(second.success).toBe(false);
+      expect(second.reason).toContain("in progress");
+
+      resolveSummary?.("Summary");
+      await first;
+    });
   });
 
-  it("re-fires once when a prepared compaction is stale", () => {
-    const jobs = [createJob("stale-1"), createJob("stale-2")];
-    let refireCalls = 0;
+  describe("checkAndCompact()", () => {
+    it("runs auto compaction when usage exceeds threshold", async () => {
+      const history = createHistory({ contextLimit: 80, maxTokens: 10 });
+      for (let i = 0; i < 20; i += 1) {
+        history.addUserMessage(`message ${i} long enough for threshold`);
+      }
 
-    const result = applyReadyCompactionCore({
-      jobs,
-      applyPreparedCompaction: () => ({ applied: false, reason: "stale" }),
-      discardJob: (job) => {
-        job.discarded = true;
-      },
-      discardAllJobs: () => {
-        for (const job of jobs) {
-          job.discarded = true;
-        }
-      },
-      onStale: () => {
-        refireCalls += 1;
-      },
+      const compactSpy = vi.spyOn(history, "compact");
+      const orchestrator = new CompactionOrchestrator(history);
+      await orchestrator.checkAndCompact();
+
+      expect(compactSpy).toHaveBeenCalledWith({ auto: true });
     });
 
-    expect(result).toEqual({ applied: false, stale: true });
-    expect(refireCalls).toBe(1);
+    it("does not compact when usage is below threshold", async () => {
+      const history = createHistory({ maxTokens: 999_999 });
+      history.addUserMessage("small");
+      const compactSpy = vi.spyOn(history, "compact");
+
+      const orchestrator = new CompactionOrchestrator(history);
+      await orchestrator.checkAndCompact();
+
+      expect(compactSpy).not.toHaveBeenCalled();
+    });
   });
 
-  it("discards all jobs", () => {
-    const jobs = [
-      createJob("running-1", { prepared: null, state: "running" }),
-      createJob("running-2", { prepared: null, state: "running" }),
-    ];
-    let discardedCount = 0;
+  describe("handleOverflow()", () => {
+    it("delegates to history.handleContextOverflow()", async () => {
+      const history = createHistory();
+      const spy = vi.spyOn(history, "handleContextOverflow").mockResolvedValue({
+        success: true,
+        strategy: "compact",
+        tokensBefore: 200,
+        tokensAfter: 80,
+      });
 
-    discardAllJobsCore({
-      jobs,
-      discardJob: (job) => {
-        job.discarded = true;
-        discardedCount += 1;
-      },
+      const orchestrator = new CompactionOrchestrator(history);
+      const result = await orchestrator.handleOverflow(
+        new Error("context_length_exceeded")
+      );
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
+      expect(result.tokensAfter).toBe(80);
     });
-
-    expect(discardedCount).toBe(2);
-    expect(jobs.every((job) => job.discarded)).toBe(true);
   });
 
-  it("retries new-turn preparation after intermediate-step rejection", async () => {
-    const prepareCalls: Array<"new-turn" | "intermediate-step"> = [];
+  describe("speculative lifecycle", () => {
+    it("applyReady() applies completed speculative compaction", async () => {
+      const history = createHistory({ maxTokens: 10 });
+      for (let i = 0; i < 20; i += 1) {
+        history.addUserMessage(`long message ${i}`);
+      }
 
-    await blockAtHardLimitCore({
-      additionalTokens: 100,
-      phase: "intermediate-step",
-      isAtHardContextLimit: () => prepareCalls.length < 2,
-      getLatestRunningSpeculativeCompaction: () => null,
-      prepareSpeculativeCompaction: (phase) => {
-        prepareCalls.push(phase);
-        return Promise.resolve(createPreparedCompaction(phase));
-      },
-      applyPreparedCompaction: (prepared) => {
-        return {
-          applied: prepared.segments[0]?.id === "segment_summary_new-turn",
-          reason:
-            prepared.segments[0]?.id === "segment_summary_new-turn"
-              ? "applied"
-              : "rejected",
-        };
-      },
-      applyReadyCompaction: () => ({ applied: false, stale: false }),
-      warnHardLimitStillExceeded: () => {
-        throw new Error("should not warn after new-turn retry succeeds");
-      },
+      const onComplete = vi.fn();
+      const orchestrator = new CompactionOrchestrator(history, {
+        onCompactionComplete: onComplete,
+      });
+
+      expect(orchestrator.shouldStartSpeculative()).toBe(true);
+      orchestrator.startSpeculative();
+      await orchestrator.getLatestRunningSpeculativeCompaction()?.promise;
+
+      const applied = orchestrator.applyReady();
+      expect(applied).toEqual({ applied: true, stale: false });
+      expect(onComplete).toHaveBeenCalledOnce();
     });
 
-    expect(prepareCalls).toEqual(["intermediate-step", "new-turn"]);
+    it("rejects stale speculative result when history revision changed", async () => {
+      let resolveSummary: ((summary: string) => void) | undefined;
+      const history = createHistory({
+        contextLimit: 80,
+        maxTokens: 10,
+        summarizeFn: () =>
+          new Promise<string>((resolve) => {
+            resolveSummary = resolve;
+          }),
+      });
+      for (let i = 0; i < 12; i += 1) {
+        history.addUserMessage(`long message ${i}`);
+      }
+
+      const onComplete = vi.fn();
+      const orchestrator = new CompactionOrchestrator(history, {
+        onCompactionComplete: onComplete,
+      });
+
+      orchestrator.startSpeculative();
+      history.addUserMessage("mutation while speculative runs");
+      resolveSummary?.("Summary");
+      await orchestrator.getLatestRunningSpeculativeCompaction()?.promise;
+
+      const applied = orchestrator.applyReady();
+      expect(applied).toEqual({ applied: false, stale: true });
+      expect(onComplete).not.toHaveBeenCalled();
+    });
   });
 
-  it("starts speculative compaction and reports job status", async () => {
-    const history = new MessageHistory();
-    const prepared = createPreparedCompaction("prepared-1");
-    const onJobStatus = vi.fn();
-    const orchestrator = new CompactionOrchestrator({ onJobStatus });
+  describe("blockAtHardLimit()", () => {
+    it("returns false when not at hard limit", async () => {
+      const history = createHistory({
+        contextLimit: 10_000,
+        reserveTokens: 32,
+      });
+      history.addUserMessage("short");
+      const orchestrator = new CompactionOrchestrator(history);
 
-    vi.spyOn(
-      history,
-      "shouldStartSpeculativeCompactionForNextTurn"
-    ).mockReturnValue(true);
-    vi.spyOn(history, "prepareSpeculativeCompaction").mockResolvedValue(
-      prepared
-    );
-    vi.spyOn(history, "applyPreparedCompaction").mockReturnValue({
-      applied: true,
-      reason: "applied",
+      const blocked = await orchestrator.blockAtHardLimit(0, "new-turn");
+      expect(blocked).toBe(false);
     });
 
-    orchestrator.startSpeculative(history);
-    const runningJob = orchestrator.getLatestRunningSpeculativeCompaction();
+    it("returns true and recovers when hard limit is exceeded", async () => {
+      const history = createHistory({ contextLimit: 40, reserveTokens: 20 });
+      history.addUserMessage(
+        "this message is definitely long enough to exceed"
+      );
 
-    expect(runningJob?.id).toBe("background-compaction-1");
-    await runningJob?.promise;
-    expect(onJobStatus).toHaveBeenNthCalledWith(
-      1,
-      "background-compaction-1",
-      "Compacting...",
-      "running"
-    );
-    expect(onJobStatus).toHaveBeenLastCalledWith(
-      "background-compaction-1",
-      "",
-      "clear"
-    );
-  });
+      const overflowSpy = vi
+        .spyOn(history, "handleContextOverflow")
+        .mockResolvedValue({
+          success: true,
+          strategy: "compact",
+          tokensBefore: 120,
+          tokensAfter: 40,
+        });
 
-  it("applies completed jobs and emits applied detail", () => {
-    const history = new MessageHistory();
-    const onApplied = vi.fn();
-    const orchestrator = new CompactionOrchestrator({ onApplied });
+      const orchestrator = new CompactionOrchestrator(history);
+      const blocked = await orchestrator.blockAtHardLimit(40, "new-turn");
 
-    vi.spyOn(history, "applyPreparedCompaction").mockReturnValue({
-      applied: true,
-      reason: "applied",
-    });
-
-    const jobs = orchestrator.getJobs() as SpeculativeCompactionJob[];
-    jobs.push(createJob("completed-1"));
-
-    const result = orchestrator.applyReady(history);
-
-    expect(result).toEqual({ applied: true, stale: false });
-    expect(onApplied).toHaveBeenCalledWith({
-      baseMessageCount: 0,
-      newMessageCount: 0,
-      phase: "new-turn",
-      tokenDelta: 40,
+      expect(blocked).toBe(true);
+      expect(overflowSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

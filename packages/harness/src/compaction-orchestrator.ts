@@ -1,4 +1,11 @@
-import type { MessageHistory, PreparedCompaction } from "./message-history";
+import type { OverflowRecoveryResult } from "./checkpoint-history";
+import {
+  isAtHardContextLimitFromUsage,
+  needsCompactionFromUsage,
+  shouldStartSpeculativeCompaction,
+} from "./compaction-policy";
+import type { CompactionResult } from "./compaction-types";
+import type { PreparedCompaction } from "./message-history";
 import { estimateTokens } from "./token-utils";
 
 export interface SpeculativeCompactionJob {
@@ -20,7 +27,13 @@ export interface CompactionAppliedDetail {
   tokenDelta: number;
 }
 
-export interface CompactionOrchestratorCallbacks {
+export interface CompactionCallbacks {
+  onCompactionComplete?: (result: CompactionResult) => void;
+  onCompactionError?: (error: unknown) => void;
+  onCompactionStart?: () => void;
+}
+
+export interface CompactionOrchestratorCallbacks extends CompactionCallbacks {
   onApplied?: (detail: CompactionAppliedDetail) => void;
   onBlockingChange?: (blocking: boolean) => void;
   onError?: (message: string, error: unknown) => void;
@@ -173,15 +186,129 @@ export async function blockAtHardLimitCore(params: {
   }
 }
 
+interface CompactionHistoryLike {
+  compact: (options?: {
+    aggressive?: boolean;
+    auto?: boolean;
+  }) => Promise<CompactionResult | boolean>;
+  getCompactionConfig: () => {
+    contextLimit?: number;
+    enabled?: boolean;
+    keepRecentTokens?: number;
+    maxTokens?: number;
+    reserveTokens?: number;
+    speculativeStartRatio?: number;
+  };
+  getEstimatedTokens: () => number;
+  getRevision?: () => number;
+  handleContextOverflow?: (error?: unknown) => Promise<OverflowRecoveryResult>;
+  isAtHardContextLimit?: (
+    additionalTokens: number,
+    options: { phase: CompactionPhase }
+  ) => boolean;
+  needsCompaction?: () => boolean;
+  shouldStartSpeculativeCompactionForNextTurn?: () => boolean;
+}
+
+interface LegacyCompactionHistoryLike extends CompactionHistoryLike {
+  applyPreparedCompaction: (prepared: PreparedCompaction) => {
+    applied: boolean;
+    reason: "applied" | "noop" | "stale" | "rejected";
+  };
+  isAtHardContextLimit: (
+    additionalTokens: number,
+    options: { phase: CompactionPhase }
+  ) => boolean;
+  prepareSpeculativeCompaction: (options: {
+    phase: CompactionPhase;
+  }) => Promise<PreparedCompaction | null>;
+}
+
+interface SpeculativeMeta {
+  completedRevision: number;
+  error?: unknown;
+  result?: CompactionResult;
+  startedRevision: number;
+}
+
+const DEFAULT_FAILURE_RESULT: CompactionResult = {
+  success: false,
+  tokensBefore: 0,
+  tokensAfter: 0,
+  reason: "unknown compaction error",
+};
+
+function isHistoryLike(value: unknown): value is CompactionHistoryLike {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.compact === "function" &&
+    typeof candidate.getCompactionConfig === "function" &&
+    typeof candidate.getEstimatedTokens === "function"
+  );
+}
+
+function isLegacyHistoryLike(
+  value: unknown
+): value is LegacyCompactionHistoryLike {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.prepareSpeculativeCompaction === "function" &&
+    typeof candidate.applyPreparedCompaction === "function" &&
+    typeof candidate.isAtHardContextLimit === "function"
+  );
+}
+
+function toCompactionResult(
+  result: CompactionResult | boolean
+): CompactionResult {
+  if (typeof result === "boolean") {
+    return {
+      success: result,
+      tokensBefore: 0,
+      tokensAfter: 0,
+      reason: result ? undefined : "compaction not applied",
+    };
+  }
+
+  return result;
+}
+
 export class CompactionOrchestrator {
   private readonly callbacks: CompactionOrchestratorCallbacks;
-
+  private readonly history: CompactionHistoryLike | null;
+  private compactionInProgress = false;
   private jobCounter = 0;
-
   private readonly jobs: SpeculativeCompactionJob[] = [];
+  private readonly speculativeMeta = new Map<string, SpeculativeMeta>();
 
-  constructor(callbacks: CompactionOrchestratorCallbacks = {}) {
-    this.callbacks = callbacks;
+  constructor(
+    history: CompactionHistoryLike,
+    callbacks?: CompactionOrchestratorCallbacks
+  );
+  constructor(callbacks?: CompactionOrchestratorCallbacks);
+  constructor(
+    historyOrCallbacks?:
+      | CompactionHistoryLike
+      | CompactionOrchestratorCallbacks,
+    maybeCallbacks?: CompactionOrchestratorCallbacks
+  ) {
+    if (isHistoryLike(historyOrCallbacks)) {
+      this.history = historyOrCallbacks;
+      this.callbacks = maybeCallbacks ?? {};
+      return;
+    }
+
+    this.history = null;
+    this.callbacks =
+      (historyOrCallbacks as CompactionOrchestratorCallbacks) ?? {};
   }
 
   getJobs(): readonly SpeculativeCompactionJob[] {
@@ -189,14 +316,18 @@ export class CompactionOrchestrator {
   }
 
   getLatestRunningSpeculativeCompaction(): SpeculativeCompactionJob | null {
-    for (let i = this.jobs.length - 1; i >= 0; i -= 1) {
-      const job = this.jobs[i];
+    for (let index = this.jobs.length - 1; index >= 0; index -= 1) {
+      const job = this.jobs[index];
       if (!job.discarded && job.state === "running") {
         return job;
       }
     }
 
     return null;
+  }
+
+  isRunning(): boolean {
+    return this.compactionInProgress;
   }
 
   discardAll(): void {
@@ -208,11 +339,445 @@ export class CompactionOrchestrator {
     });
   }
 
-  applyReady(history: MessageHistory): { applied: boolean; stale: boolean } {
+  manualCompact(): Promise<CompactionResult> {
+    const history = this.requireHistory();
+
+    if (this.compactionInProgress) {
+      return Promise.resolve({
+        ...DEFAULT_FAILURE_RESULT,
+        reason: "compaction in progress",
+      });
+    }
+
+    return this.runCompaction(history, { auto: false });
+  }
+
+  async checkAndCompact(): Promise<void> {
+    const history = this.requireHistory();
+
+    if (this.compactionInProgress || !this.needsCompaction(history)) {
+      return;
+    }
+
+    await this.runCompaction(history, { auto: true });
+  }
+
+  async handleOverflow(error?: unknown): Promise<OverflowRecoveryResult> {
+    const history = this.requireHistory();
+
+    if (!history.handleContextOverflow) {
+      const fallback = await this.runCompaction(history, {
+        auto: true,
+        aggressive: true,
+      });
+      return {
+        success: fallback.success,
+        tokensBefore: fallback.tokensBefore,
+        tokensAfter: fallback.tokensAfter,
+        error: fallback.success ? undefined : fallback.reason,
+        strategy: fallback.success ? "aggressive-compact" : undefined,
+      };
+    }
+
+    this.callbacks.onCompactionStart?.();
+    try {
+      return await history.handleContextOverflow(error);
+    } catch (overflowError) {
+      this.reportError("Overflow recovery failed", overflowError);
+      return {
+        success: false,
+        tokensBefore: history.getEstimatedTokens(),
+        tokensAfter: history.getEstimatedTokens(),
+        error:
+          overflowError instanceof Error
+            ? overflowError.message
+            : String(overflowError),
+      };
+    }
+  }
+
+  shouldStartSpeculative(history?: CompactionHistoryLike): boolean {
+    const resolvedHistory = this.resolveHistory(history);
+    if (!resolvedHistory || this.compactionInProgress) {
+      return false;
+    }
+
+    if (this.jobs.some((job) => !job.discarded && job.state !== "failed")) {
+      return false;
+    }
+
+    if (
+      typeof resolvedHistory.shouldStartSpeculativeCompactionForNextTurn ===
+      "function"
+    ) {
+      return resolvedHistory.shouldStartSpeculativeCompactionForNextTurn();
+    }
+
+    if (this.needsCompaction(resolvedHistory)) {
+      return true;
+    }
+
+    const config = resolvedHistory.getCompactionConfig();
+    const estimatedTokens = resolvedHistory.getEstimatedTokens();
+    const reserveTokens = Math.max(0, config.reserveTokens ?? 0);
+    const contextLimit = this.resolvePolicyContextLimit(config);
+
+    return shouldStartSpeculativeCompaction({
+      contextLimit,
+      input: {
+        enabled: config.enabled ?? false,
+        hasMessages: estimatedTokens > 0,
+        currentUsageTokens: estimatedTokens,
+        phaseReserveTokens: reserveTokens,
+        speculativeStartRatio: config.speculativeStartRatio,
+      },
+    });
+  }
+
+  startSpeculative(history?: CompactionHistoryLike): void {
+    const resolvedHistory = this.resolveHistory(history);
+    if (!resolvedHistory) {
+      return;
+    }
+
+    if (isLegacyHistoryLike(resolvedHistory)) {
+      this.startSpeculativeLegacy(resolvedHistory);
+      return;
+    }
+
+    if (!this.shouldStartSpeculative(history)) {
+      return;
+    }
+
+    const jobId = `background-compaction-${++this.jobCounter}`;
+    const startedRevision = this.getRevision(resolvedHistory);
+    this.compactionInProgress = true;
+
+    const job: SpeculativeCompactionJob = {
+      discarded: false,
+      id: jobId,
+      phase: "new-turn",
+      prepared: null,
+      promise: Promise.resolve(),
+      state: "running",
+    };
+
+    this.callbacks.onJobStatus?.(jobId, "Compacting...", "running");
+
+    job.promise = (async () => {
+      try {
+        const result = await resolvedHistory.compact({ auto: true });
+        this.speculativeMeta.set(job.id, {
+          startedRevision,
+          completedRevision: this.getRevision(resolvedHistory),
+          result: toCompactionResult(result),
+        });
+        job.state = "completed";
+      } catch (error) {
+        this.speculativeMeta.set(job.id, {
+          startedRevision,
+          completedRevision: this.getRevision(resolvedHistory),
+          error,
+        });
+        job.state = "failed";
+      } finally {
+        this.compactionInProgress = false;
+        if (!job.discarded) {
+          this.callbacks.onJobStatus?.(jobId, "", "clear");
+        }
+      }
+    })();
+
+    this.jobs.push(job);
+  }
+
+  applyReady(history?: CompactionHistoryLike): {
+    applied: boolean;
+    stale: boolean;
+  } {
+    const resolvedHistory = this.resolveHistory(history);
+    if (!resolvedHistory) {
+      return { applied: false, stale: false };
+    }
+
+    if (isLegacyHistoryLike(resolvedHistory)) {
+      return this.applyReadyLegacy(resolvedHistory);
+    }
+
+    for (let index = this.jobs.length - 1; index >= 0; index -= 1) {
+      const job = this.jobs[index];
+      if (job.discarded || job.state === "running") {
+        continue;
+      }
+
+      const meta = this.speculativeMeta.get(job.id);
+      this.discardJob(job);
+
+      if (!meta) {
+        continue;
+      }
+
+      if (meta.error) {
+        this.reportError("Speculative compaction failed", meta.error);
+        continue;
+      }
+
+      if (!meta.result) {
+        continue;
+      }
+
+      const stale = this.isStaleSpeculativeResult(resolvedHistory, meta);
+      if (stale) {
+        return { applied: false, stale: true };
+      }
+
+      this.emitCompactionResult(meta.result, {
+        jobId: job.id,
+        phase: "new-turn",
+      });
+      return { applied: meta.result.success, stale: false };
+    }
+
+    return { applied: false, stale: false };
+  }
+
+  async blockAtHardLimit(
+    history: CompactionHistoryLike,
+    additionalTokens: number,
+    phase: CompactionPhase
+  ): Promise<boolean>;
+  async blockAtHardLimit(
+    additionalTokens: number,
+    phase: CompactionPhase
+  ): Promise<boolean>;
+  async blockAtHardLimit(
+    historyOrAdditionalTokens: CompactionHistoryLike | number,
+    additionalTokensOrPhase: number | CompactionPhase,
+    maybePhase?: CompactionPhase
+  ): Promise<boolean> {
+    const hasHistoryArg =
+      isHistoryLike(historyOrAdditionalTokens) ||
+      isLegacyHistoryLike(historyOrAdditionalTokens);
+    const history = this.resolveHistory(
+      hasHistoryArg ? historyOrAdditionalTokens : undefined
+    );
+    if (!history) {
+      return Promise.resolve(false);
+    }
+
+    const additionalTokens = hasHistoryArg
+      ? (additionalTokensOrPhase as number)
+      : (historyOrAdditionalTokens as number);
+    const phase = (
+      hasHistoryArg ? maybePhase : additionalTokensOrPhase
+    ) as CompactionPhase;
+
+    if (isLegacyHistoryLike(history)) {
+      const legacyBlocking = history.isAtHardContextLimit(additionalTokens, {
+        phase,
+      });
+      if (!legacyBlocking) {
+        return false;
+      }
+
+      this.callbacks.onBlockingChange?.(true);
+      try {
+        await blockAtHardLimitCore({
+          additionalTokens,
+          phase,
+          isAtHardContextLimit: (tokens, options) =>
+            history.isAtHardContextLimit(tokens, options),
+          getLatestRunningSpeculativeCompaction: () =>
+            this.getLatestRunningSpeculativeCompaction(),
+          prepareSpeculativeCompaction: (attemptPhase) =>
+            history.prepareSpeculativeCompaction({ phase: attemptPhase }),
+          applyPreparedCompaction: (prepared) =>
+            this.applyPreparedCompactionLegacy(history, prepared),
+          applyReadyCompaction: () => this.applyReadyLegacy(history),
+          warnHardLimitStillExceeded: () => {
+            this.callbacks.onStillExceeded?.();
+          },
+        });
+      } finally {
+        this.callbacks.onBlockingChange?.(false);
+      }
+
+      return true;
+    }
+
+    const blocking = this.isAtHardLimit(history, additionalTokens, phase);
+    if (!blocking) {
+      return false;
+    }
+
+    this.callbacks.onBlockingChange?.(true);
+    try {
+      await this.handleOverflow(new Error("context_limit_hard_block"));
+    } finally {
+      this.callbacks.onBlockingChange?.(false);
+    }
+
+    if (this.isAtHardLimit(history, additionalTokens, phase)) {
+      this.callbacks.onStillExceeded?.();
+    }
+
+    return true;
+  }
+
+  blockIfNeeded(
+    history: CompactionHistoryLike,
+    content: string
+  ): Promise<boolean>;
+  blockIfNeeded(content: string): Promise<boolean>;
+  blockIfNeeded(
+    historyOrContent: CompactionHistoryLike | string,
+    maybeContent?: string
+  ): Promise<boolean> {
+    const content =
+      typeof historyOrContent === "string" ? historyOrContent : maybeContent;
+    if (!content) {
+      return Promise.resolve(false);
+    }
+
+    if (
+      isHistoryLike(historyOrContent) ||
+      isLegacyHistoryLike(historyOrContent)
+    ) {
+      return this.blockAtHardLimit(
+        historyOrContent,
+        estimateTokens(content),
+        "new-turn"
+      );
+    }
+
+    return this.blockAtHardLimit(estimateTokens(content), "new-turn");
+  }
+
+  private resolveHistory(explicit?: unknown): CompactionHistoryLike | null {
+    if (
+      explicit &&
+      (isHistoryLike(explicit) || isLegacyHistoryLike(explicit))
+    ) {
+      return explicit as CompactionHistoryLike;
+    }
+
+    return this.history;
+  }
+
+  private requireHistory(): CompactionHistoryLike {
+    if (!this.history) {
+      throw new Error(
+        "CompactionOrchestrator requires CheckpointHistory in constructor"
+      );
+    }
+
+    return this.history;
+  }
+
+  private getRevision(history: CompactionHistoryLike): number {
+    return history.getRevision?.() ?? 0;
+  }
+
+  private resolvePolicyContextLimit(
+    config: ReturnType<CompactionHistoryLike["getCompactionConfig"]>
+  ): number {
+    const contextLimit = config.contextLimit ?? 0;
+    if (contextLimit > 0) {
+      return contextLimit;
+    }
+
+    return Math.max(1, config.maxTokens ?? 0, (config.reserveTokens ?? 0) * 3);
+  }
+
+  private needsCompaction(history: CompactionHistoryLike): boolean {
+    if (typeof history.needsCompaction === "function") {
+      return history.needsCompaction();
+    }
+
+    const config = history.getCompactionConfig();
+    return needsCompactionFromUsage({
+      enabled: config.enabled ?? false,
+      hasMessages: history.getEstimatedTokens() > 0,
+      currentUsageTokens: history.getEstimatedTokens(),
+      thresholdLimit: config.maxTokens ?? Number.MAX_SAFE_INTEGER,
+    });
+  }
+
+  private isAtHardLimit(
+    history: CompactionHistoryLike,
+    additionalTokens: number,
+    phase: CompactionPhase
+  ): boolean {
+    if (typeof history.isAtHardContextLimit === "function") {
+      return history.isAtHardContextLimit(additionalTokens, { phase });
+    }
+
+    const config = history.getCompactionConfig();
+    const contextLimit = config.contextLimit ?? 0;
+    if (contextLimit <= 0) {
+      return false;
+    }
+
+    const phaseMultiplier = phase === "intermediate-step" ? 2 : 1;
+    const reserveTokens = Math.max(
+      0,
+      (config.reserveTokens ?? 0) * phaseMultiplier
+    );
+    return isAtHardContextLimitFromUsage({
+      contextLimit,
+      currentUsageTokens: history.getEstimatedTokens(),
+      enabled: config.enabled ?? false,
+      reserveTokens,
+      additionalTokens,
+    });
+  }
+
+  private isStaleSpeculativeResult(
+    history: CompactionHistoryLike,
+    meta: SpeculativeMeta
+  ): boolean {
+    const currentRevision = this.getRevision(history);
+    if (currentRevision !== meta.completedRevision) {
+      return true;
+    }
+
+    if (!meta.result?.success) {
+      return false;
+    }
+
+    return meta.completedRevision !== meta.startedRevision + 1;
+  }
+
+  private async runCompaction(
+    history: CompactionHistoryLike,
+    options: { aggressive?: boolean; auto: boolean }
+  ): Promise<CompactionResult> {
+    this.compactionInProgress = true;
+    this.callbacks.onCompactionStart?.();
+
+    try {
+      const result = toCompactionResult(await history.compact(options));
+      this.emitCompactionResult(result, { phase: "new-turn" });
+      return result;
+    } catch (error) {
+      this.reportError("Compaction failed", error);
+      return {
+        ...DEFAULT_FAILURE_RESULT,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      this.compactionInProgress = false;
+    }
+  }
+
+  private applyReadyLegacy(history: LegacyCompactionHistoryLike): {
+    applied: boolean;
+    stale: boolean;
+  } {
     return applyReadyCompactionCore({
       jobs: this.jobs,
       applyPreparedCompaction: (prepared) =>
-        this.applyPreparedCompaction(history, prepared),
+        this.applyPreparedCompactionLegacy(history, prepared),
       discardJob: (job) => {
         this.discardJob(job);
       },
@@ -220,13 +785,13 @@ export class CompactionOrchestrator {
         this.discardAll();
       },
       onStale: () => {
-        this.startSpeculative(history);
+        this.startSpeculativeLegacy(history);
       },
     });
   }
 
-  startSpeculative(history: MessageHistory): void {
-    this.applyReady(history);
+  private startSpeculativeLegacy(history: LegacyCompactionHistoryLike): void {
+    this.applyReadyLegacy(history);
     if (
       this.jobs.some(
         (job) =>
@@ -237,7 +802,7 @@ export class CompactionOrchestrator {
       return;
     }
 
-    if (!history.shouldStartSpeculativeCompactionForNextTurn()) {
+    if (!history.shouldStartSpeculativeCompactionForNextTurn?.()) {
       return;
     }
 
@@ -265,58 +830,17 @@ export class CompactionOrchestrator {
       } catch (error) {
         job.state = "failed";
         this.callbacks.onJobStatus?.(job.id, "", "clear");
-        this.callbacks.onError?.("Speculative compaction failed", error);
+        this.reportError("Speculative compaction failed", error);
       }
     })();
 
     this.jobs.push(job);
   }
 
-  async blockAtHardLimit(
-    history: MessageHistory,
-    additionalTokens: number,
-    phase: CompactionPhase
-  ): Promise<void> {
-    const needsBlocking = history.isAtHardContextLimit(additionalTokens, {
-      phase,
-    });
-    if (needsBlocking) {
-      this.callbacks.onBlockingChange?.(true);
-    }
-
-    await blockAtHardLimitCore({
-      additionalTokens,
-      phase,
-      isAtHardContextLimit: (tokens, options) =>
-        history.isAtHardContextLimit(tokens, options),
-      getLatestRunningSpeculativeCompaction: () =>
-        this.getLatestRunningSpeculativeCompaction(),
-      prepareSpeculativeCompaction: (attemptPhase) =>
-        history.prepareSpeculativeCompaction({ phase: attemptPhase }),
-      applyPreparedCompaction: (prepared) =>
-        this.applyPreparedCompaction(history, prepared),
-      applyReadyCompaction: () => this.applyReady(history),
-      warnHardLimitStillExceeded: () => {
-        this.callbacks.onStillExceeded?.();
-      },
-    });
-
-    if (needsBlocking) {
-      this.callbacks.onBlockingChange?.(false);
-    }
-  }
-
-  async blockIfNeeded(history: MessageHistory, content: string): Promise<void> {
-    await this.blockAtHardLimit(history, estimateTokens(content), "new-turn");
-  }
-
-  private applyPreparedCompaction(
-    history: MessageHistory,
+  private applyPreparedCompactionLegacy(
+    history: LegacyCompactionHistoryLike,
     prepared: PreparedCompaction
-  ): {
-    applied: boolean;
-    reason: "applied" | "noop" | "stale" | "rejected";
-  } {
+  ): { applied: boolean; reason: "applied" | "noop" | "stale" | "rejected" } {
     const result = history.applyPreparedCompaction(prepared);
 
     if (result.reason === "applied") {
@@ -337,9 +861,35 @@ export class CompactionOrchestrator {
     return result;
   }
 
+  private emitCompactionResult(
+    result: CompactionResult,
+    detail: Pick<CompactionAppliedDetail, "jobId" | "phase">
+  ): void {
+    this.callbacks.onCompactionComplete?.(result);
+
+    if (result.success) {
+      this.callbacks.onApplied?.({
+        baseMessageCount: 0,
+        newMessageCount: 0,
+        phase: detail.phase,
+        jobId: detail.jobId,
+        tokenDelta: result.tokensAfter - result.tokensBefore,
+      });
+      return;
+    }
+
+    this.callbacks.onRejected?.();
+  }
+
+  private reportError(message: string, error: unknown): void {
+    this.callbacks.onCompactionError?.(error);
+    this.callbacks.onError?.(message, error);
+  }
+
   private discardJob(job: SpeculativeCompactionJob): void {
     job.discarded = true;
     this.callbacks.onJobStatus?.(job.id, "", "clear");
+    this.speculativeMeta.delete(job.id);
     const index = this.jobs.indexOf(job);
     if (index !== -1) {
       this.jobs.splice(index, 1);

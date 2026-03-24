@@ -1,6 +1,9 @@
 export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
-export type { CheckpointHistoryOptions } from "./checkpoint-history";
+export type {
+  CheckpointHistoryOptions,
+  OverflowRecoveryResult,
+} from "./checkpoint-history";
 export {
   CheckpointHistory,
   isContextOverflowError,
