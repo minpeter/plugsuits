@@ -20,6 +20,7 @@ import type {
 import { createContinuationMessage } from "./continuation";
 import type { SessionStore } from "./session-store";
 import { estimateTokens, extractMessageText } from "./token-utils";
+import { pruneToolOutputs } from "./tool-pruning";
 
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
   contextLimit: 0,
@@ -642,20 +643,20 @@ export class CheckpointHistory {
       return pruneResult;
     }
 
-    const compactResult = await this.tryCompactionRecovery({
-      aggressive: false,
-      contextLimit,
+    const compactResult = await this.compactForOverflowRecovery(
+      false,
       tokensBefore,
-    });
+      contextLimit
+    );
     if (compactResult) {
       return compactResult;
     }
 
-    const aggressiveResult = await this.tryCompactionRecovery({
-      aggressive: true,
-      contextLimit,
+    const aggressiveResult = await this.compactForOverflowRecovery(
+      true,
       tokensBefore,
-    });
+      contextLimit
+    );
     if (aggressiveResult) {
       return aggressiveResult;
     }
@@ -863,6 +864,30 @@ export class CheckpointHistory {
       return null;
     }
 
+    const activeMessages = this.getActiveMessages();
+    const pruneResult = pruneToolOutputs(activeMessages, this.pruningConfig);
+
+    if (pruneResult.prunedCount === 0) {
+      return null;
+    }
+
+    if (this.summaryMessageId) {
+      const summaryIndex = this.messages.findIndex(
+        (message) => message.id === this.summaryMessageId
+      );
+      if (summaryIndex !== -1) {
+        this.messages = [
+          ...this.messages.slice(0, summaryIndex),
+          ...pruneResult.messages,
+        ];
+      } else {
+        this.messages = pruneResult.messages;
+      }
+    } else {
+      this.messages = pruneResult.messages;
+    }
+    this.revision += 1;
+
     const tokensAfter = this.getEstimatedTokens();
     if (
       !this.evaluateRecoveryAttempt({
@@ -882,23 +907,79 @@ export class CheckpointHistory {
     };
   }
 
-  private async tryCompactionRecovery(params: {
-    aggressive: boolean;
-    contextLimit: number;
-    tokensBefore: number;
-  }): Promise<OverflowRecoveryResult | null> {
-    const { aggressive, contextLimit, tokensBefore } = params;
+  private async compactForOverflowRecovery(
+    aggressive: boolean,
+    tokensBefore: number,
+    contextLimit: number
+  ): Promise<OverflowRecoveryResult | null> {
     if (!(this.compactionConfig.enabled && this.compactionConfig.summarizeFn)) {
       return null;
     }
-    if (aggressive && this.messages.length <= 1) {
+
+    const activeMessages = this.getActiveMessages();
+    if (activeMessages.length <= 1) {
       return null;
     }
 
-    const result = await this.compact({ auto: true, aggressive });
-    if (!result.success) {
+    const snapshot = {
+      messages: [...this.messages],
+      summaryMessageId: this.summaryMessageId,
+      revision: this.revision,
+    };
+
+    let messagesToSummarize: CheckpointMessage[];
+    let messagesToKeep: CheckpointMessage[];
+
+    if (aggressive) {
+      messagesToSummarize = activeMessages;
+      messagesToKeep = [];
+    } else {
+      const splitIndex = this.resolveCompactionSplitIndex(
+        activeMessages,
+        false
+      );
+      if (splitIndex === null || splitIndex <= 0) {
+        return null;
+      }
+      messagesToSummarize = activeMessages.slice(0, splitIndex);
+      messagesToKeep = activeMessages.slice(splitIndex);
+    }
+
+    if (messagesToSummarize.length === 0) {
       return null;
     }
+
+    let summaryText: string;
+    try {
+      summaryText = await this.compactionConfig.summarizeFn(
+        messagesToSummarize.map((message) => message.message)
+      );
+    } catch {
+      this.messages = snapshot.messages;
+      this.summaryMessageId = snapshot.summaryMessageId;
+      this.revision = snapshot.revision;
+      return null;
+    }
+
+    const summaryMessage: CheckpointMessage = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      isSummary: true,
+      message: { role: "assistant", content: summaryText },
+    };
+
+    const preActiveMessages = this.summaryMessageId
+      ? this.messages.slice(
+          0,
+          this.messages.findIndex(
+            (message) => message.id === this.summaryMessageId
+          )
+        )
+      : [];
+
+    this.messages = [...preActiveMessages, summaryMessage, ...messagesToKeep];
+    this.summaryMessageId = summaryMessage.id;
+    this.revision += 1;
 
     const tokensAfter = this.getEstimatedTokens();
     if (
@@ -908,7 +989,21 @@ export class CheckpointHistory {
         tokensBefore,
       })
     ) {
+      this.messages = snapshot.messages;
+      this.summaryMessageId = snapshot.summaryMessageId;
+      this.revision = snapshot.revision;
       return null;
+    }
+
+    if (this.sessionStore) {
+      try {
+        await this.sessionStore.updateCheckpoint(
+          this.sessionId,
+          summaryMessage.id
+        );
+      } catch (_error) {
+        await Promise.resolve();
+      }
     }
 
     return {
