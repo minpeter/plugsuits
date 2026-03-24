@@ -826,21 +826,33 @@ export class CheckpointHistory {
     });
   }
 
-  private didRecoverySucceed(params: {
+  private getRecoveryBudget(): number {
+    const contextLimit = this.compactionConfig.contextLimit;
+    if (contextLimit <= 0) {
+      return 0; // unlimited — signal for "any reduction succeeds"
+    }
+    const reserveTokens =
+      this.compactionConfig.reserveTokens ??
+      DEFAULT_COMPACTION_CONFIG.reserveTokens;
+    // Use 5% reserve if reserveTokens is 0
+    return reserveTokens > 0
+      ? contextLimit - reserveTokens
+      : Math.floor(contextLimit * 0.95);
+  }
+
+  private evaluateRecoveryAttempt(params: {
     contextLimit: number;
     tokensAfter: number;
     tokensBefore: number;
   }): boolean {
     const { contextLimit, tokensAfter, tokensBefore } = params;
-    if (tokensAfter >= tokensBefore) {
-      return false;
-    }
-
+    // Unlimited context: success = any reduction achieved
     if (contextLimit <= 0) {
-      return true;
+      return tokensAfter < tokensBefore;
     }
-
-    return tokensAfter < contextLimit;
+    // Budget-based: must be under contextLimit (after reserve)
+    const budget = this.getRecoveryBudget();
+    return tokensAfter < budget;
   }
 
   private tryPruneRecovery(
@@ -853,7 +865,7 @@ export class CheckpointHistory {
 
     const tokensAfter = this.getEstimatedTokens();
     if (
-      !this.didRecoverySucceed({
+      !this.evaluateRecoveryAttempt({
         contextLimit,
         tokensAfter,
         tokensBefore,
@@ -890,7 +902,7 @@ export class CheckpointHistory {
 
     const tokensAfter = this.getEstimatedTokens();
     if (
-      !this.didRecoverySucceed({
+      !this.evaluateRecoveryAttempt({
         contextLimit,
         tokensAfter,
         tokensBefore,
@@ -931,7 +943,7 @@ export class CheckpointHistory {
 
     const tokensAfter = this.getEstimatedTokens();
     if (
-      !this.didRecoverySucceed({
+      !this.evaluateRecoveryAttempt({
         contextLimit,
         tokensAfter,
         tokensBefore,
