@@ -525,7 +525,7 @@ describe("CheckpointHistory", () => {
       expect(h.getEstimatedTokens()).toBeLessThan(40);
     });
 
-    it("throws meaningful error if all strategies fail", async () => {
+    it("returns success=false when all strategies fail (no throw)", async () => {
       const h = new CheckpointHistory({
         compaction: {
           enabled: true,
@@ -537,9 +537,9 @@ describe("CheckpointHistory", () => {
 
       h.addUserMessage("single very long message that cannot be removed");
 
-      await expect(h.handleContextOverflow()).rejects.toThrow(
-        "Context overflow recovery exhausted all strategies"
-      );
+      const result = await h.handleContextOverflow();
+      expect(result.success).toBe(false);
+      expect(result.error?.toLowerCase()).toContain("context");
     });
   });
 

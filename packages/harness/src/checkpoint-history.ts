@@ -689,9 +689,12 @@ export class CheckpointHistory {
       }
 
       const tokensAfter = this.getEstimatedTokens();
-      throw new Error(
-        `Context overflow recovery exhausted all strategies (prune → compact → aggressive-compact → truncate). tokensBefore=${tokensBefore}, tokensAfter=${tokensAfter}, contextLimit=${contextLimit}`
-      );
+      return {
+        success: false,
+        tokensBefore,
+        tokensAfter,
+        error: `context overflow recovery exhausted all strategies (prune → compact → aggressive-compact → truncate). tokensBefore=${tokensBefore}, tokensAfter=${tokensAfter}, contextLimit=${contextLimit}`,
+      };
     } finally {
       this.recoveryInProgress = false;
     }
