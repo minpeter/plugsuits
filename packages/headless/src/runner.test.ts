@@ -1,5 +1,5 @@
 import type { AgentStreamResult, ModelMessage } from "@ai-sdk-tool/harness";
-import { MessageHistory } from "@ai-sdk-tool/harness";
+import { CheckpointHistory } from "@ai-sdk-tool/harness";
 import { describe, expect, it, vi } from "vitest";
 import { runHeadless } from "./runner";
 import type { TrajectoryEvent } from "./types";
@@ -100,7 +100,7 @@ async function waitForCondition(
 describe("runHeadless", () => {
   it("adds and emits the initial user message via headless bootstrap", async () => {
     const events: Array<{ content?: string; type: string }> = [];
-    const history = new MessageHistory();
+    const history = new CheckpointHistory();
 
     await runHeadless({
       agent: {
@@ -124,7 +124,7 @@ describe("runHeadless", () => {
     });
 
     expect(events[0]).toEqual({ type: "user", content: "안녕" });
-    expect(history.getAll()[0]?.modelMessage).toEqual({
+    expect(history.getAll()[0]?.message).toEqual({
       role: "user",
       content: "hello",
     });
@@ -145,7 +145,7 @@ describe("runHeadless", () => {
           content: "content" in event ? event.content : undefined,
         });
       },
-      messageHistory: new MessageHistory(),
+      messageHistory: new CheckpointHistory(),
       modelId: "mock-model",
       sessionId: "session-2",
     });
@@ -155,7 +155,7 @@ describe("runHeadless", () => {
 
   it("does not block a normal follow-up while speculative compaction is still running below the hard limit", async () => {
     const summarizeDeferred = createDeferred<string>();
-    const history = new MessageHistory({
+    const history = new CheckpointHistory({
       compaction: {
         enabled: true,
         keepRecentTokens: 260,
@@ -220,7 +220,7 @@ describe("runHeadless", () => {
 
   it("blocks only when a follow-up hits the hard context limit", async () => {
     const summarizeDeferred = createDeferred<string>();
-    const history = new MessageHistory({
+    const history = new CheckpointHistory({
       compaction: {
         enabled: true,
         keepRecentTokens: 260,
@@ -272,12 +272,12 @@ describe("runHeadless", () => {
     await runPromise;
 
     expect(streamCallCount).toBe(2);
-    expect(secondCallMessages[0]?.role).toBe("system");
+    expect(secondCallMessages[0]?.role).toBe("user");
   });
 
   it("can apply speculative compaction between internal tool-loop steps", async () => {
     const summarizeFn = vi.fn(async () => "Prepared summary");
-    const history = new MessageHistory({
+    const history = new CheckpointHistory({
       compaction: {
         enabled: true,
         keepRecentTokens: 260,
@@ -319,7 +319,7 @@ describe("runHeadless", () => {
 
     expect(streamCallCount).toBe(2);
     expect(summarizeFn).toHaveBeenCalled();
-    expect(capturedMessages[1]?.[0]?.role).toBe("system");
+    expect(capturedMessages[1]?.[0]?.role).toBe("user");
   });
 
   it("re-fires stale speculative compaction once at the hard limit", async () => {
@@ -387,7 +387,7 @@ describe("runHeadless", () => {
       },
       // biome-ignore lint/suspicious/noEmptyBlockStatements: mock stub
       updateActualUsage() {},
-    } as unknown as MessageHistory;
+    } as unknown as CheckpointHistory;
 
     const runPromise = runHeadless({
       agent: {
@@ -472,7 +472,7 @@ describe("runHeadless", () => {
       initialUserMessage: {
         content: "inspect src/index.ts",
       },
-      messageHistory: new MessageHistory(),
+      messageHistory: new CheckpointHistory(),
       modelId: "mock-model",
       sessionId: "session-jsonl-types",
     });
@@ -507,7 +507,7 @@ describe("runHeadless", () => {
         content: "initial",
       },
       maxIterations: 1,
-      messageHistory: new MessageHistory(),
+      messageHistory: new CheckpointHistory(),
       modelId: "mock-model",
       onTodoReminder: () => {
         todoReminderCalls += 1;

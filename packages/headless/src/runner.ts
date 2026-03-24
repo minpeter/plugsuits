@@ -98,26 +98,29 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   type ProcessAgentResponseResult = "completed" | "max-iterations-reached";
   type StreamTurnResult = Awaited<ReturnType<typeof processStream>>;
   type StreamUsage = StreamTurnResult["usage"];
-  const compactionOrchestrator = new CompactionOrchestrator({
-    onApplied: () => {
-      console.error(
-        "[compaction] Applied: context reduced, some older messages were summarized"
-      );
-    },
-    onError: (message, error) => {
-      console.error(`${message} in headless runner:`, error);
-    },
-    onRejected: () => {
-      console.error(
-        "[compaction] Compaction rejected: summary would not reduce tokens"
-      );
-    },
-    onStillExceeded: () => {
-      console.warn(
-        "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
-      );
-    },
-  });
+  const compactionOrchestrator = new CompactionOrchestrator(
+    config.messageHistory,
+    {
+      onApplied: () => {
+        console.error(
+          "[compaction] Applied: context reduced, some older messages were summarized"
+        );
+      },
+      onError: (message, error) => {
+        console.error(`${message} in headless runner:`, error);
+      },
+      onRejected: () => {
+        console.error(
+          "[compaction] Compaction rejected: summary would not reduce tokens"
+        );
+      },
+      onStillExceeded: () => {
+        console.warn(
+          "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
+        );
+      },
+    }
+  );
 
   const hasReachedMaxIterations = (): boolean => {
     totalIterationCount += 1;
