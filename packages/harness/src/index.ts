@@ -54,6 +54,8 @@ export {
   ITERATIVE_SUMMARIZATION_PROMPT,
 } from "./compaction-prompts";
 export type * from "./compaction-types";
+export type { ContinuationMessageData } from "./continuation";
+export { createContinuationMessage, getContinuationText } from "./continuation";
 export { runAgentLoop } from "./loop";
 export type {
   ActualTokenUsage,
