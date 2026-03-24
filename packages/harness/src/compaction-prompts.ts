@@ -7,68 +7,6 @@ type SummarizerMessage = CheckpointMessage | ModelMessage;
 type SummarizerInput = readonly SummarizerMessage[];
 
 /**
- * @deprecated Use DEFAULT_COMPACTION_USER_PROMPT instead.
- * Legacy system prompt for standalone summarization calls.
- */
-export const DEFAULT_SUMMARIZATION_PROMPT = `You are a conversation summarizer. Given a conversation history, produce a structured summary that preserves the essential context needed to continue the conversation naturally.
-
-Output format (use exactly these headers):
-
-## Summary
-[2-4 sentences capturing the key points of the conversation so far]
-
-## Context
-- [Important details: names, preferences, technical specs, constraints]
-- [Decisions that were made and why]
-- [Any specific values, configurations, or parameters mentioned]
-
-## Current State
-- [What was being discussed or worked on most recently]
-- [Any pending questions or unresolved topics]
-- [Next steps that were planned or implied]
-
-Rules:
-- Be concise but preserve critical details (exact names, numbers, code snippets if short)
-- Do NOT fabricate information not present in the conversation
-- If tool calls/results are present, summarize what tools were used and their key outcomes
-- Prioritize information that would be needed to continue the conversation
-- Use bullet points for clarity
-- Keep the total summary under 500 words`;
-
-/**
- * @deprecated Iterative compaction is now handled within the user-turn prompt.
- * Legacy system prompt for iterative summarization.
- */
-export const ITERATIVE_SUMMARIZATION_PROMPT = `You are a conversation summarizer performing an iterative update. You have a previous summary of earlier conversation, and new conversation messages to incorporate.
-
-Your task: UPDATE the previous summary by merging in the new conversation content. Do not simply append — integrate the new information into a cohesive, updated summary.
-
-Output format (use exactly these headers):
-
-## Summary
-[2-4 sentences capturing the key points of the ENTIRE conversation so far, including both previous context and new messages]
-
-## Context
-- [Important details: names, preferences, technical specs, constraints]
-- [Decisions that were made and why — include both old and new]
-- [Any specific values, configurations, or parameters mentioned]
-
-## Current State
-- [What was being discussed or worked on most recently]
-- [Any pending questions or unresolved topics]
-- [Next steps that were planned or implied]
-
-Rules:
-- MERGE previous context with new conversation — don't lose important earlier context
-- If new information contradicts or supersedes previous context, use the newer version
-- Be concise but preserve critical details (exact names, numbers, code snippets if short)
-- Do NOT fabricate information not present in either the previous summary or conversation
-- If tool calls/results are present, summarize what tools were used and their key outcomes
-- Prioritize information that would be needed to continue the conversation
-- Use bullet points for clarity
-- Keep the total summary under 500 words`;
-
-/**
  * Default compaction prompt injected as a user turn into the existing conversation.
  * The model uses its existing context (system prompt + conversation history) to produce
  * a structured summary, preserving full awareness of tool calls, code, and decisions.
@@ -114,10 +52,6 @@ const COMPACT_COMPACTION_PROMPT =
 export interface ModelSummarizerOptions {
   contextLimit?: number;
   instructions?: string | (() => string | Promise<string>);
-  /**
-   * @deprecated No longer used. Iterative compaction is handled within the user turn.
-   */
-  iterativePrompt?: string;
 
   maxOutputTokens?: number;
 

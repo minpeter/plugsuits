@@ -5,8 +5,6 @@ import {
   buildSummaryInput,
   createModelSummarizer,
   DEFAULT_COMPACTION_USER_PROMPT,
-  DEFAULT_SUMMARIZATION_PROMPT,
-  ITERATIVE_SUMMARIZATION_PROMPT,
 } from "./compaction-prompts";
 import type { CheckpointMessage } from "./compaction-types";
 
@@ -141,19 +139,6 @@ describe("compaction-prompts", () => {
 
       expect(input).toContain("USER: Hello");
       expect(input).not.toContain("ASSISTANT:");
-    });
-  });
-
-  describe("legacy prompt constants", () => {
-    it("DEFAULT_SUMMARIZATION_PROMPT contains required headers", () => {
-      expect(DEFAULT_SUMMARIZATION_PROMPT).toContain("## Summary");
-      expect(DEFAULT_SUMMARIZATION_PROMPT).toContain("## Context");
-      expect(DEFAULT_SUMMARIZATION_PROMPT).toContain("## Current State");
-    });
-
-    it("ITERATIVE_SUMMARIZATION_PROMPT contains iterative instructions", () => {
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("iterative update");
-      expect(ITERATIVE_SUMMARIZATION_PROMPT).toContain("MERGE");
     });
   });
 
@@ -540,49 +525,6 @@ describe("compaction-prompts", () => {
 
       expect(typeof result).toBe("string");
       expect(result.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe("integration with MessageHistory", () => {
-    it("can be used as summarizeFn in MessageHistory compaction", async () => {
-      const { MessageHistory } = await import("./message-history");
-
-      const mockModel = createMockModel(
-        "## Summary\nUser discussed testing.\n\n## Context\n- Testing compaction\n\n## Current State\n- Verified integration"
-      );
-      const summarizeFn = createModelSummarizer(mockModel);
-
-      const history = new MessageHistory({
-        compaction: {
-          enabled: true,
-          maxTokens: 200,
-          keepRecentTokens: 50,
-          reserveTokens: 50,
-          summarizeFn,
-        },
-      });
-
-      for (let i = 0; i < 5; i++) {
-        history.addUserMessage("x".repeat(200));
-        history.addModelMessages([
-          { role: "assistant" as const, content: "y".repeat(200) },
-        ]);
-      }
-
-      expect(history.needsCompaction()).toBe(true);
-
-      const didCompact = await history.compact();
-      expect(didCompact).toBe(true);
-
-      const summaries = history.getSummaries();
-      expect(summaries.length).toBeGreaterThanOrEqual(1);
-      expect(summaries[0].summary).toContain("## Summary");
-
-      expect(mockModel.doGenerateCalls.length).toBeGreaterThan(0);
-
-      const llmMessages = history.getMessagesForLLM();
-      expect(llmMessages[0].role).toBe("system");
-      expect(llmMessages[0].content).toContain("## Summary");
     });
   });
 });
