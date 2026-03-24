@@ -78,6 +78,8 @@ export { buildMiddlewareChain } from "./middleware";
 export type { AgentPaths, AgentPathsOptions } from "./paths";
 export { createAgentPaths } from "./paths";
 export { SessionManager } from "./session";
+export type { SessionData } from "./session-store";
+export { SessionStore } from "./session-store";
 export {
   PROMPTS_COMMAND_PREFIX,
   parsePromptsCommandName,
