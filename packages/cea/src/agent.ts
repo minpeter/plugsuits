@@ -1,7 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
-  type CompactionConfig,
   computeSpeculativeStartRatio,
   createAgent,
   createModelSummarizer,
@@ -53,6 +52,19 @@ const DEFAULT_CONTEXT_LENGTH = 200_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
 
 type ProviderOptions = AiProviderOptions | undefined;
+
+interface RuntimeCompactionConfig {
+  contextLimit?: number;
+  enabled?: boolean;
+  keepRecentTokens?: number;
+  maxTokens?: number;
+  reserveTokens?: number;
+  speculativeStartRatio?: number;
+  summarizeFn?: (
+    messages: ModelMessage[],
+    previousSummary?: string
+  ) => Promise<string>;
+}
 
 export type AgentStreamOptions = Pick<
   HarnessAgentStreamOptions,
@@ -400,8 +412,8 @@ export class AgentManager {
    * whenever the model changes.
    */
   buildCompactionConfig(
-    overrides?: Partial<CompactionConfig>
-  ): CompactionConfig {
+    overrides?: Partial<RuntimeCompactionConfig>
+  ): RuntimeCompactionConfig {
     const contextLength = getModelContextLength(this.modelId, this.provider);
     const compactionReserveTokens = getCompactionReserveTokens(
       this.modelId,
@@ -415,6 +427,7 @@ export class AgentManager {
       }
     );
     return {
+      contextLimit: contextLength,
       enabled: true,
       maxTokens: contextLength,
       reserveTokens: compactionReserveTokens,

@@ -3,12 +3,13 @@ import {
   type CommandAction,
   type CommandResult,
   CompactionOrchestrator,
+  type CompactionResult,
   estimateTokens,
   executeCommand,
   isCommand,
   isSkillCommandResult,
-  type MessageHistory,
   type ModelMessage,
+  type OverflowRecoveryResult,
   parseCommand,
   type RunnableAgent,
   type SkillInfo,
@@ -349,12 +350,56 @@ export interface CommandPreprocessHooks {
   updateHeader: () => void;
 }
 
+export interface AgentTUIMessageHistory {
+  addModelMessages(messages: ModelMessage[]): unknown;
+  addUserMessage(content: string, originalContent?: string): unknown;
+  clear(): void;
+  compact(options?: {
+    aggressive?: boolean;
+    auto?: boolean;
+  }): Promise<boolean | CompactionResult>;
+  getCompactionConfig(): {
+    contextLimit?: number;
+    enabled?: boolean;
+    keepRecentTokens?: number;
+    maxTokens?: number;
+    reserveTokens?: number;
+    speculativeStartRatio?: number;
+  };
+  getContextUsage(): {
+    limit: number;
+    percentage: number;
+    remaining: number;
+    source: "actual" | "estimated";
+    used: number;
+  } | null;
+  getEstimatedTokens(): number;
+  getMessagesForLLM(): ModelMessage[];
+  getRecommendedMaxOutputTokens(
+    messagesForLLM?: ModelMessage[]
+  ): number | undefined;
+  getRevision?(): number;
+  handleContextOverflow?(error?: unknown): Promise<OverflowRecoveryResult>;
+  isAtHardContextLimit(
+    additionalTokens?: number,
+    options?: { phase: "new-turn" | "intermediate-step" }
+  ): boolean;
+  toModelMessages(): ModelMessage[];
+  updateActualUsage(usage: {
+    completionTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    promptTokens?: number;
+    totalTokens?: number;
+  }): void;
+}
+
 export interface AgentTUIConfig {
   agent: RunnableAgent;
   commands?: Command[];
   footer?: { text?: string };
   header?: { title: string; subtitle?: string };
-  messageHistory: MessageHistory;
+  messageHistory: AgentTUIMessageHistory;
   onCommandAction?: (action: CommandAction) => void | Promise<void>;
   onSetup?: () => void | Promise<void>;
   preprocessCommand?: (
@@ -530,67 +575,66 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     return detail;
   };
 
-  const compactionOrchestrator = new CompactionOrchestrator({
-    onApplied: ({ baseMessageCount, newMessageCount, tokenDelta }) => {
-      const saved = Math.abs(tokenDelta);
-      const usage = config.messageHistory.getContextUsage();
-      const after = usage ? `${usage.used}` : "?";
-      const summarizedCount = baseMessageCount - newMessageCount;
-      const detail = buildCompactionDetail(saved, after, summarizedCount);
-      addCompactionNotice(`↻ Compacted: ${detail}`);
-      updateHeader();
-      tui.requestRender();
-    },
-    onBlockingChange: (blocking) => {
-      if (blocking) {
-        showLoader("Compacting...");
-        return;
-      }
+  const compactionOrchestrator = new CompactionOrchestrator(
+    config.messageHistory,
+    {
+      onApplied: ({ baseMessageCount, newMessageCount, tokenDelta }) => {
+        const saved = Math.abs(tokenDelta);
+        const usage = config.messageHistory.getContextUsage();
+        const after = usage ? `${usage.used}` : "?";
+        const summarizedCount = baseMessageCount - newMessageCount;
+        const detail = buildCompactionDetail(saved, after, summarizedCount);
+        addCompactionNotice(`↻ Compacted: ${detail}`);
+        updateHeader();
+        tui.requestRender();
+      },
+      onBlockingChange: (blocking) => {
+        if (blocking) {
+          showLoader("Compacting...");
+          return;
+        }
 
-      clearStatus();
-      updateHeader();
-      tui.requestRender();
-    },
-    onError: (message, error) => {
-      console.error(`${message}:`, error);
-    },
-    onJobStatus: (id, message, state) => {
-      if (state === "running") {
-        setBackgroundStatus(id, message, "running");
-      } else {
-        clearBackgroundStatus(id);
-      }
-      updateHeader();
-      tui.requestRender();
-    },
-    onRejected: () => {
-      addCompactionNotice("↻ Compaction skipped (no token reduction)");
-      updateHeader();
-      tui.requestRender();
-    },
-    onStillExceeded: () => {
-      addCompactionNotice(
-        "↻ Compaction: context limit still tight after retries — older messages were condensed, some detail may be lost"
-      );
-      updateHeader();
-      tui.requestRender();
-    },
-  });
+        clearStatus();
+        updateHeader();
+        tui.requestRender();
+      },
+      onError: (message, error) => {
+        console.error(`${message}:`, error);
+      },
+      onJobStatus: (id, message, state) => {
+        if (state === "running") {
+          setBackgroundStatus(id, message, "running");
+        } else {
+          clearBackgroundStatus(id);
+        }
+        updateHeader();
+        tui.requestRender();
+      },
+      onRejected: () => {
+        addCompactionNotice("↻ Compaction skipped (no token reduction)");
+        updateHeader();
+        tui.requestRender();
+      },
+      onStillExceeded: () => {
+        addCompactionNotice(
+          "↻ Compaction: context limit still tight after retries — older messages were condensed, some detail may be lost"
+        );
+        updateHeader();
+        tui.requestRender();
+      },
+    }
+  );
 
   const applyReadySpeculativeCompaction = (): {
     applied: boolean;
     stale: boolean;
-  } => compactionOrchestrator.applyReady(config.messageHistory);
+  } => compactionOrchestrator.applyReady();
 
   const blockAtHardContextLimit = async (
     additionalTokens: number,
     phase: "new-turn" | "intermediate-step"
   ): Promise<void> => {
-    await compactionOrchestrator.blockAtHardLimit(
-      config.messageHistory,
-      additionalTokens,
-      phase
-    );
+    await compactionOrchestrator.blockAtHardLimit(additionalTokens, phase);
   };
 
   const blockOnlyIfAtHardContextLimit = async (
@@ -600,7 +644,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   };
 
   const startSpeculativeCompaction = (): void => {
-    compactionOrchestrator.startSpeculative(config.messageHistory);
+    compactionOrchestrator.startSpeculative();
   };
 
   const cancelActiveStream = (): boolean => {
@@ -807,9 +851,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   ): Promise<ModelMessage[]> => {
     applyReadySpeculativeCompaction();
 
-    if (config.messageHistory.isAtHardContextLimit(0, { phase })) {
-      await blockAtHardContextLimit(0, phase);
-    }
+    await blockAtHardContextLimit(0, phase);
 
     const messagesForLLM = config.messageHistory.getMessagesForLLM();
     startSpeculativeCompaction();
