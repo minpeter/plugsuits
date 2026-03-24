@@ -165,6 +165,7 @@ export class CheckpointHistory {
   private messages: CheckpointMessage[] = [];
   private summaryMessageId: string | null = null;
   private actualUsage: ActualTokenUsage | null = null;
+  private recoveryInProgress = false;
   private contextLimit = 0;
   private systemPromptTokens = 0;
   private revision = 0;
@@ -625,6 +626,16 @@ export class CheckpointHistory {
   async handleContextOverflow(
     _error?: unknown
   ): Promise<OverflowRecoveryResult> {
+    if (this.recoveryInProgress) {
+      const tokensBefore = this.getEstimatedTokens();
+      return {
+        success: false,
+        tokensBefore,
+        tokensAfter: tokensBefore,
+        error: "recovery in progress",
+      };
+    }
+
     const tokensBefore = this.getEstimatedTokens();
 
     if (!(this.compactionConfig.enabled || this.pruningConfig.enabled)) {
@@ -636,40 +647,54 @@ export class CheckpointHistory {
       };
     }
 
-    const contextLimit = this.compactionConfig.contextLimit;
+    this.recoveryInProgress = true;
+    try {
+      const contextLimit = this.compactionConfig.contextLimit;
 
-    const pruneResult = this.tryPruneRecovery(tokensBefore, contextLimit);
-    if (pruneResult) {
-      return pruneResult;
+      const pruneResult = this.tryPruneRecovery(tokensBefore, contextLimit);
+      if (pruneResult) {
+        this.actualUsage = null;
+        return pruneResult;
+      }
+
+      const compactResult = await this.compactForOverflowRecovery(
+        false,
+        tokensBefore,
+        contextLimit
+      );
+      if (compactResult) {
+        this.actualUsage = null;
+        return compactResult;
+      }
+
+      const aggressiveResult = await this.compactForOverflowRecovery(
+        true,
+        tokensBefore,
+        contextLimit
+      );
+      if (aggressiveResult) {
+        this.actualUsage = null;
+        return aggressiveResult;
+      }
+
+      const truncateResult = this.tryTruncateRecovery(
+        tokensBefore,
+        contextLimit
+      );
+      if (truncateResult) {
+        if (truncateResult.success) {
+          this.actualUsage = null;
+        }
+        return truncateResult;
+      }
+
+      const tokensAfter = this.getEstimatedTokens();
+      throw new Error(
+        `Context overflow recovery exhausted all strategies (prune → compact → aggressive-compact → truncate). tokensBefore=${tokensBefore}, tokensAfter=${tokensAfter}, contextLimit=${contextLimit}`
+      );
+    } finally {
+      this.recoveryInProgress = false;
     }
-
-    const compactResult = await this.compactForOverflowRecovery(
-      false,
-      tokensBefore,
-      contextLimit
-    );
-    if (compactResult) {
-      return compactResult;
-    }
-
-    const aggressiveResult = await this.compactForOverflowRecovery(
-      true,
-      tokensBefore,
-      contextLimit
-    );
-    if (aggressiveResult) {
-      return aggressiveResult;
-    }
-
-    const truncateResult = this.tryTruncateRecovery(tokensBefore, contextLimit);
-    if (truncateResult) {
-      return truncateResult;
-    }
-
-    const tokensAfter = this.getEstimatedTokens();
-    throw new Error(
-      `Context overflow recovery exhausted all strategies (prune → compact → aggressive-compact → truncate). tokensBefore=${tokensBefore}, tokensAfter=${tokensAfter}, contextLimit=${contextLimit}`
-    );
   }
 
   getCompactionConfig(): Readonly<NormalizedCompactionConfig> {
@@ -1036,7 +1061,41 @@ export class CheckpointHistory {
       this.revision += 1;
     }
 
+    while (
+      this.getEstimatedTokens() >= contextLimit &&
+      this.messages.length > 1
+    ) {
+      this.messages.splice(0, 1);
+      this.revision += 1;
+      const newSummary = this.messages.find((m) => m.isSummary);
+      this.summaryMessageId = newSummary?.id ?? null;
+    }
+
+    if (this.getEstimatedTokens() >= contextLimit) {
+      const lastUserMessage = [...this.messages]
+        .reverse()
+        .find((message) => message.message.role === "user");
+      const fallbackMessage = lastUserMessage ?? this.messages.at(-1);
+      if (!fallbackMessage) {
+        return null;
+      }
+      this.messages = [fallbackMessage];
+      this.summaryMessageId = null;
+      this.revision += 1;
+    }
+
     const tokensAfter = this.getEstimatedTokens();
+
+    if (tokensAfter >= contextLimit) {
+      return {
+        success: false,
+        strategy: undefined,
+        tokensBefore,
+        tokensAfter,
+        error: "context window too small for remaining content",
+      };
+    }
+
     if (
       !this.evaluateRecoveryAttempt({
         contextLimit,
