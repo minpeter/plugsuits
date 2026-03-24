@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ModelMessage } from "ai";
+import { calculateCompactionSplitIndex } from "./compaction-planner";
 import type {
   CheckpointMessage,
   CompactionConfig,
+  CompactionResult,
   MessageLine,
   PruningConfig,
 } from "./compaction-types";
@@ -53,7 +55,7 @@ function hasToolCalls(message: ModelMessage): boolean {
 
 export class CheckpointHistory {
   private messages: CheckpointMessage[] = [];
-  private readonly summaryMessageId: string | null = null;
+  private summaryMessageId: string | null = null;
   private revision = 0;
   private readonly sessionId: string;
   private readonly sessionStore: SessionStore | null;
@@ -121,9 +123,35 @@ export class CheckpointHistory {
   }
 
   getMessagesForLLM(): ModelMessage[] {
-    return this.ensureValidToolSequence([...this.messages]).map(
-      (message) => message.message
+    const activeMessages = this.ensureValidToolSequence([
+      ...this.getActiveMessages(),
+    ]);
+
+    if (!this.summaryMessageId) {
+      return activeMessages.map((message) => message.message);
+    }
+
+    const summaryIndex = this.messages.findIndex(
+      (message) => message.id === this.summaryMessageId
     );
+    if (summaryIndex === -1) {
+      return activeMessages.map((message) => message.message);
+    }
+
+    return activeMessages.map((checkpointMessage, index) => {
+      if (
+        index === 0 &&
+        checkpointMessage.isSummary &&
+        typeof checkpointMessage.message.content === "string"
+      ) {
+        return {
+          role: "user" as const,
+          content: checkpointMessage.message.content,
+        };
+      }
+
+      return checkpointMessage.message;
+    });
   }
 
   getRevision(): number {
@@ -135,11 +163,157 @@ export class CheckpointHistory {
   }
 
   getEstimatedTokens(): number {
-    return this.messages.reduce(
+    const activeMessages = this.getActiveMessages();
+
+    return activeMessages.reduce(
       (total, checkpointMessage) =>
         total + estimateTokens(extractMessageText(checkpointMessage.message)),
       0
     );
+  }
+
+  async compact(_options?: { auto?: boolean }): Promise<CompactionResult> {
+    if (!this.compactionConfig.enabled) {
+      return {
+        success: false,
+        tokensBefore: 0,
+        tokensAfter: 0,
+        reason: "compaction disabled",
+      };
+    }
+
+    if (this.messages.length === 0) {
+      return {
+        success: false,
+        tokensBefore: 0,
+        tokensAfter: 0,
+        reason: "no messages",
+      };
+    }
+
+    const tokensBefore = this.getEstimatedTokens();
+    const summaryIndex = this.summaryMessageId
+      ? this.messages.findIndex(
+          (message) => message.id === this.summaryMessageId
+        )
+      : 0;
+    const activeStartIndex = summaryIndex === -1 ? 0 : summaryIndex;
+    const activeMessages = this.messages.slice(activeStartIndex);
+
+    let splitIndex = calculateCompactionSplitIndex({
+      adjustSplitIndex: (index) => index,
+      aggressive: false,
+      estimateMessageTokens: (message: CheckpointMessage) =>
+        estimateTokens(extractMessageText(message.message)),
+      keepRecentTokens: this.compactionConfig.keepRecentTokens ?? 2000,
+      messages: activeMessages,
+    });
+
+    if (splitIndex === null) {
+      splitIndex = calculateCompactionSplitIndex({
+        adjustSplitIndex: (index) => index,
+        aggressive: true,
+        estimateMessageTokens: (message: CheckpointMessage) =>
+          estimateTokens(extractMessageText(message.message)),
+        keepRecentTokens: this.compactionConfig.keepRecentTokens ?? 2000,
+        messages: activeMessages,
+      });
+    }
+
+    if (splitIndex === null || splitIndex <= 0) {
+      return {
+        success: false,
+        tokensBefore,
+        tokensAfter: tokensBefore,
+        reason: "no messages to summarize",
+      };
+    }
+
+    const toSummarizeCandidates = activeMessages.slice(0, splitIndex);
+    const previousSummaryMessage =
+      summaryIndex >= 0 ? this.messages[summaryIndex] : undefined;
+    const previousSummary =
+      previousSummaryMessage?.isSummary &&
+      typeof previousSummaryMessage.message.content === "string"
+        ? previousSummaryMessage.message.content
+        : undefined;
+
+    const toSummarize =
+      previousSummary && toSummarizeCandidates[0]?.isSummary
+        ? toSummarizeCandidates.slice(1)
+        : toSummarizeCandidates;
+
+    if (toSummarize.length === 0) {
+      return {
+        success: false,
+        tokensBefore,
+        tokensAfter: tokensBefore,
+        reason: "no messages to summarize",
+      };
+    }
+
+    const summarizeFn = this.compactionConfig.summarizeFn;
+    if (!summarizeFn) {
+      return {
+        success: false,
+        tokensBefore,
+        tokensAfter: tokensBefore,
+        reason: "no summarizeFn",
+      };
+    }
+
+    const summaryText = await summarizeFn(
+      toSummarize.map((message) => message.message),
+      previousSummary
+    );
+
+    if (!summaryText || summaryText.trim().length === 0) {
+      return {
+        success: false,
+        tokensBefore,
+        tokensAfter: tokensBefore,
+        reason: "empty summary",
+      };
+    }
+
+    const summaryMessage: CheckpointMessage = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      isSummary: true,
+      message: {
+        role: "assistant",
+        content: summaryText,
+      },
+    };
+
+    const insertIndex = activeStartIndex + splitIndex;
+    this.messages.splice(insertIndex, 0, summaryMessage);
+    this.summaryMessageId = summaryMessage.id;
+    this.revision += 1;
+
+    if (this.sessionStore) {
+      const line: MessageLine = {
+        type: "message",
+        id: summaryMessage.id,
+        createdAt: summaryMessage.createdAt,
+        isSummary: true,
+        message: summaryMessage.message,
+      };
+
+      await this.sessionStore.appendMessage(this.sessionId, line);
+      await this.sessionStore.updateCheckpoint(
+        this.sessionId,
+        summaryMessage.id
+      );
+    }
+
+    const tokensAfter = this.getEstimatedTokens();
+    return {
+      success: true,
+      summaryMessageId: summaryMessage.id,
+      tokensBefore,
+      tokensAfter,
+    };
   }
 
   getCompactionConfig(): Readonly<NormalizedCompactionConfig> {
@@ -151,6 +325,24 @@ export class CheckpointHistory {
       ...this.pruningConfig,
       protectedToolNames: [...this.pruningConfig.protectedToolNames],
     };
+  }
+
+  private getActiveMessages(): CheckpointMessage[] {
+    if (!this.summaryMessageId) {
+      return this.messages;
+    }
+
+    const summaryIndex = this.messages.findIndex(
+      (message) => message.id === this.summaryMessageId
+    );
+    if (summaryIndex === -1) {
+      console.warn(
+        `[CheckpointHistory] summaryMessageId "${this.summaryMessageId}" not found, using full history`
+      );
+      return this.messages;
+    }
+
+    return this.messages.slice(summaryIndex);
   }
 
   private createCheckpointMessage(

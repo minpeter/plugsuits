@@ -90,6 +90,223 @@ describe("CheckpointHistory", () => {
     });
   });
 
+  describe("compact()", () => {
+    it("creates checkpoint — getMessagesForLLM returns [summary_as_user, ...newer_messages]", async () => {
+      let summarizeCalled = false;
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          summarizeFn: () => {
+            summarizeCalled = true;
+            return Promise.resolve("Summary of conversation");
+          },
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+      h.addUserMessage("message 2");
+
+      const result = await h.compact();
+      expect(result.success).toBe(true);
+      expect(summarizeCalled).toBe(true);
+
+      const llmMessages = h.getMessagesForLLM();
+      expect(llmMessages[0]?.role).toBe("user");
+      expect(
+        typeof llmMessages[0]?.content === "string" && llmMessages[0].content
+      ).toBeTruthy();
+      expect(llmMessages.length).toBeGreaterThan(1);
+
+      const all = h.getAll();
+      expect(all.length).toBeGreaterThan(1);
+    });
+
+    it("getAll() returns ALL messages including pre-checkpoint after compact", async () => {
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          summarizeFn: async () => "summary",
+        },
+      });
+
+      h.addUserMessage("a");
+      h.addUserMessage("b");
+      h.addUserMessage("c");
+      const totalBefore = h.getAll().length;
+
+      await h.compact();
+
+      const totalAfter = h.getAll().length;
+      expect(totalAfter).toBeGreaterThan(totalBefore);
+
+      const contents = h
+        .getAll()
+        .map((m) =>
+          typeof m.message.content === "string" ? m.message.content : ""
+        );
+      expect(contents).toContain("a");
+      expect(contents).toContain("b");
+    });
+
+    it("summary stored as assistant, returned as user in getMessagesForLLM", async () => {
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          summarizeFn: async () => "Summary text",
+        },
+      });
+
+      h.addUserMessage("hello");
+      h.addUserMessage("world");
+      await h.compact();
+
+      const summaryInStorage = h.getAll().find((m) => m.isSummary);
+      expect(summaryInStorage).toBeDefined();
+      expect(summaryInStorage?.message.role).toBe("assistant");
+
+      const llmMsgs = h.getMessagesForLLM();
+      const summaryInLLM = llmMsgs.find(
+        (m) => typeof m.content === "string" && m.content === "Summary text"
+      );
+      expect(summaryInLLM?.role).toBe("user");
+    });
+
+    it("invalid summaryMessageId falls back to full history", () => {
+      const h = new CheckpointHistory();
+      h.addUserMessage("hello");
+
+      Object.defineProperty(h, "summaryMessageId", {
+        value: "nonexistent-id",
+        configurable: true,
+      });
+
+      const msgs = h.getMessagesForLLM();
+      expect(msgs.length).toBe(1);
+    });
+
+    it("multiple compactions pass previousSummary to summarizeFn", async () => {
+      let previousSummarySeen: string | undefined;
+
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          keepRecentTokens: 30,
+          summarizeFn: (_msgs, previousSummary) => {
+            previousSummarySeen = previousSummary;
+            return Promise.resolve(
+              previousSummary ? `${previousSummary} + refined` : "first summary"
+            );
+          },
+        },
+      });
+
+      h.addUserMessage("a ".repeat(200));
+      h.addUserMessage("b ".repeat(200));
+      h.addUserMessage("c ".repeat(200));
+      await h.compact();
+
+      h.addUserMessage("d ".repeat(200));
+      h.addUserMessage("e ".repeat(200));
+      await h.compact();
+
+      expect(previousSummarySeen).toBe("first summary");
+    });
+
+    it("getEstimatedTokens() decreases after compact", async () => {
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          summarizeFn: () => Promise.resolve("Brief summary"),
+        },
+      });
+
+      for (let i = 0; i < 10; i++) {
+        h.addUserMessage(
+          `This is a long message with many words that will take up tokens in the context window ${i}`
+        );
+        h.addModelMessages([
+          {
+            role: "assistant",
+            content: `This is an equally long reply to the message ${i}`,
+          },
+        ]);
+      }
+
+      const tokensBefore = h.getEstimatedTokens();
+      await h.compact();
+      const tokensAfter = h.getEstimatedTokens();
+
+      expect(tokensAfter).toBeLessThan(tokensBefore);
+    });
+
+    it("increments revision on each successful compaction", async () => {
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          summarizeFn: async () => "summary",
+        },
+      });
+
+      h.addUserMessage("one");
+      h.addUserMessage("two");
+      const before = h.getRevision();
+
+      const first = await h.compact();
+      const afterFirst = h.getRevision();
+      expect(first.success).toBe(true);
+      expect(afterFirst).toBe(before + 1);
+
+      h.addUserMessage("three ".repeat(200));
+      h.addUserMessage("four ".repeat(200));
+      const beforeSecond = h.getRevision();
+      const second = await h.compact();
+      const afterSecond = h.getRevision();
+      expect(second.success).toBe(true);
+      expect(afterSecond).toBe(beforeSecond + 1);
+    });
+
+    it("persists checkpoint via SessionStore.updateCheckpoint", async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), "ch-compact-"));
+      const store = new SessionStore(tmpDir);
+      const h = new CheckpointHistory({
+        sessionId: "compact-persist",
+        sessionStore: store,
+        compaction: {
+          enabled: true,
+          summarizeFn: async () => "persisted summary",
+        },
+      });
+
+      h.addUserMessage("hello");
+      h.addUserMessage("world");
+      const result = await h.compact();
+      expect(result.success).toBe(true);
+
+      const loaded = await store.loadSession("compact-persist");
+      expect(loaded?.summaryMessageId).toBe(result.summaryMessageId);
+
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("returns false when compact() called with no messages", async () => {
+      const h = new CheckpointHistory({
+        compaction: { enabled: true, summarizeFn: async () => "" },
+      });
+
+      const result = await h.compact();
+      expect(result.success).toBe(false);
+    });
+
+    it("returns false when compaction is disabled", async () => {
+      const h = new CheckpointHistory({ compaction: { enabled: false } });
+      h.addUserMessage("hello");
+
+      const result = await h.compact();
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe("tool-call/result sequence validation", () => {
     it("removes orphaned tool-result without preceding tool-call", () => {
       const h = new CheckpointHistory();
