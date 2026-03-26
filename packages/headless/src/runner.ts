@@ -5,6 +5,7 @@ import type {
 } from "@ai-sdk-tool/harness";
 import {
   CompactionOrchestrator,
+  isContextOverflowError,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
 import { emitEvent as defaultEmitEvent } from "./emit";
@@ -417,26 +418,49 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
         getRecommendedMaxOutputTokens(config.messageHistory, messages) ?? 1
       );
     }
-    const stream = await config.agent.stream({
-      messages,
-      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-    });
-    const processStreamResult = await processStream({
-      emitEvent,
-      modelId: config.modelId,
-      onMessages: (messages) => {
-        pendingMessages = messages;
-      },
-      sessionId: config.sessionId,
-      shouldContinue: shouldContinueManualToolLoop,
-      stream,
-    });
-
-    return {
-      pendingMessages,
-      shouldContinue: processStreamResult.shouldContinue,
-      usage: processStreamResult.usage,
+    let overflowRetried = false;
+    const executeStream = async (
+      streamMessages: ModelMessage[],
+      streamMaxOutputTokens: number | undefined
+    ) => {
+      try {
+        const stream = await config.agent.stream({
+          messages: streamMessages,
+          ...(streamMaxOutputTokens !== undefined
+            ? { maxOutputTokens: streamMaxOutputTokens }
+            : {}),
+        });
+        const processStreamResult = await processStream({
+          emitEvent,
+          modelId: config.modelId,
+          onMessages: (msgs) => {
+            pendingMessages = msgs;
+          },
+          sessionId: config.sessionId,
+          shouldContinue: shouldContinueManualToolLoop,
+          stream,
+        });
+        return {
+          pendingMessages,
+          shouldContinue: processStreamResult.shouldContinue,
+          usage: processStreamResult.usage,
+        };
+      } catch (error) {
+        if (!overflowRetried && isContextOverflowError(error)) {
+          overflowRetried = true;
+          await blockAtHardContextLimit(0, phase);
+          const retryMessages = await getMessagesForLLM(config.messageHistory);
+          const retryMaxOutput = getRecommendedMaxOutputTokens(
+            config.messageHistory,
+            retryMessages
+          );
+          return executeStream(retryMessages, retryMaxOutput);
+        }
+        throw error;
+      }
     };
+
+    return executeStream(messages, maxOutputTokens);
   };
 
   const blockAtHardContextLimit = async (

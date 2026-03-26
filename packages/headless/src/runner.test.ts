@@ -429,4 +429,40 @@ describe("runHeadless", () => {
     expect(todoReminderCalls).toBe(1);
     expect(events.filter((event) => event.type === "error")).toHaveLength(1);
   });
+
+  it("retries on context overflow error", async () => {
+    const events: TrajectoryEvent[] = [];
+    const history = new CheckpointHistory();
+    let streamCallCount = 0;
+    const overflowError = new Error("Context window exceeded");
+    (overflowError as any).code = "context_length_exceeded";
+
+    const agent = {
+      stream: () => {
+        streamCallCount += 1;
+        if (streamCallCount === 1) {
+          return Promise.reject(overflowError);
+        }
+        return createMockStream([{ role: "assistant", content: "success" }]);
+      },
+    };
+
+    await runHeadless({
+      agent,
+      emitEvent: (event) => {
+        events.push(event);
+      },
+      initialUserMessage: {
+        content: "test overflow retry",
+      },
+      messageHistory: history,
+      modelId: "mock-model",
+      sessionId: "session-overflow-retry",
+    });
+
+    expect(streamCallCount).toBe(2);
+    const assistantEvents = events.filter((e) => e.type === "assistant");
+    expect(assistantEvents).toHaveLength(1);
+    expect(assistantEvents[0]).toMatchObject({ content: "ok" });
+  });
 });
