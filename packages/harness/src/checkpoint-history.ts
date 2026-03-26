@@ -19,7 +19,11 @@ import type {
 } from "./compaction-types";
 import { createContinuationMessage } from "./continuation";
 import type { SessionStore } from "./session-store";
-import { estimateTokens, extractMessageText } from "./token-utils";
+import {
+  estimateMessageTokens,
+  estimateTokens,
+  extractMessageText,
+} from "./token-utils";
 import { pruneToolOutputs } from "./tool-pruning";
 
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
@@ -324,7 +328,7 @@ export class CheckpointHistory {
 
     return activeMessages.reduce(
       (total, checkpointMessage) =>
-        total + estimateTokens(extractMessageText(checkpointMessage.message)),
+        total + estimateMessageTokens(checkpointMessage.message),
       0
     );
   }
