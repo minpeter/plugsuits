@@ -1033,3 +1033,96 @@ describe("systemPromptTokens in estimated usage", () => {
     expect(h.isAtHardContextLimit()).toBe(true);
   });
 });
+
+describe("post-recovery actualUsage preservation", () => {
+  it("preserves non-null actualUsage after successful overflow recovery", async () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: true,
+        contextLimit: 50,
+        keepRecentTokens: 0,
+        summarizeFn: async () => "short summary",
+      },
+      pruning: { enabled: false },
+    });
+
+    h.updateActualUsage({
+      promptTokens: 1000,
+      completionTokens: 500,
+      totalTokens: 1500,
+      updatedAt: new Date(),
+    });
+
+    for (let i = 0; i < 8; i++) {
+      h.addUserMessage(`message ${i} ${"word ".repeat(30)}`);
+    }
+
+    const result = await h.handleContextOverflow();
+    expect(result.success).toBe(true);
+
+    const usage = h.getActualUsage();
+    expect(usage).not.toBeNull();
+  });
+
+  it("synthetic actualUsage totalTokens is at least as large as current estimate", async () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: true,
+        contextLimit: 80,
+        keepRecentTokens: 0,
+        summarizeFn: async () => "brief",
+      },
+      pruning: { enabled: false },
+    });
+
+    for (let i = 0; i < 6; i++) {
+      h.addUserMessage(`item ${i} ${"x ".repeat(40)}`);
+    }
+
+    const result = await h.handleContextOverflow();
+    expect(result.success).toBe(true);
+
+    const usage = h.getActualUsage();
+    expect(usage).not.toBeNull();
+
+    if (usage) {
+      const estimatedAfter = h.getEstimatedTokens();
+      expect(usage.totalTokens).toBeGreaterThanOrEqual(estimatedAfter);
+    }
+  });
+
+  it("real updateActualUsage overwrites synthetic post-recovery value", async () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: true,
+        contextLimit: 60,
+        keepRecentTokens: 0,
+        summarizeFn: async () => "summary text",
+      },
+      pruning: { enabled: false },
+    });
+
+    for (let i = 0; i < 5; i++) {
+      h.addUserMessage(`message ${i} ${"z ".repeat(25)}`);
+    }
+
+    const result = await h.handleContextOverflow();
+    expect(result.success).toBe(true);
+
+    const realUsage = {
+      promptTokens: 42,
+      completionTokens: 8,
+      totalTokens: 50,
+      updatedAt: new Date(),
+    };
+    h.updateActualUsage(realUsage);
+
+    const usage = h.getActualUsage();
+    expect(usage).not.toBeNull();
+
+    if (usage) {
+      expect(usage.totalTokens).toBe(50);
+      expect(usage.promptTokens).toBe(42);
+    }
+  });
+});
