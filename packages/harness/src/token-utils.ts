@@ -55,7 +55,7 @@ export function extractMessageText(message: ModelMessage): string {
     .join(" ");
 }
 
-function extractRawTextLength(output: unknown): number {
+function extractRawTextLength(output: unknown, depth = 0): number {
   if (output == null) {
     return 0;
   }
@@ -64,7 +64,7 @@ function extractRawTextLength(output: unknown): number {
     return output.length;
   }
 
-  if (typeof output === "object") {
+  if (typeof output === "object" && depth < 5) {
     const obj = output as Record<string, unknown>;
 
     if (typeof obj.value === "string") {
@@ -75,10 +75,22 @@ function extractRawTextLength(output: unknown): number {
       return obj.text.length;
     }
 
-    return JSON.stringify(output).length;
+    let total = 0;
+
+    for (const value of Object.values(obj)) {
+      if (value != null && typeof value !== "object") {
+        if (typeof value === "string") {
+          total += value.length;
+        }
+      } else {
+        total += extractRawTextLength(value, depth + 1);
+      }
+    }
+
+    return total;
   }
 
-  return String(output).length;
+  return 0;
 }
 
 function estimateToolRoleMessageTokens(message: ModelMessage): number {
@@ -137,7 +149,8 @@ function estimateArrayContentTokens(parts: ModelMessage["content"]): number {
 
 /**
  * Estimate token count for a ModelMessage, with content-type-aware weighting.
- * Tool-call and tool-result parts use chars/3 weighting (heavier than text's chars/4).
+ * Tool-call and tool-result parts use raw text length (no JSON.stringify inflation)
+ * with chars/4 ratio (same as plain text).
  */
 export function estimateMessageTokens(message: ModelMessage): number {
   if (typeof message.content === "string") {
