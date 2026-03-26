@@ -1148,7 +1148,7 @@ describe("20K spike prevention — integration", () => {
 
     h.setSystemPromptTokens(3000);
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
       h.addUserMessage(`query ${i}`);
       h.addModelMessages([
         {
@@ -1202,7 +1202,7 @@ describe("speculative compaction fires before blocking", () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
-        contextLimit: 40_000,
+        contextLimit: 20_000,
         reserveTokens: 2000,
         keepRecentTokens: 0,
         speculativeStartRatio: 0.7,
@@ -1259,8 +1259,8 @@ describe("speculative compaction fires before blocking", () => {
     expect(speculativeFirstAt).not.toBeNull();
     expect(blockingFirstAt).not.toBeNull();
     if (speculativeFirstAt !== null && blockingFirstAt !== null) {
-      // Speculative fires at ~70% of maxTokens(8K default) threshold
-      // Blocking fires at ~95% of contextLimit(40K) threshold
+      // Speculative fires at ~70% of maxTokens(8K default) threshold (~5.6K with +3K system)
+      // Blocking fires near hard limit of contextLimit(20K) with reserve/system included.
       // These are independent: speculative targets the compaction trigger,
       // blocking targets the context window hard limit.
       // The gap proves ample advance warning before the hard limit is reached.

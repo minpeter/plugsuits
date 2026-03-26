@@ -4,6 +4,7 @@ import {
   estimateMessageTokens,
   estimateTokens,
   extractMessageText,
+  TOOL_RESULT_CHARS_PER_TOKEN,
 } from "./token-utils";
 
 describe("estimateTokens", () => {
@@ -136,7 +137,7 @@ describe("estimateMessageTokens — deflated estimation (RED)", () => {
     expect(result).toBeLessThanOrEqual(Math.ceil(rawTextLength / 3.5));
   });
 
-  it("Test B: tool-result with plain string output estimates same as estimateTokens(stringOutput)", () => {
+  it("Test B: tool-result with plain string output uses tool-result chars/token ratio", () => {
     const stringOutput = "This is a plain string output from a tool call.";
     const toolResultMsg: ModelMessage = {
       role: "tool",
@@ -151,7 +152,9 @@ describe("estimateMessageTokens — deflated estimation (RED)", () => {
     };
 
     const result = estimateMessageTokens(toolResultMsg);
-    expect(result).toBe(estimateTokens(stringOutput));
+    expect(result).toBe(
+      Math.ceil(stringOutput.length / TOOL_RESULT_CHARS_PER_TOKEN)
+    );
   });
 
   it("Test C: tool-result with empty string output estimates 0 tokens", () => {

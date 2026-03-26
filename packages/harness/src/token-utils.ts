@@ -3,8 +3,8 @@ import type { ModelMessage, TextPart } from "ai";
 // Constants for token estimation
 export const LATIN_CHARS_PER_TOKEN = 4;
 export const CJK_CHARS_PER_TOKEN = 1.5;
-export const TOOL_RESULT_CHARS_PER_TOKEN = 4;
-export const TOOL_CALL_CHARS_PER_TOKEN = 4;
+export const TOOL_RESULT_CHARS_PER_TOKEN = 6;
+export const TOOL_CALL_CHARS_PER_TOKEN = 6;
 
 // CJK Unicode ranges for improved token estimation
 const CJK_REGEX =
