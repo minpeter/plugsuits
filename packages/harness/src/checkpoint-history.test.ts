@@ -1196,3 +1196,70 @@ describe("20K spike prevention — integration", () => {
     expect(postRecoveryUsage.used).toBeLessThan(20_000 - 2000);
   });
 });
+
+describe("speculative compaction fires before blocking (RED)", () => {
+  it("shouldStartSpeculativeCompactionForNextTurn returns true BEFORE isAtHardContextLimit as messages grow", () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: true,
+        contextLimit: 40_000,
+        reserveTokens: 2000,
+        keepRecentTokens: 0,
+        speculativeStartRatio: 0.7,
+        summarizeFn: async () => "summary",
+      },
+      pruning: { enabled: false },
+    });
+    h.setSystemPromptTokens(3000);
+
+    let speculativeFirstAt: number | null = null;
+    let blockingFirstAt: number | null = null;
+
+    for (let i = 0; i < 50; i++) {
+      h.addUserMessage(`read file ${i}`);
+      h.addModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: `call_${i}`,
+              toolName: "read_file",
+              input: { path: `file${i}.ts` },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: `call_${i}`,
+              toolName: "read_file",
+              output: { type: "text", value: "x".repeat(2000) },
+            },
+          ],
+        },
+      ]);
+
+      if (
+        speculativeFirstAt === null &&
+        h.shouldStartSpeculativeCompactionForNextTurn()
+      ) {
+        speculativeFirstAt = i;
+      }
+      if (blockingFirstAt === null && h.isAtHardContextLimit()) {
+        blockingFirstAt = i;
+      }
+      if (speculativeFirstAt !== null && blockingFirstAt !== null) {
+        break;
+      }
+    }
+
+    expect(speculativeFirstAt).not.toBeNull();
+    expect(blockingFirstAt).not.toBeNull();
+    if (speculativeFirstAt !== null && blockingFirstAt !== null) {
+      expect(speculativeFirstAt).toBeLessThan(blockingFirstAt);
+    }
+  });
+});

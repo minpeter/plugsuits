@@ -108,3 +108,60 @@ describe("estimateMessageTokens", () => {
     expect(result).toBeGreaterThan(charsDiv4);
   });
 });
+
+describe("estimateMessageTokens — deflated estimation (RED)", () => {
+  it("Test A: tool-result with code containing newlines/quotes estimates ≤ rawTextLength/3.5", () => {
+    const codeWithSpecialChars =
+      'function foo() {\n  return "hello world";\n}\n'.repeat(100);
+    const rawTextLength = codeWithSpecialChars.length;
+
+    const toolResultMsg: ModelMessage = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "call_1",
+          toolName: "read_file",
+          output: { type: "text", value: codeWithSpecialChars },
+        },
+      ],
+    };
+
+    const result = estimateMessageTokens(toolResultMsg);
+    expect(result).toBeLessThanOrEqual(Math.ceil(rawTextLength / 3.5));
+  });
+
+  it("Test B: tool-result with plain string output estimates same as estimateTokens(stringOutput)", () => {
+    const stringOutput = "This is a plain string output from a tool call.";
+    const toolResultMsg: ModelMessage = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "call_2",
+          toolName: "read_file",
+          output: { type: "text", value: stringOutput },
+        },
+      ],
+    };
+
+    const result = estimateMessageTokens(toolResultMsg);
+    expect(result).toBe(estimateTokens(stringOutput));
+  });
+
+  it("Test C: tool-result with empty string output estimates 0 tokens", () => {
+    const toolResultMsg: ModelMessage = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "call_3",
+          toolName: "read_file",
+          output: { type: "text", value: "" },
+        },
+      ],
+    };
+
+    expect(estimateMessageTokens(toolResultMsg)).toBe(0);
+  });
+});
