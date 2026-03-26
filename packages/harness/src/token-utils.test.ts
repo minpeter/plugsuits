@@ -1,5 +1,10 @@
+import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { estimateTokens, extractMessageText } from "./token-utils";
+import {
+  estimateMessageTokens,
+  estimateTokens,
+  extractMessageText,
+} from "./token-utils";
 
 describe("estimateTokens", () => {
   it("returns positive number for non-empty text", () => {
@@ -22,5 +27,84 @@ describe("extractMessageText", () => {
   it("extracts text from string content", () => {
     const msg = { role: "user" as const, content: "hello" };
     expect(extractMessageText(msg)).toBe("hello");
+  });
+});
+
+describe("estimateMessageTokens", () => {
+  it("estimates tool-result messages higher than chars/4 baseline", () => {
+    const toolResultMsg: ModelMessage = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "call_1",
+          toolName: "read_file",
+          output: { type: "text", value: "x".repeat(1200) },
+        },
+      ],
+    };
+
+    const text = extractMessageText(toolResultMsg);
+    const charsDiv4 = Math.ceil(text.length / 4);
+
+    const result = estimateMessageTokens(toolResultMsg);
+    expect(result).toBeGreaterThan(charsDiv4);
+  });
+
+  it("estimates assistant tool-call messages higher than chars/4 baseline", () => {
+    const assistantMsg: ModelMessage = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "call_1",
+          toolName: "edit_file",
+          input: { path: "src/main.ts", content: "x".repeat(800) },
+        },
+      ],
+    };
+
+    const text = extractMessageText(assistantMsg);
+    const charsDiv4 = Math.ceil(text.length / 4);
+
+    const result = estimateMessageTokens(assistantMsg);
+    expect(result).toBeGreaterThan(charsDiv4);
+  });
+
+  it("estimates plain user text messages same as estimateTokens(text)", () => {
+    const text = "Hello, how can I help you today?";
+    const userMsg: ModelMessage = {
+      role: "user",
+      content: text,
+    };
+
+    const expected = estimateTokens(text);
+    const result = estimateMessageTokens(userMsg);
+    expect(result).toBe(expected);
+  });
+
+  it("estimates mixed assistant messages (text + tool-call) with correct weighting", () => {
+    const plainText = "I will read the file now.";
+    const jsonInput = { path: "foo.ts", content: "y".repeat(400) };
+
+    const mixedMsg: ModelMessage = {
+      role: "assistant",
+      content: [
+        { type: "text", text: plainText },
+        {
+          type: "tool-call",
+          toolCallId: "call_2",
+          toolName: "read_file",
+          input: jsonInput,
+        },
+      ],
+    };
+
+    const result = estimateMessageTokens(mixedMsg);
+    expect(result).toBeGreaterThan(0);
+
+    const textOnly = extractMessageText(mixedMsg);
+    const charsDiv4 = Math.ceil(textOnly.length / 4);
+    expect(result).toBeGreaterThan(charsDiv4);
   });
 });

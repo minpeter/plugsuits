@@ -52,3 +52,12 @@ export function extractMessageText(message: ModelMessage): string {
     })
     .join(" ");
 }
+
+/**
+ * Estimate token count for a ModelMessage, with content-type-aware weighting.
+ * Tool-call and tool-result parts use chars/3 weighting (heavier than text's chars/4).
+ * TODO: implement in T4
+ */
+export function estimateMessageTokens(_message: ModelMessage): number {
+  throw new Error("estimateMessageTokens not implemented yet");
+}
