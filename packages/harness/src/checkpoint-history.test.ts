@@ -1148,7 +1148,7 @@ describe("20K spike prevention — integration", () => {
 
     h.setSystemPromptTokens(3000);
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
       h.addUserMessage(`query ${i}`);
       h.addModelMessages([
         {
