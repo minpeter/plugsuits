@@ -401,22 +401,42 @@ export class AgentManager {
       this.modelId,
       this.provider
     );
+
+    // CONTEXT_LIMIT_OVERRIDE for testing — only active when COMPACTION_DEBUG is set
+    let effectiveContextLength = contextLength;
+    let effectiveReserveTokens = compactionReserveTokens;
+    if (process.env.COMPACTION_DEBUG && process.env.CONTEXT_LIMIT_OVERRIDE) {
+      effectiveContextLength = Number.parseInt(
+        process.env.CONTEXT_LIMIT_OVERRIDE,
+        10
+      );
+      // Scale reserveTokens proportionally (min 256)
+      const ratio = effectiveContextLength / contextLength;
+      effectiveReserveTokens = Math.max(
+        256,
+        Math.floor(compactionReserveTokens * ratio)
+      );
+      console.error(
+        `[compaction-debug] contextLimit overridden: ${contextLength} → ${effectiveContextLength}, reserve=${effectiveReserveTokens}, keepRecent=${Math.floor(effectiveContextLength * 0.3)}`
+      );
+    }
+
     const summarizeFn = createModelSummarizer(
       this.getProviderModel(this.modelId, this.provider),
       {
         instructions: () => this.getInstructions(),
-        contextLimit: contextLength,
+        contextLimit: effectiveContextLength,
       }
     );
     return {
-      contextLimit: contextLength,
+      contextLimit: effectiveContextLength,
       enabled: true,
-      maxTokens: contextLength,
-      reserveTokens: compactionReserveTokens,
-      keepRecentTokens: Math.floor(contextLength * 0.3),
+      maxTokens: effectiveContextLength,
+      reserveTokens: effectiveReserveTokens,
+      keepRecentTokens: Math.floor(effectiveContextLength * 0.3),
       speculativeStartRatio: computeSpeculativeStartRatio(
-        contextLength,
-        compactionReserveTokens
+        effectiveContextLength,
+        effectiveReserveTokens
       ),
       summarizeFn,
       ...overrides,
