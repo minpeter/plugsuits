@@ -965,3 +965,71 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     expect(h.getActualUsage()).toBeNull();
   });
 });
+
+describe("systemPromptTokens in estimated usage", () => {
+  it("includes systemPromptTokens in estimated usage when actualUsage is null", () => {
+    const h = new CheckpointHistory({
+      compaction: { enabled: false, contextLimit: 0 },
+    });
+
+    // Add a short user message (~5 tokens via chars/4)
+    h.addUserMessage("short message here"); // ~19 chars / 4 ≈ 5 tokens
+
+    // Set system prompt tokens
+    h.setSystemPromptTokens(500);
+
+    // getContextUsage should include systemPromptTokens
+    const usage = h.getContextUsage();
+    expect(usage.source).toBe("estimated");
+    // Current code: usage.used = getEstimatedTokens() (does NOT include 500)
+    // Expected after fix: usage.used = getEstimatedTokens() + 500
+    expect(usage.used).toBeGreaterThanOrEqual(505); // at least 500 systemPrompt + ~5 message tokens
+  });
+
+  it("does NOT double-count systemPromptTokens when actualUsage is available", () => {
+    const h = new CheckpointHistory({
+      compaction: { enabled: false, contextLimit: 0 },
+    });
+
+    // Set actual usage from API (already includes system prompt in API's total)
+    h.updateActualUsage({
+      promptTokens: 4800,
+      completionTokens: 200,
+      totalTokens: 5000,
+      updatedAt: new Date(),
+    });
+
+    // Set system prompt tokens
+    h.setSystemPromptTokens(500);
+
+    const usage = h.getContextUsage();
+    expect(usage.source).toBe("actual");
+    // Must be exactly 4800 (promptTokens from actual, NO +500 double-count)
+    // getContextUsage actual branch uses: this.actualUsage.promptTokens ?? this.actualUsage.totalTokens
+    expect(usage.used).toBe(4800);
+  });
+
+  it("triggers hard context limit accounting for systemPromptTokens", () => {
+    // contextLimit=110, reserve=2
+    // Message tokens ≈ 20 (80 chars / 4 = 20)
+    // systemPromptTokens = 90
+    // Total estimated = 20 + 90 = 110
+    // Hard limit: 110 + 0 + 2 >= 110 → should be TRUE after fix
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: true,
+        contextLimit: 110,
+        reserveTokens: 2,
+        summarizeFn: async () => "summary",
+      },
+    });
+
+    h.addUserMessage("a".repeat(80)); // ~80 chars / 4 = 20 tokens
+    h.setSystemPromptTokens(90);
+
+    // Current code: getCurrentUsageTokens() = estimateTokens(msg) ≈ 20, NOT including 90
+    // So 20 + 0 + 2 = 22 < 110 → FALSE (test fails - RED ✓)
+    // After fix: 20 + 90 + 0 + 2 = 112 >= 110 → TRUE
+    expect(h.isAtHardContextLimit()).toBe(true);
+  });
+});
