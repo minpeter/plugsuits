@@ -1,0 +1,33 @@
+Task 11 — TUI overflow retry integration
+
+Files changed
+- packages/tui/src/agent-tui.ts
+- packages/tui/src/agent-tui-compaction.test.ts
+
+Implementation
+- Imported `isContextOverflowError` from `@ai-sdk-tool/harness` into TUI.
+- Added exported helper `retryStreamTurnOnContextOverflow()` to gate overflow-only retry behavior and enforce max 1 retry.
+- Added `runBlockingOverflowCompaction()` in `createAgentTUI()` to preserve blocking compaction UI behavior:
+  - sets `blockingCompactionActive = true`
+  - clears background footer statuses
+  - shows `Blocking compaction...` loader
+  - calls `compactionOrchestrator.handleOverflow(error)`
+  - restores blocking UI state in `finally`
+- Updated `runSingleStreamTurn()` catch path to:
+  - ignore user interrupts as before
+  - detect context overflow errors
+  - trigger blocking overflow compaction
+  - retry the same phase once (`overflowRetried = true`)
+  - rethrow if recovery is unavailable or retry was already used
+
+Tests added
+- `runs blocking compaction then retries once on overflow errors`
+- `does not retry overflow errors more than once`
+
+Verification
+- `lsp_diagnostics` clean for:
+  - packages/tui/src/agent-tui.ts
+  - packages/tui/src/agent-tui-compaction.test.ts
+- `pnpm test --filter @ai-sdk-tool/tui` passed
+  - 2 test files passed
+  - 12 tests passed

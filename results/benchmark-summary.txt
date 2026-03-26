@@ -1,0 +1,21 @@
+Compaction Benchmark Summary
+Generated: 2026-03-26T16:50:06.650Z
+Prompt: 코드베이스를 탐색하고, 이 코드 베이스에 대해서 설명해줘
+Max iterations per scenario: 12
+
+Per scenario:
+limit | compaction_count | max_tokens_used | blocking_event_count | completed | duration | exit_code
+8000 | 14 | 8186 | 11 | no | 3m 44s | 0
+  trajectory: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-8000-trajectory.jsonl
+  metrics: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-8000-metrics.log
+20000 | 9 | 9780 | 2 | no | 2m 56s | 0
+  trajectory: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-20000-trajectory.jsonl
+  metrics: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-20000-metrics.log
+40000 | 1 | 27401 | 0 | yes | 0m 43s | 0
+  trajectory: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-40000-trajectory.jsonl
+  metrics: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-40000-metrics.log
+80000 | 0 | 34489 | 0 | yes | 0m 27s | 0
+  trajectory: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-80000-trajectory.jsonl
+  metrics: /Users/minpeter/github.com/minpeter/plugsuits/results/scenario-80000-metrics.log
+
+Total run time: 7m 49s (469436ms)

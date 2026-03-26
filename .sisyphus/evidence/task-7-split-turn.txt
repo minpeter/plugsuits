@@ -1,0 +1,35 @@
+Task 7 — Split-Turn Dual Summary
+
+Changed files:
+- packages/harness/src/checkpoint-history.ts
+- packages/harness/src/checkpoint-history.test.ts
+
+Implementation evidence:
+- Added mid-turn detection in compact() via findSplitTurnStartIndex().
+- Mid-turn detection conditions:
+  1) last message being summarized is assistant with tool-call part(s)
+  2) kept side contains matching tool-result toolCallId
+- Added dual-summary path in buildCompactionSummaryText():
+  - history summary budget reserveTokens = floor(reserveTokens * 0.8)
+  - turn-prefix summary budget reserveTokens = floor(reserveTokens * 0.5)
+  - merged output format:
+    ${historySummary}
+
+    ---
+
+    **Turn Context:**
+
+    ${turnPrefixSummary}
+- First summary call receives previousSummary.
+- Second summary call intentionally omits previousSummary.
+- Non-mid-turn path unchanged (single summarizeFn call with previousSummary).
+
+Test evidence added:
+- creates dual summary with turn context when split happens mid-turn
+- passes previousSummary only to history summary call during split-turn dual summary
+
+Verification command:
+- pnpm test --filter @ai-sdk-tool/harness -- checkpoint-history
+
+Verification result:
+- PASS — 16 files, 250 tests passed in @ai-sdk-tool/harness checkpoint-history run.

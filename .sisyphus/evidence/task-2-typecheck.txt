@@ -1,0 +1,1 @@
+$ tsc --emitDeclarationOnly -p packages/harness && tsc --noEmit -p packages/cea

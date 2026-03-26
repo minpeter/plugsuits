@@ -1,0 +1,18 @@
+[compaction-debug] contextLimit overridden: 202752 → 20480, reserve=6464, keepRecent=6144
+[compaction-metric] {"ts":1774525563766,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774525566506,"event":"turn_complete","turn":1,"estimatedTokens":20916,"source":"estimated","contextLimit":20480,"actualTokens":7412}
+[compaction-metric] {"ts":1774525566506,"event":"blocking_start","turn":1}
+[compaction-metric] {"ts":1774525566506,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774525571677,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774525583896,"event":"blocking_end","turn":1,"durationMs":17390}
+[compaction-metric] {"ts":1774525585955,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774525585957,"event":"turn_complete","turn":1,"estimatedTokens":3859,"source":"actual","contextLimit":20480,"actualTokens":7946}
+[compaction-metric] {"ts":1774525585957,"event":"job_status","turn":1,"id":"background-compaction-2","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774525601508,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774525629736,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774525629737,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":18611,"tokensAfter":1099}
+[compaction] Applied: context reduced, some older messages were summarized
+[compaction-metric] {"ts":1774525629737,"event":"applied","turn":1}
+[compaction-metric] {"ts":1774525629738,"event":"turn_complete","turn":1,"estimatedTokens":3859,"source":"actual","contextLimit":20480,"actualTokens":45818}
+[compaction-metric] {"ts":1774525629739,"event":"job_status","turn":1,"id":"background-compaction-3","message":"Compacting...","state":"running"}
+[headless] Completed in 65.98s

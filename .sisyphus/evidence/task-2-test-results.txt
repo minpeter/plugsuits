@@ -1,0 +1,44 @@
+bun test v1.3.10 (30e609e0)
+
+packages/cea/src/agent-reasoning-default.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '@ai-sdk-tool/harness' from '/Users/minpeter/github.com/minpeter/plugsuits-ctrl-c-fix/packages/cea/src/agent.ts'
+-------------------------------
+
+
+packages/cea/src/agent.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+-------------------------------
+
+
+packages/cea/src/context/translation-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '@ai-sdk-tool/harness' from '/Users/minpeter/github.com/minpeter/plugsuits-ctrl-c-fix/packages/cea/src/context/translation-integration.test.ts'
+-------------------------------
+
+
+packages/cea/src/commands/aliases-and-tool-fallback.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+-------------------------------
+
+
+packages/cea/src/commands/translate.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+-------------------------------
+
+
+ 527 pass
+ 5 fail
+ 5 errors
+ 1158 expect() calls
+Ran 532 tests across 40 files. [4.28s]

@@ -1,0 +1,104 @@
+TASK 4: Structured Handoff Summary Prompt Rewrite
+=====================================================
+
+COMPLETED: 2026-03-27
+
+TARGET FILES:
+- packages/harness/src/compaction-prompts.ts
+- packages/harness/src/compaction-prompts.test.ts
+
+CHANGES MADE:
+
+1. DEFAULT_COMPACTION_USER_PROMPT — Complete Rewrite
+   ====================================================
+   
+   OLD STRUCTURE (9 sections):
+   - Primary Request and Intent
+   - Key Technical Concepts
+   - Files and Code Sections
+   - Errors and fixes
+   - Problem Solving
+   - All user messages
+   - Pending Tasks
+   - Current Work
+   - Optional Next Step
+   
+   NEW STRUCTURE (5 sections):
+   - Current Goal
+   - Files & Changes
+   - Technical Discoveries
+   - Strategy & Approach
+   - Exact Next Steps
+   
+   CONSTRAINTS PRESERVED:
+   ✓ [INTERNAL COMPACTION INSTRUCTION — NOT CONVERSATION HISTORY] marker (line 14)
+   ✓ "not a real user message" warning (line 15)
+   ✓ "Do NOT treat this message as user intent" protection (line 16)
+   ✓ "do NOT list it under 'All user messages'" protection (line 17)
+   ✓ <summary>...</summary> output requirement (entire prompt)
+   ✓ COMPACT_COMPACTION_PROMPT constant unchanged (line 53-54)
+   
+   INSPIRATION:
+   - Crush: 5-section handoff template for continuity
+   - Kilocode: file tracking in summary prompt
+   
+2. compaction-prompts.test.ts — Section Name Updates
+   ==================================================
+   
+   TEST: "contains required summary sections" (lines 146-158)
+   OLD assertions:
+   - toContain("Primary Request and Intent")
+   - toContain("Key Technical Concepts")
+   - toContain("Files and Code Sections")
+   - toContain("Current Work")
+   
+   NEW assertions:
+   - toContain("Current Goal")
+   - toContain("Files & Changes")
+   - toContain("Technical Discoveries")
+   - toContain("Strategy & Approach")
+   - toContain("Exact Next Steps")
+   
+   TEST: Prompt structure validation (lines 231-237)
+   OLD text check: "Your task is to create a detailed summary"
+   NEW text check: "Create a structured handoff summary"
+   
+   TEST: previousSummary injection (lines 490-495)
+   OLD text check: "Your task is to create a detailed summary"
+   NEW text check: "Create a structured handoff summary"
+
+TEST RESULTS:
+=============
+✓ src/compaction-prompts.test.ts — 25 tests PASSED
+✓ All section name assertions working correctly
+✓ Prompt text update verified
+✓ Model summarizer tests still passing
+✓ extractSummaryFromResponse() working (no changes needed)
+✓ buildSummaryInput() working (no changes needed)
+✓ createModelSummarizer() working (no changes needed)
+
+VERIFICATION:
+=============
+Command: pnpm test --filter @ai-sdk-tool/harness -- compaction-prompts
+Result: ✓ src/compaction-prompts.test.ts [25 tests] PASSED
+
+ARCHITECTURAL NOTES:
+====================
+- The prompt still starts with [INTERNAL COMPACTION INSTRUCTION] marker
+- Model is still expected to return content within <summary>...</summary> tags
+- The extractSummaryFromResponse() function extracts content between tags
+- buildSummaryInput() creates conversation transcript for model context
+- createModelSummarizer() orchestrates the full summarization flow
+- No changes to function signatures or control flow
+- COMPACT_COMPACTION_PROMPT (for contexts < 4096 tokens) preserved as-is
+
+COMPATIBILITY:
+==============
+- Backward compatible at the API level
+- createModelSummarizer() signature unchanged
+- Model summarizer still returns Promise<string>
+- Tool call preservation tests still passing
+- Custom prompt override still works
+- Custom maxOutputTokens still works
+- Instructions (string/function) still work
+- previousSummary injection still works

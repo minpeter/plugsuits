@@ -1,0 +1,3 @@
+1820:  process.exit(requestedProcessExitCode ?? 0);
+---
+Command: grep -A5 "requestSignalShutdown" packages/cea/src/entrypoints/cli.ts | grep "requestedProcessExitCode"

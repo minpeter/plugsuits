@@ -1,0 +1,13 @@
+Task: SessionStore round-trip persistence
+Date: 2026-03-24
+
+Command:
+- pnpm test
+
+Evidence:
+- packages/harness/src/session-store.test.ts passed
+- Test case: "round-trip: 10 messages survive write→read"
+- Assertion verified: loadSession(sessionId).messages length is 10 with IDs msg-0..msg-9
+
+Suite excerpt:
+- @ai-sdk-tool/harness:test: ✓ src/session-store.test.ts (5 tests)

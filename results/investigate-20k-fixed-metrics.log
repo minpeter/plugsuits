@@ -1,0 +1,11 @@
+[compaction-debug] contextLimit overridden: 202752 → 20480, reserve=6464, keepRecent=6144
+[compaction-metric] {"ts":1774525301759,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774525307345,"event":"turn_complete","turn":1,"estimatedTokens":20800,"source":"estimated","contextLimit":20480,"actualTokens":7406}
+[compaction-metric] {"ts":1774525307345,"event":"blocking_start","turn":1}
+[compaction-metric] {"ts":1774525307345,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774525312609,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774525324069,"event":"blocking_end","turn":1,"durationMs":16724}
+[compaction-metric] {"ts":1774525327583,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774525327584,"event":"turn_complete","turn":1,"estimatedTokens":3822,"source":"actual","contextLimit":20480,"actualTokens":8043}
+[compaction-metric] {"ts":1774525327584,"event":"job_status","turn":1,"id":"background-compaction-2","message":"Compacting...","state":"running"}
+[headless] Completed in 25.83s

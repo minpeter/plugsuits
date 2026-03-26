@@ -1,0 +1,27 @@
+Speculative compaction fires before blocking — Integration Test Evidence
+=======================================================================
+
+Test: "shouldStartSpeculativeCompactionForNextTurn returns true BEFORE isAtHardContextLimit as messages grow"
+Config: contextLimit=40000, maxTokens=8000 (default), speculativeStartRatio=0.7, reserveTokens=2000, systemPromptTokens=3000
+
+How thresholds work:
+- Speculative threshold: min(contextLimit=40K, maxTokens=8K) * speculativeStartRatio(0.7) = 5600 tokens
+  → Fires early when approaching the COMPACTION trigger (8K), not the context window limit
+- Blocking threshold: contextLimit(40K) - reserveTokens(2K) = 38000 tokens
+  → Fires when approaching the CONTEXT WINDOW limit
+
+Actual iteration numbers (measured from test execution):
+- Speculative compaction fired at iteration: 5 (estimatedTokens=3048, currentUsage=6048 >= 5600)
+- Blocking compaction (hard context limit) fired at iteration: 68 (estimatedTokens=35052, currentUsage+reserve=40052 >= 40000)
+- Gap: 63 iterations of buffer between speculative and blocking
+
+Proof: speculative (5) < blocking (68)
+  → 63 iterations of advance warning before the hard limit is reached
+  → This proves the speculative system fires EARLY enough to prepare compaction
+     without waiting for the context window to be exhausted
+
+Why this is meaningful:
+With accurate token estimation (T2 fix), the system correctly detects:
+1. When to START PREPARING compaction (speculative, at 70% of 8K compaction threshold)
+2. When compaction is MANDATORY (blocking, at 95% of 40K context window)
+The gap of 63 iterations provides ample time to run background summarization.

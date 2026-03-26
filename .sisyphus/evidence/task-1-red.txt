@@ -1,0 +1,194 @@
+
+> cea-monorepo@1.0.0 test /Users/minpeter/github.com/minpeter/plugsuits
+> turbo run test --filter @ai-sdk-tool/harness
+
+• turbo 2.8.16
+• Packages in scope: @ai-sdk-tool/harness
+• Running test in 1 packages
+• Remote caching disabled
+@ai-sdk-tool/harness:test: cache bypass, force executing a32565565706440b
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: > @ai-sdk-tool/harness@1.0.0 test /Users/minpeter/github.com/minpeter/plugsuits/packages/harness
+@ai-sdk-tool/harness:test: > vitest run src
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/Users/minpeter/github.com/minpeter/plugsuits/packages/harness[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test:  [31m❯[39m src/token-utils.test.ts [2m([22m[2m11 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[32m 9[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m returns positive number for non-empty text[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m returns 0 for empty string[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m estimates CJK text differently from Latin text[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m extracts text from string content[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m estimates tool-result messages higher than chars/4 baseline[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m estimates assistant tool-call messages higher than chars/4 baseline[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m estimates plain user text messages same as estimateTokens(text)[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m estimates mixed assistant messages (text + tool-call) with correct weighting[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test: [31m     [31m×[31m Test A: tool-result with code containing newlines/quotes estimates ≤ rawTextLength/3.5[39m[32m 2[2mms[22m[39m
+@ai-sdk-tool/harness:test: [31m     [31m×[31m Test B: tool-result with plain string output estimates same as estimateTokens(stringOutput)[39m[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test: [31m     [31m×[31m Test C: tool-result with empty string output estimates 0 tokens[39m[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/session-store.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/tool-pruning.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/loop.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/todo-continuation.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 4[2mms[22m[39m
+@ai-sdk-tool/harness:test: [90mstderr[2m | src/checkpoint-history.test.ts[2m > [22m[2mCheckpointHistory[2m > [22m[2mcompact()[2m > [22m[2minvalid summaryMessageId falls back to full history
+@ai-sdk-tool/harness:test: [22m[39m[CheckpointHistory] summaryMessageId "nonexistent-id" not found, using full history
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test:  [32m✓[39m src/checkpoint-history-edge-cases.test.ts [2m([22m[2m23 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/compaction-orchestrator.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [31m❯[39m src/checkpoint-history.test.ts [2m([22m[2m67 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 78[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns CheckpointMessage with id, role user, createdAt[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m generates unique IDs for each message[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m preserves originalContent when provided[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns array of CheckpointMessages[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns all messages in insertion order[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns empty array for empty history[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m converts CheckpointMessages to ModelMessages[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns all messages when no checkpoint set[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m creates checkpoint — getMessagesForLLM returns [summary_as_user, ...newer_messages][32m 2[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m getAll() returns ALL messages including pre-checkpoint after compact[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m summary stored as assistant, returned as user in getMessagesForLLM[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m invalid summaryMessageId falls back to full history[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m multiple compactions pass previousSummary to summarizeFn[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m getEstimatedTokens() decreases after compact[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m increments revision on each successful compaction[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m persists checkpoint via SessionStore.updateCheckpoint[32m 5[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns false when compact() called with no messages[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns false when compaction is disabled[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:          [32m✓[39m auto-compact: getMessagesForLLM has [summary, continuation, last_user_request][32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:          [32m✓[39m manual-compact: NO replay, just [summary, continuation][32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:          [32m✓[39m only text-only user messages are replayed (not tool-content messages)[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m removes orphaned tool-result without preceding tool-call[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m removes assistant tool-call without following tool-result[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m prune → compact escalation reduces tokens[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns success=false if no reduction possible (disabled compaction)[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m ensures tokens are below contextLimit after recovery when contextLimit is set[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m returns success=false when all strategies fail (no throw)[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m detects context length exceeded errors[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m persists messages to JSONL when SessionStore provided[32m 2[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m works without SessionStore (in-memory only)[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m clear() resets messages to empty array[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m clear() resets summaryMessageId to null[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m clear() increments revision[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m updateActualUsage stores usage and getActualUsage retrieves it[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m getActualUsage returns null when no usage recorded[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m clear() resets actual usage to null[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m getContextUsage returns source='estimated' before actual usage[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m getContextUsage returns source='actual' after updateActualUsage[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:        [32m✓[39m getContextUsage percentage is 0 when no context limit set[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m setContextLimit / getContextLimit round-trip[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m setSystemPromptTokens / getSystemPromptTokens round-trip[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m isCompactionEnabled returns false by default[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m isCompactionEnabled returns true when config.enabled=true[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m isPruningEnabled returns false by default[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m updateCompaction merges config[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m updatePruning enables pruning[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m needsCompaction returns false when disabled[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m isAtHardContextLimit returns false when no limit set[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m getRecommendedMaxOutputTokens returns default when no limit set[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m shouldStartSpeculativeCompactionForNextTurn returns false by default[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m satisfies AgentTUIMessageHistory interface (compile-time)[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m verbose summary recovery should still succeed via rollback+truncate[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m summary-only overflow after compact should return success=false instead of throwing[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m single huge message should return success=false with context error, not throw[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m prune strategy should actually reduce tokens for large tool-result outputs[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m failed compact can still recover via later strategies[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m should guard concurrent recoveries and reject second call immediately[32m 22[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m when all strategies fail should return success=false (nuclear exhausted) not throw[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m successful overflow recovery should clear actualUsage[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m includes systemPromptTokens in estimated usage when actualUsage is null[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m does NOT double-count systemPromptTokens when actualUsage is available[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m triggers hard context limit accounting for systemPromptTokens[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m preserves non-null actualUsage after successful overflow recovery[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m synthetic actualUsage totalTokens is at least as large as current estimate[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m real updateActualUsage overwrites synthetic post-recovery value[32m 0[2mms[22m[39m
+@ai-sdk-tool/harness:test:      [32m✓[39m all 3 gaps work together: systemPrompt + tool-content weighting + post-recovery tracking[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test: [31m     [31m×[31m shouldStartSpeculativeCompactionForNextTurn returns true BEFORE isAtHardContextLimit as messages grow[39m[32m 24[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/compaction-prompts.test.ts [2m([22m[2m24 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/continuation.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/compaction-planner.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/compaction-policy.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/message-text.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/tool-loop-control.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 1[2mms[22m[39m
+@ai-sdk-tool/harness:test:  [32m✓[39m src/agent.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 4 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [41m[1m FAIL [22m[49m src/checkpoint-history.test.ts[2m > [22mspeculative compaction fires before blocking (RED)[2m > [22mshouldStartSpeculativeCompactionForNextTurn returns true BEFORE isAtHardContextLimit as messages grow
+@ai-sdk-tool/harness:test: [31m[1mAssertionError[22m: expected null not to be null[39m
+@ai-sdk-tool/harness:test: [36m [2m❯[22m src/checkpoint-history.test.ts:[2m1260:33[22m[39m
+@ai-sdk-tool/harness:test:     [90m1258| [39m
+@ai-sdk-tool/harness:test:     [90m1259| [39m    [34mexpect[39m(speculativeFirstAt)[33m.[39mnot[33m.[39m[34mtoBeNull[39m()[33m;[39m
+@ai-sdk-tool/harness:test:     [90m1260| [39m    [34mexpect[39m(blockingFirstAt)[33m.[39mnot[33m.[39m[34mtoBeNull[39m()[33m;[39m
+@ai-sdk-tool/harness:test:     [90m   | [39m                                [31m^[39m
+@ai-sdk-tool/harness:test:     [90m1261| [39m    [35mif[39m (speculativeFirstAt [33m!==[39m [35mnull[39m [33m&&[39m blockingFirstAt [33m!==[39m [35mnull[39m) {
+@ai-sdk-tool/harness:test:     [90m1262| [39m      [34mexpect[39m(speculativeFirstAt)[33m.[39m[34mtoBeLessThan[39m(blockingFirstAt)[33m;[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯[22m[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [41m[1m FAIL [22m[49m src/token-utils.test.ts[2m > [22mestimateMessageTokens — deflated estimation (RED)[2m > [22mTest A: tool-result with code containing newlines/quotes estimates ≤ rawTextLength/3.5
+@ai-sdk-tool/harness:test: [31m[1mAssertionError[22m: expected 1612 to be less than or equal to 1229[39m
+@ai-sdk-tool/harness:test: [36m [2m❯[22m src/token-utils.test.ts:[2m131:20[22m[39m
+@ai-sdk-tool/harness:test:     [90m129| [39m
+@ai-sdk-tool/harness:test:     [90m130| [39m    [35mconst[39m result [33m=[39m [34mestimateMessageTokens[39m(toolResultMsg)[33m;[39m
+@ai-sdk-tool/harness:test:     [90m131| [39m    [34mexpect[39m(result)[33m.[39m[34mtoBeLessThanOrEqual[39m([33mMath[39m[33m.[39m[34mceil[39m(rawTextLength [33m/[39m [34m3.5[39m))[33m;[39m
+@ai-sdk-tool/harness:test:     [90m   | [39m                   [31m^[39m
+@ai-sdk-tool/harness:test:     [90m132| [39m  })[33m;[39m
+@ai-sdk-tool/harness:test:     [90m133| [39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯[22m[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [41m[1m FAIL [22m[49m src/token-utils.test.ts[2m > [22mestimateMessageTokens — deflated estimation (RED)[2m > [22mTest B: tool-result with plain string output estimates same as estimateTokens(stringOutput)
+@ai-sdk-tool/harness:test: [31m[1mAssertionError[22m: expected 28 to be 12 // Object.is equality[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [32m- Expected[39m
+@ai-sdk-tool/harness:test: [31m+ Received[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [32m- 12[39m
+@ai-sdk-tool/harness:test: [31m+ 28[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [36m [2m❯[22m src/token-utils.test.ts:[2m149:20[22m[39m
+@ai-sdk-tool/harness:test:     [90m147| [39m
+@ai-sdk-tool/harness:test:     [90m148| [39m    [35mconst[39m result [33m=[39m [34mestimateMessageTokens[39m(toolResultMsg)[33m;[39m
+@ai-sdk-tool/harness:test:     [90m149| [39m    [34mexpect[39m(result)[33m.[39m[34mtoBe[39m([34mestimateTokens[39m(stringOutput))[33m;[39m
+@ai-sdk-tool/harness:test:     [90m   | [39m                   [31m^[39m
+@ai-sdk-tool/harness:test:     [90m150| [39m  })[33m;[39m
+@ai-sdk-tool/harness:test:     [90m151| [39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯[22m[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [41m[1m FAIL [22m[49m src/token-utils.test.ts[2m > [22mestimateMessageTokens — deflated estimation (RED)[2m > [22mTest C: tool-result with empty string output estimates 0 tokens
+@ai-sdk-tool/harness:test: [31m[1mAssertionError[22m: expected 12 to be +0 // Object.is equality[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [32m- Expected[39m
+@ai-sdk-tool/harness:test: [31m+ Received[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [32m- 0[39m
+@ai-sdk-tool/harness:test: [31m+ 12[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [36m [2m❯[22m src/token-utils.test.ts:[2m165:50[22m[39m
+@ai-sdk-tool/harness:test:     [90m163| [39m    }[33m;[39m
+@ai-sdk-tool/harness:test:     [90m164| [39m
+@ai-sdk-tool/harness:test:     [90m165| [39m    [34mexpect[39m([34mestimateMessageTokens[39m(toolResultMsg))[33m.[39m[34mtoBe[39m([34m0[39m)[33m;[39m
+@ai-sdk-tool/harness:test:     [90m   | [39m                                                 [31m^[39m
+@ai-sdk-tool/harness:test:     [90m166| [39m  })[33m;[39m
+@ai-sdk-tool/harness:test:     [90m167| [39m})[33m;[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯[22m[39m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test: [2m Test Files [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m13 passed[39m[22m[90m (15)[39m
+@ai-sdk-tool/harness:test: [2m      Tests [22m [1m[31m4 failed[39m[22m[2m | [22m[1m[32m196 passed[39m[22m[90m (200)[39m
+@ai-sdk-tool/harness:test: [2m   Start at [22m 18:05:11
+@ai-sdk-tool/harness:test: [2m   Duration [22m 438ms[2m (transform 726ms, setup 0ms, import 1.05s, tests 172ms, environment 1ms)[22m
+@ai-sdk-tool/harness:test: 
+@ai-sdk-tool/harness:test:  ELIFECYCLE  Test failed. See above for more details.
+@ai-sdk-tool/harness:test: ERROR: command finished with error: command (/Users/minpeter/github.com/minpeter/plugsuits/packages/harness) /Users/minpeter/.nvm/versions/node/v22.21.0/bin/pnpm run test exited (1)
+@ai-sdk-tool/harness#test: command (/Users/minpeter/github.com/minpeter/plugsuits/packages/harness) /Users/minpeter/.nvm/versions/node/v22.21.0/bin/pnpm run test exited (1)
+
+ Tasks:    0 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    956ms 
+Failed:    @ai-sdk-tool/harness#test
+
+ ERROR  run failed: command  exited (1)
+ ELIFECYCLE  Test failed. See above for more details.

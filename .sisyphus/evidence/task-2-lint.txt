@@ -1,0 +1,20 @@
+  
+  i Safe fix: Remove unnecessary numeric separators.
+  
+     93  93 │       type: "serverless",
+     94  94 │       contextLength: 8_192,
+     95     │ - ····maxCompletionTokens:·1_024,
+         95 │ + ····maxCompletionTokens:·1024,
+     96  96 │       reasoning: {
+     97  97 │         ...DEFAULT_FRIENDLI_REASONING,
+  
+
+Checked 110 files in 89ms. No fixes applied.
+Found 5 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+
+error: script "check" exited with code 1
+error: script "check" exited with code 1

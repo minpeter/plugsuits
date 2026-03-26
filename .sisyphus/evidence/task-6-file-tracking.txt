@@ -1,0 +1,17 @@
+Task 6 — File Operation Tracking (CEA)
+
+Files changed:
+- packages/cea/src/agent.ts
+- packages/cea/src/agent.test.ts
+
+Implementation:
+- Added extractFileOpsFromMessages() in CEA agent layer.
+- Added buildFileTrackingSummarizeFn() wrapper with closure-backed read/modified file tracking.
+- Wrapped buildCompactionConfig() summarizer creation so file context persists across compactions.
+- Prepended summaries with <read-files> and <modified-files> XML sections.
+- Added test coverage for XML injection and cross-call state carry-forward.
+
+Verification targets:
+- LSP diagnostics clean on packages/cea/src/agent.ts
+- LSP diagnostics clean on packages/cea/src/agent.test.ts
+- Pending command verification executed after artifact write

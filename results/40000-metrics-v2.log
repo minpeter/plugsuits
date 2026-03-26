@@ -1,0 +1,10 @@
+[compaction-debug] contextLimit overridden: 202752 → 40000, reserve=12626, keepRecent=12000
+[compaction-metric] {"ts":1774519250497,"event":"turn_complete","turn":1,"estimatedTokens":14271,"source":"estimated","contextLimit":40000,"actualTokens":7144}
+[compaction-metric] {"ts":1774519250497,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774519269511,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774519270822,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774519270822,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":11233,"tokensAfter":928}
+[compaction] Applied: context reduced, some older messages were summarized
+[compaction-metric] {"ts":1774519270822,"event":"applied","turn":1}
+[compaction-metric] {"ts":1774519270823,"event":"turn_complete","turn":1,"estimatedTokens":4959,"source":"estimated","contextLimit":40000,"actualTokens":30473}
+[headless] Completed in 22.32s

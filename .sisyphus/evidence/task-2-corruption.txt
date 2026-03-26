@@ -1,0 +1,13 @@
+Task: SessionStore corruption tolerance
+Date: 2026-03-24
+
+Command:
+- pnpm test
+
+Evidence:
+- packages/harness/src/session-store.test.ts passed
+- Test case: "corruption: truncated last line is skipped, rest loaded"
+- Assertion verified: after appending truncated JSONL tail, loadSession(sessionId).messages length is 2 and preserves msg-2 as latest valid message
+
+Suite excerpt:
+- @ai-sdk-tool/harness:test: ✓ src/session-store.test.ts (5 tests)

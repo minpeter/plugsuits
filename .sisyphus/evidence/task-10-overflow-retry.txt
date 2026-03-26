@@ -1,0 +1,33 @@
+TASK 10: Headless Overflow Retry Detection + Auto-Retry
+
+COMPLETION SUMMARY:
+✓ packages/headless/src/runner.ts: Added isContextOverflowError import from @ai-sdk-tool/harness
+✓ packages/headless/src/runner.ts: Implemented overflow detection in runSingleTurn()
+✓ packages/headless/src/runner.ts: Added try/catch wrapper with max 1 retry logic
+✓ packages/headless/src/runner.test.ts: Added test case for overflow + retry behavior
+✓ All tests pass: pnpm test --filter @ai-sdk-tool/headless ✓
+
+CHANGES MADE:
+
+1. Import Addition (line 8):
+   - Added isContextOverflowError to imports from @ai-sdk-tool/harness
+   - Joins existing CompactionOrchestrator and shouldContinueManualToolLoop
+
+2. runSingleTurn() Modification (lines 421-463):
+   - Wrapped stream + processStream execution in executeStream async function
+   - Added try/catch with isContextOverflowError detection
+   - On overflow: calls blockAtHardContextLimit(0, phase) then retry with fresh messages
+   - overflowRetried flag prevents infinite loops (max 1 retry)
+   - Non-overflow errors are re-thrown immediately
+
+3. Test Addition (runner.test.ts lines 434-467):
+   - New test: "retries on context overflow error"
+   - Simulates first stream call throwing context overflow error
+   - Second call succeeds with "ok" response
+   - Verifies exactly 2 stream calls (1 fail + 1 retry success)
+   - Confirms single assistant event in output
+
+VERIFICATION:
+- LSP diagnostics: 0 errors in headless/src
+- Test suite: 10/10 passed (includes new overflow retry test)
+- No breaking changes to existing tests or JSONL event types

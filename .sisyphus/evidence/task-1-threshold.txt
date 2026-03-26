@@ -1,0 +1,31 @@
+2026-03-27 Task 1 Threshold Ratio Evidence
+
+Changed files:
+- packages/harness/src/compaction-policy.test.ts
+- packages/harness/src/compaction-policy.ts
+- packages/harness/src/compaction-types.ts
+- packages/harness/src/checkpoint-history.ts
+- packages/harness/src/compaction-orchestrator.ts
+
+Verification commands and results:
+1) pnpm test --filter @ai-sdk-tool/harness -- compaction-policy
+   - compaction-policy test cases passed.
+   - command exit failed due unrelated existing failures in src/tool-pruning.test.ts:
+     TypeError: progressivePrune is not a function (4 tests)
+
+2) pnpm test --filter @ai-sdk-tool/harness
+   - command exit failed due same unrelated existing failures in src/tool-pruning.test.ts:
+     TypeError: progressivePrune is not a function (4 tests)
+
+3) (packages/harness) pnpm run typecheck
+   - PASS (tsc --noEmit)
+
+4) LSP diagnostics on changed files
+   - compaction-policy.ts: clean
+   - compaction-types.ts: clean
+   - checkpoint-history.ts: clean
+   - compaction-orchestrator.ts: clean
+
+Notes:
+- Implemented thresholdRatio defaults (0.5) and caller updates for needsCompactionFromUsage signature migration.
+- Preserved maxTokens backward compatibility by deriving an effective threshold ratio from maxTokens/contextLimit where available.

@@ -1,0 +1,18 @@
+F2 Code Quality Review
+Changed packages: harness, cea, headless, tui
+pnpm typecheck: PASS
+pnpm build: PASS
+pnpm test: PASS (792 tests)
+as any count: 0
+@ts-ignore count: 0 (must be 0)
+console.log in prod: 4
+TODO/FIXME: 22
+Empty catch blocks: 0
+LSP diagnostics on changed files: FAIL (3 errors in packages/harness/src/loop.test.ts and packages/harness/src/message-text.test.ts; 1 hint in packages/cea/src/tools/utils/execute/noninteractive-wrapper.ts)
+Verdict: REJECT
+
+Notes:
+- Branch diff vs main shows changes in packages/harness, packages/cea, packages/headless, and packages/tui.
+- Non-test production sources have 0 `as any` matches and 0 `@ts-ignore` matches.
+- The 4 `console.log` matches include 1 intentional runtime JSONL emitter in headless and 3 documentation/example matches.
+- The 22 TODO/FIXME/HACK/xxx raw matches are mostly TODO-related identifiers/system-reminder strings; no explicit TODO/FIXME/HACK comment markers were found.

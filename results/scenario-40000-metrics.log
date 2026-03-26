@@ -1,0 +1,19 @@
+[compaction-debug] contextLimit overridden: 202752 → 40000, reserve=12626, keepRecent=12000
+[compaction-metric] {"ts":1774543738289,"event":"usage_probe","turn":1,"promptTokens":7076,"totalTokens":7077}
+[compaction-metric] {"ts":1774543740777,"event":"turn_complete","turn":1,"estimatedTokens":7071,"source":"actual","contextLimit":40000,"actualTokens":7294}
+[compaction-metric] {"ts":1774543741752,"event":"usage_probe","turn":1,"promptTokens":13976,"totalTokens":13977}
+[compaction-metric] {"ts":1774543743814,"event":"turn_complete","turn":1,"estimatedTokens":14111,"source":"actual","contextLimit":40000,"actualTokens":14237}
+[compaction-metric] {"ts":1774543744597,"event":"usage_probe","turn":1,"promptTokens":18998,"totalTokens":18999}
+[compaction-metric] {"ts":1774543744597,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Background compaction...","state":"running"}
+[compaction-metric] {"ts":1774543747650,"event":"turn_complete","turn":1,"estimatedTokens":19181,"source":"actual","contextLimit":40000,"actualTokens":19299}
+[compaction-metric] {"ts":1774543748376,"event":"usage_probe","turn":1,"promptTokens":22069,"totalTokens":22070}
+[compaction-metric] {"ts":1774543751770,"event":"turn_complete","turn":1,"estimatedTokens":22296,"source":"actual","contextLimit":40000,"actualTokens":22435}
+[compaction-metric] {"ts":1774543752550,"event":"usage_probe","turn":1,"promptTokens":25824,"totalTokens":25825}
+[compaction-metric] {"ts":1774543756539,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774543768236,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774543768239,"event":"turn_complete","turn":1,"estimatedTokens":26084,"source":"actual","contextLimit":40000,"actualTokens":27401}
+[compaction-metric] {"ts":1774543768240,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774543779874,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":4075,"tokensAfter":809}
+[compaction] Applied: context reduced, some older messages were summarized
+[compaction-metric] {"ts":1774543779875,"event":"applied","turn":1}
+[headless] Completed in 42.02s

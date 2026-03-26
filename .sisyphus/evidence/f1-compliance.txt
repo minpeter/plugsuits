@@ -1,0 +1,33 @@
+F1 VERDICT: APPROVE
+
+## Must Have Items
+- [✅] thresholdRatio in policy: `packages/harness/src/compaction-policy.ts:7,51` defines configurable `thresholdRatio` with default `0.5`; `packages/harness/src/compaction-types.ts:48` exposes `thresholdRatio?: number`; `packages/cea/src/agent.ts:598,921` computes and exports `computeAdaptiveThresholdRatio()`.
+- [✅] progressivePrune in tool-pruning: `packages/harness/src/tool-pruning.ts:9` defines `PROGRESSIVE_LEVELS = [0, 10, 20, 50, 100]`; `packages/harness/src/tool-pruning.ts:177` exports `progressivePrune()`; `packages/harness/src/compaction-orchestrator.ts:781` calls `history.pruneMessages(...)` before compaction.
+- [✅] 5-section structured prompt: `packages/harness/src/compaction-prompts.ts:18-41` requires exactly 5 sections and includes `Current Goal`, `Files & Changes`, `Technical Discoveries`, `Strategy & Approach`, `Exact Next Steps`.
+- [✅] rebaseline after compaction: `packages/harness/src/checkpoint-history.ts:677` calls `this.rebaselineActualUsageToCurrentEstimate()` inside `compact()`; helper defined at `packages/harness/src/checkpoint-history.ts:941-949`.
+- [✅] overflow-detection.ts exists: `packages/harness/src/overflow-detection.ts` exists and exports `isContextOverflowError()` (`:55`) and `isUsageSilentOverflow()` (`:82`).
+- [✅] measureUsage probe: `packages/cea/src/agent.ts:810` defines `measureUsage()`; actual usage is persisted through `packages/harness/src/checkpoint-history.ts:334` `updateActualUsage()`, and called from `packages/headless/src/runner.ts:186,192` plus `packages/tui/src/agent-tui.ts:801,807,1156`.
+
+## Must NOT Have Items
+- [✅] No breaking CheckpointHistory API shape: `packages/harness/src/checkpoint-history.ts:545` still exposes `async compact(options?: { auto?: boolean; aggressive?: boolean }): Promise<CompactionResult>`; existing call sites still use `h.compact()`, `h.compact({ auto: true })`, and `h.compact({ aggressive: true })` in `packages/harness/src/checkpoint-history.test.ts`, `packages/harness/src/compaction-orchestrator.ts:799`, and `packages/cea/src/agent-payload-e2e.test.ts:89`.
+- [✅] No FileOperations in harness: grep for `FileOperations` in `packages/harness/src/` returned 0 matches; grep for `extractFileOps` in `packages/harness/src/` returned 0 matches.
+- [✅] No JSONL protocol changes: `packages/headless/src/types.ts:6-45` still defines only `user`, `assistant`, `tool_call`, `tool_result`, and `error` in `TrajectoryEvent`.
+- [✅] No provider API in harness: grep for `createAnthropic|createFriendli|createOpenAI` in `packages/harness/src/` returned 0 matches.
+
+## Deliverable Files
+- [✅] `packages/harness/src/compaction-policy.ts` — present; `thresholdRatio` found.
+- [✅] `packages/harness/src/tool-pruning.ts` — present; `progressivePrune` and `PROGRESSIVE_LEVELS` found.
+- [✅] `packages/harness/src/compaction-prompts.ts` — present; 5-section prompt found.
+- [✅] `packages/harness/src/checkpoint-history.ts` — present; `compact()` re-baselining found.
+- [✅] `packages/harness/src/overflow-detection.ts` — present.
+- [✅] `packages/cea/src/agent.ts` — present; adaptive threshold and `measureUsage()` found.
+- [✅] `packages/headless/src/runner.ts` — present; overflow retry found at `:421-457`.
+- [✅] `packages/tui/src/agent-tui.ts` — present; overflow retry helper/use found at `:422-439` and `:1184-1191`.
+- [✅] `scripts/compaction-benchmark.ts` — present.
+- [✅] `scripts/compaction-graph.ts` — present.
+
+## Evidence Files
+- [✅] evidence directory populated: `.sisyphus/evidence/` contains 41 `task-*` files.
+
+## Final Judgment
+APPROVE: all audited must-haves are present, and all audited must-not-have violations checked here are absent.

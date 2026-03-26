@@ -1,0 +1,27 @@
+Task 15 — 8k Scenario Verification
+Date: 2026-03-27
+
+Commands run:
+1) node --import tsx scripts/compaction-benchmark.ts --dry-run
+2) node --import tsx scripts/compaction-benchmark.ts
+3) node -e '<metrics parser for all scenarios>'
+
+Evidence from results/scenario-8000-metrics.log:
+- context override line present:
+  [compaction-debug] contextLimit overridden: 202752 → 8000, reserve=2525, keepRecent=2400
+- compaction events from new compaction flow are present:
+  compaction_complete count = 14
+- turn_complete events include actual/context fields:
+  example: {"event":"turn_complete", "contextLimit":8000, "actualTokens":7736}
+- explicit "overflow" text is absent in the log (overflow_text=false)
+
+Checks:
+- compaction_complete present: PASS
+- no explicit overflow text: PASS
+- all turn_complete actualTokens <= contextLimit: FAIL
+  - actual_over_limit_turns=2
+  - max_actual=8186 (> 8000)
+
+Conclusion:
+- 8k scenario ran and produced fresh metrics with compaction events.
+- However, strict token-within-limit acceptance is NOT fully satisfied in this run.

@@ -1,0 +1,28 @@
+Task 15 — 20k Scenario Verification (Primary Target)
+Date: 2026-03-27
+
+Commands run:
+1) node --import tsx scripts/compaction-benchmark.ts
+2) node -e '<parse results/scenario-20000-trajectory.jsonl last assistant>'
+3) node -e '<metrics parser for all scenarios>'
+
+Evidence from results/scenario-20000-metrics.log:
+- compaction_complete count = 9
+- blocking_start count = 2
+- turn_complete count = 12
+- max_actual=9780
+- all turn_complete actualTokens <= contextLimit(20000): PASS
+
+Evidence from results/scenario-20000-trajectory.jsonl:
+- last assistant timestamp: 2026-03-26T16:48:57.329Z
+- last assistant length: 39 chars
+- preview: "네, 핵심 소스 파일들을 읽어서 코드베이스를 상세히 분석해드리겠습니다."
+
+Acceptance checks:
+- Benchmark script successfully runs at 20k context limit: PASS
+- scenario-20000-metrics.log contains compaction events from new code: PASS
+- final assistant message is substantive (>500 chars): FAIL (39 chars)
+
+Conclusion:
+- Primary run execution succeeded and generated fresh 20k metrics.
+- The substantive-final-message criterion is not satisfied in this trajectory.

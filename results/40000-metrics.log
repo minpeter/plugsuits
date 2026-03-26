@@ -1,0 +1,8 @@
+[compaction-debug] contextLimit overridden: 202752 → 40000, reserve=12626, keepRecent=12000
+[compaction-metric] {"ts":1774513016231,"event":"turn_complete","turn":1,"estimatedTokens":68445,"source":"estimated","contextLimit":40000,"actualTokens":19954}
+[compaction-metric] {"ts":1774513016232,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774513016236,"event":"blocking_start","turn":1}
+[compaction-metric] {"ts":1774513016236,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774513043196,"event":"blocking_end","turn":1,"durationMs":26960}
+[compaction-metric] {"ts":1774513049064,"event":"turn_complete","turn":1,"estimatedTokens":3962,"source":"actual","contextLimit":40000,"actualTokens":8350}
+[headless] Completed in 135.81s

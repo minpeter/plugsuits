@@ -1,0 +1,40 @@
+Scenario: 80K context limit | 1 turns | 0 compactions | 0 blocking
+════════════════════════════════════════
+80,000  ────────────────────────────────────────
+77,333  
+74,667  
+72,000  
+69,333  
+66,667  
+64,000  
+61,333  
+58,667  
+56,000  
+53,333  
+50,667  
+48,000  
+45,333  
+42,667  
+40,000  
+37,333  
+34,667  
+32,000    ▓
+29,333  
+26,667  
+24,000  
+21,333  
+18,667  
+16,000  
+13,333  
+10,667  
+8,000   
+5,333   
+2,667   
+0       
+
+Legend:
+  ▓ = actual token count at turn
+  | = compaction event
+  ! = blocking event
+  X = both compaction and blocking
+  ─ = context limit line

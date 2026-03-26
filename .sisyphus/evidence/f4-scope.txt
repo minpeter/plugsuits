@@ -1,0 +1,50 @@
+F4 VERDICT: REJECT
+
+Range checked:
+- git log --oneline HEAD~8..HEAD
+- git diff --stat HEAD~8..HEAD (no jsonl/.tmp/results entries in changed-file list)
+
+## File → Task Mapping
+- packages/harness/src/compaction-policy.ts → Task 1 ✅
+- packages/harness/src/overflow-detection.ts → Task 2 ✅
+- packages/harness/src/tool-pruning.ts → Task 3 ✅
+- packages/harness/src/compaction-prompts.ts → Task 4 ✅
+- packages/harness/src/checkpoint-history.ts → Tasks 5, 7, 12 ✅
+- packages/harness/src/compaction-orchestrator.ts → Task 12 ✅
+- packages/harness/src/compaction-types.ts → Task 1 ✅
+- packages/harness/src/index.ts → Tasks 1, 2, 3 ✅
+- packages/cea/src/agent.ts → Tasks 6, 9 ✅
+- packages/headless/src/runner.ts → Task 10 ✅
+- packages/tui/src/agent-tui.ts → Task 11 ✅
+- scripts/compaction-benchmark.ts → Task 13 ✅
+- scripts/compaction-graph.ts → Task 14 ✅
+
+Additional changed source files in HEAD~8..HEAD not mapped by provided plan-task list:
+- packages/cea/src/context-usage-format.ts ❌ (unmapped)
+- packages/cea/src/entrypoints/main.ts ❌ (unmapped)
+- packages/minimal-agent/index.ts ❌ (unmapped)
+
+Changed tests (non-source) observed:
+- packages/cea/src/agent-payload-e2e.test.ts
+- packages/cea/src/agent.test.ts
+- packages/cea/src/context-usage-format.test.ts
+- packages/harness/src/checkpoint-history.test.ts
+- packages/harness/src/compaction-orchestrator.test.ts
+- packages/harness/src/compaction-policy.test.ts
+- packages/harness/src/compaction-prompts.test.ts
+- packages/harness/src/overflow-detection.test.ts
+- packages/harness/src/tool-pruning.test.ts
+- packages/headless/src/runner.test.ts
+- packages/tui/src/agent-tui-compaction.test.ts
+
+## Guardrail Checks
+- No FileOperations in harness: PASS
+  - grep in packages/harness/src/*.ts for FileOperations|extractFileOps|allReadFiles|allModifiedFiles -> no matches
+- No provider API in harness: PASS
+  - grep in packages/harness/src/*.ts for createAnthropic|createFriendli|createOpenAI -> no matches
+- JSONL protocol unchanged: PASS
+  - packages/headless/src/types.ts not in changed file list
+  - type literals present: "user", "tool_call", "tool_result", "assistant", "error"
+
+## Verdict: REJECT
+Reason: core mapped files and guardrails pass, but scope fidelity fails strict "all changed source files map to a plan task" due to 3 unmapped source files.

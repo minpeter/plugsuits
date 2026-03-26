@@ -1,0 +1,15 @@
+[compaction-debug] contextLimit overridden: 202752 → 20000, reserve=6313, keepRecent=6000
+[compaction-metric] {"ts":1774512865167,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774512865168,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512867068,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512867068,"event":"compaction_complete","turn":1,"success":false,"tokensBefore":165,"tokensAfter":165}
+[compaction] Compaction rejected: summary would not reduce tokens
+[compaction-metric] {"ts":1774512867068,"event":"rejected","turn":1}
+[compaction-metric] {"ts":1774512867070,"event":"turn_complete","turn":1,"estimatedTokens":76929,"source":"estimated","contextLimit":20000,"actualTokens":7402}
+[compaction-metric] {"ts":1774512867071,"event":"job_status","turn":1,"id":"background-compaction-2","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774512867074,"event":"blocking_start","turn":1}
+[compaction-metric] {"ts":1774512867074,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774512893096,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512912730,"event":"blocking_end","turn":1,"durationMs":45655}
+[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context.
+[compaction-metric] {"ts":1774512912731,"event":"still_exceeded","turn":1}

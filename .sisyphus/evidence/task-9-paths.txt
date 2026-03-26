@@ -1,0 +1,3 @@
+$ bun run --cwd packages/harness build && bun run --cwd packages/cea build
+$ tsc
+$ tsc

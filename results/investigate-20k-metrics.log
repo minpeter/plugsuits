@@ -1,0 +1,17 @@
+[compaction-debug] contextLimit overridden: 202752 → 20480, reserve=6464, keepRecent=6144
+[compaction-metric] {"ts":1774524905973,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774524905975,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774524909128,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774524909128,"event":"compaction_complete","turn":1,"success":false,"tokensBefore":78,"tokensAfter":78}
+[compaction] Compaction rejected: summary would not reduce tokens
+[compaction-metric] {"ts":1774524909128,"event":"rejected","turn":1}
+[compaction-metric] {"ts":1774524909129,"event":"turn_complete","turn":1,"estimatedTokens":20750,"source":"estimated","contextLimit":20480,"actualTokens":7417}
+[compaction-metric] {"ts":1774524909129,"event":"job_status","turn":1,"id":"background-compaction-2","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774524909130,"event":"blocking_start","turn":1}
+[compaction-metric] {"ts":1774524909130,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774524932329,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774524932855,"event":"blocking_end","turn":1,"durationMs":23725}
+[compaction-metric] {"ts":1774524949704,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774524949706,"event":"turn_complete","turn":1,"estimatedTokens":4382,"source":"actual","contextLimit":20480,"actualTokens":9997}
+[compaction-metric] {"ts":1774524949706,"event":"job_status","turn":1,"id":"background-compaction-3","message":"Compacting...","state":"running"}
+[headless] Completed in 43.74s

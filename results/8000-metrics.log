@@ -1,0 +1,19 @@
+[compaction-debug] contextLimit overridden: 202752 → 8000, reserve=2525, keepRecent=2400
+[compaction-metric] {"ts":1774512829229,"event":"job_status","turn":1,"id":"background-compaction-1","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774512829230,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512830933,"event":"job_status","turn":1,"id":"background-compaction-1","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512830933,"event":"compaction_complete","turn":1,"success":false,"tokensBefore":96,"tokensAfter":96}
+[compaction] Compaction rejected: summary would not reduce tokens
+[compaction-metric] {"ts":1774512830933,"event":"rejected","turn":1}
+[compaction-metric] {"ts":1774512830935,"event":"turn_complete","turn":1,"estimatedTokens":41298,"source":"estimated","contextLimit":8000,"actualTokens":7255}
+[compaction-metric] {"ts":1774512830935,"event":"job_status","turn":1,"id":"background-compaction-2","message":"Compacting...","state":"running"}
+[compaction-metric] {"ts":1774512830937,"event":"blocking_start","turn":1}
+[compaction-metric] {"ts":1774512830937,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774512855666,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512855836,"event":"blocking_end","turn":1,"durationMs":24899}
+[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context.
+[compaction-metric] {"ts":1774512855836,"event":"still_exceeded","turn":1}
+[compaction-metric] {"ts":1774512864583,"event":"job_status","turn":1,"id":"background-compaction-2","message":"","state":"clear"}
+[compaction-metric] {"ts":1774512864584,"event":"turn_complete","turn":1,"estimatedTokens":4278,"source":"actual","contextLimit":8000,"actualTokens":8714}
+[compaction-metric] {"ts":1774512864584,"event":"job_status","turn":1,"id":"background-compaction-3","message":"Compacting...","state":"running"}
+[headless] Completed in 35.36s

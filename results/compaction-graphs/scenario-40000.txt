@@ -1,0 +1,30 @@
+Scenario: 40K context limit | 1 turns | 1 compactions | 0 blocking
+════════════════════════════════════════
+40,000  ────────────────────────────────────────
+38,000  
+36,000  
+34,000  
+32,000  
+30,000  
+28,000  
+26,000    |
+24,000  
+22,000  
+20,000  
+18,000  
+16,000  
+14,000  
+12,000  
+10,000  
+8,000   
+6,000   
+4,000   
+2,000   
+0       
+
+Legend:
+  ▓ = actual token count at turn
+  | = compaction event
+  ! = blocking event
+  X = both compaction and blocking
+  ─ = context limit line

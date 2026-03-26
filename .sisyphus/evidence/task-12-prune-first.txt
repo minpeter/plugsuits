@@ -1,0 +1,41 @@
+Task: Task 12 — Orchestrator Prune Callbacks (prune-first visibility)
+Date: 2026-03-27
+
+Changed files:
+- packages/harness/src/compaction-orchestrator.ts
+- packages/harness/src/checkpoint-history.ts
+- packages/harness/src/compaction-orchestrator.test.ts
+- .sisyphus/notepads/compaction-redesign-v2/learnings.md
+
+Implementation evidence:
+1) CompactionOrchestratorCallbacks now includes:
+   - onPruneStart?: () => void
+   - onPruneComplete?: (detail: { levelUsed: number; tokensAfter: number; tokensBefore: number }) => void
+   - onPruneSkipped?: (detail: { reason: string }) => void
+
+2) CompactionHistoryLike now includes optional:
+   - pruneMessages?: (targetTokens: number) => Promise<{ levelUsed: number; tokensAfter: number; tokensBefore: number } | null>
+
+3) Hard-limit prune-first callback flow implemented:
+   - blockAtHardLimit() attempts prune before overflow compaction
+   - emits onPruneSkipped({ reason: "no-prune-config" }) when prune integration unavailable
+   - emits onPruneStart() before prune execution
+   - emits onPruneComplete(detail) and returns without overflow compaction when prune is sufficient
+   - emits onPruneSkipped({ reason: "insufficient" }) when prune does not reach target
+
+4) CheckpointHistory prune integration:
+   - Added pruneMessages(targetTokens)
+   - Uses progressivePrune(activeMessages, { ...pruningConfig, enabled: true, targetTokens, protectRecentTokens: 40_000 })
+   - Applies pruned messages via applyPrunedMessages() only when tokensAfter < tokensBefore
+   - Rebaselines actual usage when pruning is applied
+
+5) Tests added:
+   - compaction-orchestrator.test.ts
+     * prune sufficient path -> onPruneComplete + no overflow compaction
+     * prune insufficient path -> onPruneSkipped("insufficient") + overflow compaction fallback
+     * no prune config path -> onPruneSkipped("no-prune-config") + overflow compaction fallback
+
+Verification:
+- LSP diagnostics (changed files): clean
+- Command: pnpm test --filter @ai-sdk-tool/harness
+- Result: PASS (16 files, 253 tests)

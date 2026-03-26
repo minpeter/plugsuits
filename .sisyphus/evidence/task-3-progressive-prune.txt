@@ -1,0 +1,42 @@
+Task: Add progressivePrune() with Goose-style 5-level progressive pruning
+Date: 2026-03-27
+
+Changed files:
+- packages/harness/src/tool-pruning.ts
+- packages/harness/src/tool-pruning.test.ts
+- packages/harness/src/index.ts
+
+Implementation evidence:
+- Added `ProgressivePruneResult` export with fields:
+  - levelUsed (0-4)
+  - messages
+  - tokensAfter
+  - tokensBefore
+- Added `progressivePrune(messages, config)` with levels `[0, 10, 20, 50, 100]`.
+- Progressive pruning uses middle-out contiguous center-slice selection over prunable tool-result parts:
+  - removeCount = floor(totalPrunable * percentage / 100)
+  - start = floor((totalPrunable - removeCount) / 2)
+  - remove refs in `[start, start + removeCount - 1]`
+- Prunable set excludes:
+  - protected recent window (default 40000 tokens for progressive path)
+  - protected tool names
+- Tool output replacement in progressive path:
+  - `{ type: "text", value: "[output pruned]" }`
+- Stop condition:
+  - returns first level where `tokensAfter <= targetTokens`
+  - otherwise returns level 4 result as final fallback
+- Existing `pruneToolOutputs()` left unchanged.
+
+Test evidence:
+- Added new `describe("progressivePrune", ...)` block in `tool-pruning.test.ts`.
+- Added tests for:
+  - level 0 no-op when already under target
+  - middle-out center behavior on level 1 selection
+  - level 4 final fallback pruning all prunable outputs
+  - default progressive `protectRecentTokens = 40000`
+
+Validation commands:
+- lsp_diagnostics on changed files: clean (no diagnostics)
+- pnpm test --filter @ai-sdk-tool/harness -- tool-pruning: PASS
+  - tool-pruning.test.ts: 18 tests passed
+  - harness package run: 248 tests passed, 16 files passed

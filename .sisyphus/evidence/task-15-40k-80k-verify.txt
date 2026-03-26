@@ -1,0 +1,33 @@
+Task 15 — 40k/80k Preemptive Compaction + Graph Verification
+Date: 2026-03-27
+
+Commands run:
+1) node --import tsx scripts/compaction-benchmark.ts
+2) node -e '<metrics parser for all scenarios>'
+3) node --import tsx scripts/compaction-graph.ts
+4) node --import tsx scripts/compaction-graph.ts results/scenario-8000-metrics.log
+5) node --import tsx scripts/compaction-graph.ts results/scenario-20000-metrics.log
+6) node --import tsx scripts/compaction-graph.ts results/scenario-40000-metrics.log
+7) node --import tsx scripts/compaction-graph.ts results/scenario-80000-metrics.log
+
+40k checks (results/scenario-40000-metrics.log):
+- blocking_start count = 0  -> PASS
+- compaction_complete count = 1
+- max_actual=27401 <= 40000
+
+80k checks (results/scenario-80000-metrics.log):
+- blocking_start count = 0  -> PASS
+- compaction_complete count = 0 (no compaction needed in this run)
+- max_actual=34489 <= 80000
+
+Graph generation checks:
+- Initial default graph run generated only 3 files (did not include 80k scenario file naming path).
+- Explicit scenario-log invocations generated all required graph artifacts:
+  - results/compaction-graphs/scenario-8000.txt
+  - results/compaction-graphs/scenario-20000.txt
+  - results/compaction-graphs/scenario-40000.txt
+  - results/compaction-graphs/scenario-80000.txt
+
+Conclusion:
+- 40k/80k satisfy no-blocking-start acceptance criterion.
+- Graphs now exist for all 4 scenarios.
