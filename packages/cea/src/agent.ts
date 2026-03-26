@@ -360,6 +360,109 @@ const repairToolCall: Parameters<
 
 export type ModelType = "serverless" | "dedicated";
 
+interface FileTrackingToolCall {
+  input: Record<string, unknown>;
+  toolName: string;
+  type: "tool-call";
+}
+
+const getFileTrackingToolCall = (
+  part: unknown
+): FileTrackingToolCall | null => {
+  if (typeof part !== "object" || part === null) {
+    return null;
+  }
+
+  const toolCall = part as Partial<FileTrackingToolCall>;
+  if (toolCall.type !== "tool-call") {
+    return null;
+  }
+
+  return toolCall as FileTrackingToolCall;
+};
+
+const getTrackedPath = (
+  toolCall: FileTrackingToolCall
+): { kind: "read" | "modified"; path: string } | null => {
+  const path = toolCall.input?.path;
+  if (typeof path !== "string" || path.length === 0) {
+    return null;
+  }
+
+  if (toolCall.toolName === "read_file") {
+    return { kind: "read", path };
+  }
+
+  if (["edit_file", "write_file", "delete_file"].includes(toolCall.toolName)) {
+    return { kind: "modified", path };
+  }
+
+  return null;
+};
+
+function extractFileOpsFromMessages(
+  messages: ModelMessage[],
+  readFiles: Set<string>,
+  modifiedFiles: Set<string>
+): void {
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) {
+      continue;
+    }
+    for (const part of msg.content) {
+      const toolCall = getFileTrackingToolCall(part);
+      if (!toolCall) {
+        continue;
+      }
+
+      const trackedPath = getTrackedPath(toolCall);
+      if (!trackedPath) {
+        continue;
+      }
+
+      if (trackedPath.kind === "read") {
+        readFiles.add(trackedPath.path);
+      } else {
+        modifiedFiles.add(trackedPath.path);
+      }
+    }
+  }
+}
+
+export function buildFileTrackingSummarizeFn(
+  modelSummarizer: (
+    messages: ModelMessage[],
+    previousSummary?: string
+  ) => Promise<string>
+): (messages: ModelMessage[], previousSummary?: string) => Promise<string> {
+  const allReadFiles = new Set<string>();
+  const allModifiedFiles = new Set<string>();
+
+  return async (
+    messages: ModelMessage[],
+    previousSummary?: string
+  ): Promise<string> => {
+    extractFileOpsFromMessages(messages, allReadFiles, allModifiedFiles);
+
+    const readList = [...allReadFiles].slice(0, 20);
+    const modifiedList = [...allModifiedFiles].slice(0, 20);
+
+    const fileContext = [
+      readList.length > 0
+        ? `<read-files>\n${readList.join(", ")}\n</read-files>`
+        : "",
+      modifiedList.length > 0
+        ? `<modified-files>\n${modifiedList.join(", ")}\n</modified-files>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const summary = await modelSummarizer(messages, previousSummary);
+    return fileContext ? `${fileContext}\n\n${summary}` : summary;
+  };
+}
+
 export class AgentManager {
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
@@ -482,13 +585,14 @@ export class AgentManager {
       );
     }
 
-    const summarizeFn = createModelSummarizer(
+    const baseModelSummarizer = createModelSummarizer(
       this.getProviderModel(this.modelId, this.provider),
       {
         instructions: () => this.getInstructions(),
         contextLimit: effectiveContextLength,
       }
     );
+    const summarizeFn = buildFileTrackingSummarizeFn(baseModelSummarizer);
     const maxTokens = computeCompactionMaxTokens(
       effectiveContextLength,
       effectiveReserveTokens

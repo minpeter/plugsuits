@@ -2,9 +2,11 @@ import {
   CheckpointHistory,
   type createModelSummarizer,
 } from "@ai-sdk-tool/harness";
-import { beforeEach, describe, expect, it } from "vitest";
+import type { ModelMessage } from "ai";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentManager,
+  buildFileTrackingSummarizeFn,
   computeCompactionMaxTokens,
   computeSpeculativeStartRatio,
   selectTranslationReasoningMode,
@@ -64,6 +66,92 @@ describe("AgentManager translation reasoning selection", () => {
 describe("AgentManager compaction config", () => {
   beforeEach(() => {
     agentManager.resetForTesting();
+  });
+
+  it("buildFileTrackingSummarizeFn injects read/modified files into summary", async () => {
+    const modelSummarizer = vi.fn(
+      async (_messages: ModelMessage[], previousSummary?: string) =>
+        previousSummary ? `${previousSummary} :: summary` : "summary"
+    );
+    const summarizeFn = buildFileTrackingSummarizeFn(modelSummarizer);
+    const firstMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "read-1",
+            toolName: "read_file",
+            input: { path: "packages/cea/src/agent.ts" },
+          },
+          {
+            type: "tool-call",
+            toolCallId: "write-1",
+            toolName: "write_file",
+            input: { path: "packages/cea/src/agent.test.ts" },
+          },
+          {
+            type: "tool-call",
+            toolCallId: "delete-1",
+            toolName: "delete_file",
+            input: { path: "packages/cea/src/unused.ts" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read-1",
+            toolName: "read_file",
+            output: "file contents",
+          },
+        ],
+      },
+    ] as ModelMessage[];
+
+    const firstSummary = await summarizeFn(firstMessages, "previous summary");
+
+    expect(modelSummarizer).toHaveBeenCalledWith(
+      firstMessages,
+      "previous summary"
+    );
+    expect(firstSummary).toBe(`<read-files>
+packages/cea/src/agent.ts
+</read-files>
+
+<modified-files>
+packages/cea/src/agent.test.ts, packages/cea/src/unused.ts
+</modified-files>
+
+previous summary :: summary`);
+
+    const secondMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "read-2",
+            toolName: "read_file",
+            input: { path: "packages/harness/src/checkpoint-history.ts" },
+          },
+        ],
+      },
+    ] as ModelMessage[];
+
+    const secondSummary = await summarizeFn(secondMessages);
+
+    expect(secondSummary).toBe(`<read-files>
+packages/cea/src/agent.ts, packages/harness/src/checkpoint-history.ts
+</read-files>
+
+<modified-files>
+packages/cea/src/agent.test.ts, packages/cea/src/unused.ts
+</modified-files>
+
+summary`);
   });
 
   it("uses a soft compaction threshold and earlier speculative ratio based on usable input budget", () => {
