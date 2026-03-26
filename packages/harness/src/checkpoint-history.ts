@@ -305,7 +305,7 @@ export class CheckpointHistory {
       };
     }
 
-    const estimated = this.getEstimatedTokens();
+    const estimated = this.getCurrentUsageTokens();
     return {
       used: estimated,
       limit,
@@ -446,14 +446,13 @@ export class CheckpointHistory {
       return 8192;
     }
 
-    const estimatedInputTokens =
-      (messagesForLLM
-        ? messagesForLLM.reduce(
-            (total, message) =>
-              total + estimateTokens(extractMessageText(message)),
-            0
-          )
-        : this.getCurrentUsageTokens()) + this.systemPromptTokens;
+    const estimatedInputTokens = messagesForLLM
+      ? messagesForLLM.reduce(
+          (total, message) =>
+            total + estimateTokens(extractMessageText(message)),
+          0
+        ) + this.systemPromptTokens
+      : this.getCurrentUsageTokens();
 
     return (
       getRecommendedMaxOutputTokensFromPolicy({
@@ -798,7 +797,10 @@ export class CheckpointHistory {
   }
 
   private getCurrentUsageTokens(): number {
-    return this.actualUsage?.totalTokens ?? this.getEstimatedTokens();
+    if (this.actualUsage?.totalTokens != null) {
+      return this.actualUsage.totalTokens; // API totalTokens already includes system prompt
+    }
+    return this.getEstimatedTokens() + this.systemPromptTokens; // Add system prompt to estimate
   }
 
   private getActiveContextLimit(): number {
