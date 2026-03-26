@@ -41,6 +41,13 @@ export interface CompactionOrchestratorCallbacks extends CompactionCallbacks {
     message: string,
     state: "clear" | "running"
   ) => void;
+  onPruneComplete?: (detail: {
+    levelUsed: number;
+    tokensAfter: number;
+    tokensBefore: number;
+  }) => void;
+  onPruneSkipped?: (detail: { reason: string }) => void;
+  onPruneStart?: () => void;
   onRejected?: () => void;
   onStillExceeded?: () => void;
 }
@@ -116,9 +123,22 @@ export async function blockAtHardLimitCore(params: {
     options: { phase: CompactionPhase }
   ) => boolean;
   phase: CompactionPhase;
+  onPruneComplete?: (detail: {
+    levelUsed: number;
+    tokensAfter: number;
+    tokensBefore: number;
+  }) => void;
+  onPruneSkipped?: (detail: { reason: string }) => void;
+  onPruneStart?: () => void;
   prepareSpeculativeCompaction: (
     phase: CompactionPhase
   ) => Promise<PreparedCompaction | null>;
+  pruneMessages?: (targetTokens: number) => Promise<{
+    levelUsed: number;
+    tokensAfter: number;
+    tokensBefore: number;
+  } | null>;
+  targetTokens?: number;
   warnHardLimitStillExceeded: () => void;
 }): Promise<void> {
   const isStillHardLimited = (): boolean =>
@@ -168,6 +188,25 @@ export async function blockAtHardLimitCore(params: {
     return;
   }
 
+  if (
+    typeof params.pruneMessages === "function" &&
+    typeof params.targetTokens === "number" &&
+    Number.isFinite(params.targetTokens)
+  ) {
+    params.onPruneStart?.();
+    const pruneResult = await params.pruneMessages(
+      Math.max(0, params.targetTokens)
+    );
+    if (pruneResult && pruneResult.tokensAfter <= params.targetTokens) {
+      params.onPruneComplete?.(pruneResult);
+      return;
+    }
+
+    params.onPruneSkipped?.({ reason: "insufficient" });
+  } else {
+    params.onPruneSkipped?.({ reason: "no-prune-config" });
+  }
+
   const attemptPhases: CompactionPhase[] = [params.phase, "new-turn"];
 
   for (let attempt = 0; attempt < attemptPhases.length; attempt += 1) {
@@ -207,6 +246,11 @@ interface CompactionHistoryLike {
     options: { phase: CompactionPhase }
   ) => boolean;
   needsCompaction?: () => boolean;
+  pruneMessages?: (targetTokens: number) => Promise<{
+    levelUsed: number;
+    tokensAfter: number;
+    tokensBefore: number;
+  } | null>;
   shouldStartSpeculativeCompactionForNextTurn?: () => boolean;
 }
 
@@ -539,7 +583,15 @@ export class CompactionOrchestrator {
 
     this.callbacks.onBlockingChange?.(true);
     try {
-      await this.handleOverflow(new Error("context_limit_hard_block"));
+      const pruneHandled = await this.tryPruneBeforeOverflow(
+        history,
+        additionalTokens,
+        phase
+      );
+
+      if (!pruneHandled) {
+        await this.handleOverflow(new Error("context_limit_hard_block"));
+      }
     } finally {
       this.callbacks.onBlockingChange?.(false);
     }
@@ -682,6 +734,58 @@ export class CompactionOrchestrator {
     }
 
     return meta.completedRevision !== meta.startedRevision + 1;
+  }
+
+  private resolvePruneTargetTokens(
+    history: CompactionHistoryLike,
+    additionalTokens: number,
+    phase: CompactionPhase
+  ): number | null {
+    const config = history.getCompactionConfig();
+    const contextLimit = config.contextLimit ?? 0;
+    if (contextLimit <= 0) {
+      return null;
+    }
+
+    const phaseMultiplier = phase === "intermediate-step" ? 2 : 1;
+    const reserveTokens = Math.max(
+      0,
+      (config.reserveTokens ?? 0) * phaseMultiplier
+    );
+
+    return Math.max(
+      0,
+      contextLimit - reserveTokens - Math.max(0, additionalTokens)
+    );
+  }
+
+  private async tryPruneBeforeOverflow(
+    history: CompactionHistoryLike,
+    additionalTokens: number,
+    phase: CompactionPhase
+  ): Promise<boolean> {
+    const pruneTargetTokens = this.resolvePruneTargetTokens(
+      history,
+      additionalTokens,
+      phase
+    );
+    if (
+      typeof history.pruneMessages !== "function" ||
+      pruneTargetTokens === null
+    ) {
+      this.callbacks.onPruneSkipped?.({ reason: "no-prune-config" });
+      return false;
+    }
+
+    this.callbacks.onPruneStart?.();
+    const pruneResult = await history.pruneMessages(pruneTargetTokens);
+    if (pruneResult && pruneResult.tokensAfter <= pruneTargetTokens) {
+      this.callbacks.onPruneComplete?.(pruneResult);
+      return true;
+    }
+
+    this.callbacks.onPruneSkipped?.({ reason: "insufficient" });
+    return false;
   }
 
   private async runCompaction(

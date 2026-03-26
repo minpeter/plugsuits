@@ -25,7 +25,7 @@ import {
   estimateTokens,
   extractMessageText,
 } from "./token-utils";
-import { pruneToolOutputs } from "./tool-pruning";
+import { progressivePrune, pruneToolOutputs } from "./tool-pruning";
 
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
   contextLimit: 0,
@@ -801,6 +801,43 @@ export class CheckpointHistory {
     return { ...this.compactionConfig };
   }
 
+  pruneMessages(targetTokens: number): Promise<{
+    levelUsed: number;
+    tokensAfter: number;
+    tokensBefore: number;
+  } | null> {
+    if (!this.pruningConfig.enabled) {
+      return Promise.resolve(null);
+    }
+
+    if (!Number.isFinite(targetTokens) || targetTokens < 0) {
+      return Promise.resolve(null);
+    }
+
+    const activeMessages = this.getActiveMessages();
+    if (activeMessages.length === 0) {
+      return Promise.resolve(null);
+    }
+
+    const result = progressivePrune(activeMessages, {
+      ...this.pruningConfig,
+      enabled: true,
+      targetTokens,
+      protectRecentTokens: 40_000,
+    });
+
+    if (result.tokensAfter < result.tokensBefore) {
+      this.applyPrunedMessages(result.messages);
+      this.rebaselineActualUsageToCurrentEstimate();
+    }
+
+    return Promise.resolve({
+      levelUsed: result.levelUsed,
+      tokensAfter: result.tokensAfter,
+      tokensBefore: result.tokensBefore,
+    });
+  }
+
   getPruningConfig(): Readonly<Required<PruningConfig>> {
     return {
       ...this.pruningConfig,
@@ -1183,6 +1220,23 @@ export class CheckpointHistory {
       tokensBefore,
       tokensAfter,
     };
+  }
+
+  private applyPrunedMessages(messages: CheckpointMessage[]): void {
+    if (this.summaryMessageId) {
+      const summaryIndex = this.messages.findIndex(
+        (message) => message.id === this.summaryMessageId
+      );
+      if (summaryIndex !== -1) {
+        this.messages = [...this.messages.slice(0, summaryIndex), ...messages];
+      } else {
+        this.messages = messages;
+      }
+    } else {
+      this.messages = messages;
+    }
+
+    this.revision += 1;
   }
 
   private async compactForOverflowRecovery(

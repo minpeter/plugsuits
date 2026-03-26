@@ -207,5 +207,147 @@ describe("CompactionOrchestrator", () => {
       expect(blocked).toBe(true);
       expect(overflowSpy).toHaveBeenCalledTimes(1);
     });
+
+    it("emits onPruneComplete and skips overflow compaction when prune is sufficient", async () => {
+      let hardLimited = true;
+      const onPruneStart = vi.fn();
+      const onPruneComplete = vi.fn();
+      const onPruneSkipped = vi.fn();
+      const handleContextOverflow = vi.fn().mockResolvedValue({
+        success: true,
+        strategy: "compact",
+        tokensBefore: 120,
+        tokensAfter: 40,
+      });
+
+      const pruneMessages = vi.fn(() => {
+        hardLimited = false;
+        return Promise.resolve({
+          levelUsed: 2,
+          tokensBefore: 240,
+          tokensAfter: 60,
+        });
+      });
+
+      const history = {
+        compact: vi.fn(() =>
+          Promise.resolve({
+            success: true,
+            tokensBefore: 0,
+            tokensAfter: 0,
+          })
+        ),
+        getCompactionConfig: () => ({
+          contextLimit: 120,
+          enabled: true,
+          reserveTokens: 20,
+        }),
+        getEstimatedTokens: () => 200,
+        handleContextOverflow,
+        isAtHardContextLimit: () => hardLimited,
+        pruneMessages,
+      };
+
+      const orchestrator = new CompactionOrchestrator(history, {
+        onPruneComplete,
+        onPruneSkipped,
+        onPruneStart,
+      });
+
+      const blocked = await orchestrator.blockAtHardLimit(20, "new-turn");
+
+      expect(blocked).toBe(true);
+      expect(onPruneStart).toHaveBeenCalledOnce();
+      expect(onPruneComplete).toHaveBeenCalledWith({
+        levelUsed: 2,
+        tokensBefore: 240,
+        tokensAfter: 60,
+      });
+      expect(onPruneSkipped).not.toHaveBeenCalled();
+      expect(handleContextOverflow).not.toHaveBeenCalled();
+    });
+
+    it("emits onPruneSkipped with insufficient when prune cannot meet target", async () => {
+      const onPruneSkipped = vi.fn();
+      const handleContextOverflow = vi.fn().mockResolvedValue({
+        success: true,
+        strategy: "compact",
+        tokensBefore: 140,
+        tokensAfter: 80,
+      });
+
+      const history = {
+        compact: vi.fn(() =>
+          Promise.resolve({
+            success: true,
+            tokensBefore: 0,
+            tokensAfter: 0,
+          })
+        ),
+        getCompactionConfig: () => ({
+          contextLimit: 120,
+          enabled: true,
+          reserveTokens: 20,
+        }),
+        getEstimatedTokens: () => 200,
+        handleContextOverflow,
+        isAtHardContextLimit: () => true,
+        pruneMessages: vi.fn(() =>
+          Promise.resolve({
+            levelUsed: 4,
+            tokensBefore: 260,
+            tokensAfter: 200,
+          })
+        ),
+      };
+
+      const orchestrator = new CompactionOrchestrator(history, {
+        onPruneSkipped,
+      });
+
+      await orchestrator.blockAtHardLimit(20, "new-turn");
+
+      expect(onPruneSkipped).toHaveBeenCalledWith({ reason: "insufficient" });
+      expect(handleContextOverflow).toHaveBeenCalledTimes(1);
+    });
+
+    it("emits onPruneSkipped with no-prune-config when prune is unavailable", async () => {
+      const onPruneSkipped = vi.fn();
+      const handleContextOverflow = vi.fn().mockResolvedValue({
+        success: true,
+        strategy: "compact",
+        tokensBefore: 140,
+        tokensAfter: 80,
+      });
+
+      const history = {
+        compact: vi.fn(() =>
+          Promise.resolve({
+            success: true,
+            tokensBefore: 0,
+            tokensAfter: 0,
+          })
+        ),
+        getCompactionConfig: () => ({
+          contextLimit: 120,
+          enabled: true,
+          reserveTokens: 20,
+        }),
+        getEstimatedTokens: () => 200,
+        handleContextOverflow,
+        isAtHardContextLimit: () => true,
+      };
+
+      const orchestrator = new CompactionOrchestrator(history, {
+        onPruneSkipped,
+      });
+
+      await orchestrator.blockAtHardLimit(20, "new-turn");
+
+      expect(onPruneSkipped).toHaveBeenCalledWith({
+        reason: "no-prune-config",
+      });
+      expect(handleContextOverflow).toHaveBeenCalledTimes(1);
+    });
   });
 });
