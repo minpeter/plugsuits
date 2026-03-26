@@ -94,31 +94,129 @@ export interface HeadlessRunnerConfig {
 
 export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const emitEvent = config.emitEvent ?? defaultEmitEvent;
+  const isMetricsEnabled = process.env.COMPACTION_DEBUG === "1";
+  let turnNumber = 0;
+  let blockingStartTime: number | null = null;
+  const emitMetric = isMetricsEnabled
+    ? (obj: Record<string, unknown>): void => {
+        process.stderr.write(
+          `[compaction-metric] ${JSON.stringify({ ts: Date.now(), ...obj })}\n`
+        );
+      }
+    : undefined;
   let totalIterationCount = 0;
   type ProcessAgentResponseResult = "completed" | "max-iterations-reached";
   type StreamTurnResult = Awaited<ReturnType<typeof processStream>>;
   type StreamUsage = StreamTurnResult["usage"];
+  const baseCompactionCallbacks = isMetricsEnabled
+    ? {
+        onApplied: () => {
+          console.error(
+            "[compaction] Applied: context reduced, some older messages were summarized"
+          );
+          emitMetric?.({ event: "applied", turn: turnNumber });
+        },
+        onError: (message: string, error: unknown) => {
+          console.error(`${message} in headless runner:`, error);
+          emitMetric?.({
+            event: "error",
+            turn: turnNumber,
+            message: String(message),
+          });
+        },
+        onRejected: () => {
+          console.error(
+            "[compaction] Compaction rejected: summary would not reduce tokens"
+          );
+          emitMetric?.({ event: "rejected", turn: turnNumber });
+        },
+        onStillExceeded: () => {
+          console.warn(
+            "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
+          );
+          emitMetric?.({ event: "still_exceeded", turn: turnNumber });
+        },
+      }
+    : {
+        onApplied: () => {
+          console.error(
+            "[compaction] Applied: context reduced, some older messages were summarized"
+          );
+        },
+        onError: (message: string, error: unknown) => {
+          console.error(`${message} in headless runner:`, error);
+        },
+        onRejected: () => {
+          console.error(
+            "[compaction] Compaction rejected: summary would not reduce tokens"
+          );
+        },
+        onStillExceeded: () => {
+          console.warn(
+            "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
+          );
+        },
+      };
   const compactionOrchestrator = new CompactionOrchestrator(
     config.messageHistory,
     {
-      onApplied: () => {
-        console.error(
-          "[compaction] Applied: context reduced, some older messages were summarized"
-        );
-      },
-      onError: (message, error) => {
-        console.error(`${message} in headless runner:`, error);
-      },
-      onRejected: () => {
-        console.error(
-          "[compaction] Compaction rejected: summary would not reduce tokens"
-        );
-      },
-      onStillExceeded: () => {
-        console.warn(
-          "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
-        );
-      },
+      ...baseCompactionCallbacks,
+      ...(isMetricsEnabled
+        ? {
+            onCompactionStart: () => {
+              emitMetric?.({ event: "compaction_start", turn: turnNumber });
+            },
+            onCompactionComplete: (result) => {
+              emitMetric?.({
+                event: "compaction_complete",
+                turn: turnNumber,
+                success: result.success,
+                tokensBefore: result.tokensBefore,
+                tokensAfter: result.tokensAfter,
+                strategy: (result as unknown as Record<string, unknown>)
+                  .strategy,
+              });
+            },
+            onCompactionError: (error: unknown) => {
+              emitMetric?.({
+                event: "compaction_error",
+                turn: turnNumber,
+                error: String(error),
+              });
+            },
+            onBlockingChange: (blocking: boolean) => {
+              if (blocking) {
+                blockingStartTime = Date.now();
+                emitMetric?.({ event: "blocking_start", turn: turnNumber });
+                return;
+              }
+
+              const durationMs =
+                blockingStartTime == null
+                  ? null
+                  : Date.now() - blockingStartTime;
+              blockingStartTime = null;
+              emitMetric?.({
+                event: "blocking_end",
+                turn: turnNumber,
+                durationMs,
+              });
+            },
+            onJobStatus: (
+              id: string,
+              message: string,
+              state: "clear" | "running"
+            ) => {
+              emitMetric?.({
+                event: "job_status",
+                turn: turnNumber,
+                id,
+                message,
+                state,
+              });
+            },
+          }
+        : {}),
     }
   );
 
@@ -154,20 +252,32 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     }
 
     updateHistoryUsage(config.messageHistory, usage);
-    if (!process.env.DEBUG_TOKENS) {
-      return;
+    if (process.env.DEBUG_TOKENS) {
+      const input =
+        usage.promptTokens ??
+        (usage as Record<string, unknown>).inputTokens ??
+        0;
+      const output =
+        usage.completionTokens ??
+        (usage as Record<string, unknown>).outputTokens ??
+        0;
+      const total = usage.totalTokens ?? (input as number) + (output as number);
+      console.error(
+        `[debug:headless] total_tokens=${total} (input=${input}, output=${output})`
+      );
     }
 
-    const input =
-      usage.promptTokens ?? (usage as Record<string, unknown>).inputTokens ?? 0;
-    const output =
-      usage.completionTokens ??
-      (usage as Record<string, unknown>).outputTokens ??
-      0;
-    const total = usage.totalTokens ?? (input as number) + (output as number);
-    console.error(
-      `[debug:headless] total_tokens=${total} (input=${input}, output=${output})`
-    );
+    if (emitMetric) {
+      const contextUsage = config.messageHistory.getContextUsage();
+      emitMetric({
+        event: "turn_complete",
+        turn: turnNumber,
+        estimatedTokens: contextUsage.used,
+        source: contextUsage.source,
+        contextLimit: contextUsage.limit,
+        actualTokens: usage.totalTokens ?? null,
+      });
+    }
   };
 
   const runSingleTurn = async (
@@ -241,6 +351,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const enqueueUserMessage = async (
     message: InitialUserMessage | { content: string }
   ): Promise<void> => {
+    turnNumber += 1;
     emitEvent({
       timestamp: new Date().toISOString(),
       type: "user",
