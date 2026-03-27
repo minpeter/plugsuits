@@ -19,17 +19,33 @@ const RESULTS_DIR = resolvePath(SCRIPT_DIR, "..", "results");
 const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run");
 const extraArgs: string[] = [];
+let hasModelArg = false;
+let hasProviderArg = false;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (
     (arg === "-m" || arg === "--model" || arg === "--provider") &&
     i + 1 < args.length
   ) {
+    if (arg === "-m" || arg === "--model") {
+      hasModelArg = true;
+    }
+    if (arg === "--provider") {
+      hasProviderArg = true;
+    }
     extraArgs.push(arg, args[i + 1]);
     i++;
   } else if (arg === "--no-translate") {
     extraArgs.push(arg);
   }
+}
+
+if (!hasProviderArg) {
+  extraArgs.push("--provider", "friendli");
+}
+
+if (!hasModelArg) {
+  extraArgs.push("--model", "MiniMaxAI/MiniMax-M2.5");
 }
 
 interface Scenario {
@@ -63,18 +79,18 @@ const LARGE_FILES = [
 
 const SCENARIOS: Scenario[] = [
   {
-    contextLimit: 8000,
-    maxIterations: 10,
-    prompt: buildPrompt(LARGE_FILES.slice(0, 3)),
-  },
-  {
-    contextLimit: 20_000,
-    maxIterations: 20,
-    prompt: buildPrompt(LARGE_FILES.slice(0, 6)),
+    contextLimit: 32_000,
+    maxIterations: 12,
+    prompt: buildPrompt(LARGE_FILES.slice(0, 4)),
   },
   {
     contextLimit: 40_000,
-    maxIterations: 30,
+    maxIterations: 16,
+    prompt: buildPrompt(LARGE_FILES.slice(0, 7)),
+  },
+  {
+    contextLimit: 80_000,
+    maxIterations: 20,
     prompt: buildPrompt(LARGE_FILES),
   },
 ];
@@ -86,17 +102,14 @@ if (isDryRun) {
   console.log();
 
   for (const scenario of SCENARIOS) {
-    const reserve = Math.max(
-      256,
-      Math.floor(2000 * (scenario.contextLimit / 200_000))
-    );
+    const reserve = Math.floor(scenario.contextLimit * 0.15);
     const keepRecent = Math.floor(scenario.contextLimit * 0.3);
     console.log(
       `Scenario: contextLimit=${scenario.contextLimit.toLocaleString()}`
     );
     console.log(`  maxIterations: ${scenario.maxIterations}`);
     console.log(
-      `  effectiveReserve: ~${reserve} (auto-scaled by CONTEXT_LIMIT_OVERRIDE)`
+      `  effectiveReserve: ~${reserve} (15% cap after CONTEXT_LIMIT_OVERRIDE)`
     );
     console.log(`  effectiveKeepRecent: ~${keepRecent} (30% of contextLimit)`);
     console.log(
@@ -218,7 +231,7 @@ async function runScenario(scenario: Scenario): Promise<void> {
 
 const main = async () => {
   console.log(
-    "\n🧪 Compaction E2E Test — 8K/20K/40K Context Limit Verification\n"
+    "\n🧪 Compaction E2E Test — 32K/40K/80K (MiniMax M2.5 via Friendli)\n"
   );
 
   mkdirSync(RESULTS_DIR, { recursive: true });

@@ -1,49 +1,13 @@
-[compaction-debug] contextLimit overridden: 202752 → 32000, reserve=4800, keepRecent=9600
-[compaction-metric] {"ts":1774586052545,"event":"usage_probe","turn":1,"promptTokens":7124,"totalTokens":7125}
-[compaction-metric] {"ts":1774586055107,"event":"turn_complete","turn":1,"estimatedTokens":7119,"source":"actual","contextLimit":32000,"actualTokens":7305}
-[compaction-metric] {"ts":1774586056456,"event":"usage_probe","turn":1,"promptTokens":17327,"totalTokens":17328}
-[compaction-metric] {"ts":1774586056456,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586060912,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":5199,"tokensAfter":164}
+[compaction-debug] contextLimit overridden: 196608 → 32000, reserve=4800, keepRecent=9600
+[compaction-metric] {"ts":1774619627967,"event":"usage_probe","turn":1,"promptTokens":7109,"totalTokens":7110}
+[compaction-metric] {"ts":1774619633952,"event":"turn_complete","turn":1,"estimatedTokens":7114,"source":"actual","contextLimit":32000,"actualTokens":7290}
+[compaction-metric] {"ts":1774619636033,"event":"usage_probe","turn":1,"promptTokens":16244,"totalTokens":16245}
+[compaction-metric] {"ts":1774619636033,"event":"compaction_start","turn":1}
+[compaction-metric] {"ts":1774619660483,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":4985,"tokensAfter":878}
 [compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586060912,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586069941,"event":"turn_complete","turn":1,"estimatedTokens":7213,"source":"actual","contextLimit":32000,"actualTokens":7393}
-[compaction-metric] {"ts":1774586071013,"event":"usage_probe","turn":1,"promptTokens":17586,"totalTokens":17587}
-[compaction-metric] {"ts":1774586071013,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586096380,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":5387,"tokensAfter":801}
-[compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586096380,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586101630,"event":"turn_complete","turn":1,"estimatedTokens":8061,"source":"actual","contextLimit":32000,"actualTokens":8516}
-[compaction-metric] {"ts":1774586103713,"event":"usage_probe","turn":1,"promptTokens":25444,"totalTokens":25445}
-[compaction-metric] {"ts":1774586103713,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586140544,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":9801,"tokensAfter":2963}
-[compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586140544,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586143237,"event":"turn_complete","turn":1,"estimatedTokens":10155,"source":"actual","contextLimit":32000,"actualTokens":10437}
-[compaction-metric] {"ts":1774586145094,"event":"usage_probe","turn":1,"promptTokens":26942,"totalTokens":26943}
-[compaction-metric] {"ts":1774586145094,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586161776,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":11649,"tokensAfter":808}
-[compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586161776,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586164749,"event":"turn_complete","turn":1,"estimatedTokens":8019,"source":"actual","contextLimit":32000,"actualTokens":8257}
-[compaction-metric] {"ts":1774586166819,"event":"usage_probe","turn":1,"promptTokens":24808,"totalTokens":24809}
-[compaction-metric] {"ts":1774586166819,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586177426,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":9495,"tokensAfter":780}
-[compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586177426,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586181312,"event":"turn_complete","turn":1,"estimatedTokens":7987,"source":"actual","contextLimit":32000,"actualTokens":8242}
-[compaction-metric] {"ts":1774586183010,"event":"usage_probe","turn":1,"promptTokens":23501,"totalTokens":23502}
-[compaction-metric] {"ts":1774586183010,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586213850,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":8793,"tokensAfter":444}
-[compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586213850,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586215898,"event":"turn_complete","turn":1,"estimatedTokens":7555,"source":"actual","contextLimit":32000,"actualTokens":7786}
-[compaction-metric] {"ts":1774586217552,"event":"usage_probe","turn":1,"promptTokens":24340,"totalTokens":24341}
-[compaction-metric] {"ts":1774586217552,"event":"compaction_start","turn":1}
-[compaction-metric] {"ts":1774586229786,"event":"compaction_complete","turn":1,"success":true,"tokensBefore":9128,"tokensAfter":925}
-[compaction] Applied: context reduced, some older messages were summarized
-[compaction-metric] {"ts":1774586229786,"event":"applied","turn":1}
-[compaction-metric] {"ts":1774586234292,"event":"turn_complete","turn":1,"estimatedTokens":8195,"source":"actual","contextLimit":32000,"actualTokens":8459}
-APICallError [AI_APICallError]: input is too long (received 2573671 tokens; max 202752)
+[compaction-metric] {"ts":1774619660483,"event":"applied","turn":1}
+[compaction-metric] {"ts":1774619665900,"event":"turn_complete","turn":1,"estimatedTokens":7890,"source":"actual","contextLimit":32000,"actualTokens":8043}
+APICallError [AI_APICallError]: Error occurred while deserializing json body!
     at friendliaiFailedResponseHandler (/Users/minpeter/github.com/minpeter/plugsuits/node_modules/.pnpm/@friendliai+ai-provider@1.1.7_zod@4.3.6/node_modules/@friendliai/ai-provider/src/friendli-error.ts:98:14)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
     at async postToApi (/Users/minpeter/github.com/minpeter/plugsuits/node_modules/.pnpm/@ai-sdk+provider-utils@4.0.15_zod@4.3.6/node_modules/@ai-sdk/provider-utils/src/post-to-api.ts:118:28)
@@ -58,7 +22,7 @@ APICallError [AI_APICallError]: input is too long (received 2573671 tokens; max 
   url: 'https://api.friendli.ai/serverless/v1/chat/completions',
   requestBodyValues: {
     parse_reasoning: true,
-    model: 'zai-org/GLM-5',
+    model: 'MiniMaxAI/MiniMax-M2.5',
     stream: true,
     max_tokens: 1,
     temperature: undefined,
@@ -73,12 +37,11 @@ APICallError [AI_APICallError]: input is too long (received 2573671 tokens; max 
     repetition_penalty: undefined,
     xtc_threshold: undefined,
     xtc_probability: undefined,
-    chat_template_kwargs: { enable_thinking: false, clear_thinking: true },
     messages: [
       [Object], [Object],
       [Object], [Object],
       [Object], [Object],
-      [Object], [Object]
+      [Object]
     ],
     tools: [
       [Object], [Object],
@@ -91,26 +54,19 @@ APICallError [AI_APICallError]: input is too long (received 2573671 tokens; max 
     parallel_tool_calls: undefined,
     stream_options: { include_usage: true }
   },
-  statusCode: 422,
+  statusCode: 400,
   responseHeaders: {
     'access-control-allow-credentials': 'true',
     connection: 'keep-alive',
-    'content-length': '69',
-    'content-type': 'application/json',
-    date: 'Fri, 27 Mar 2026 04:37:40 GMT',
-    server: 'envoy',
+    'content-length': '60',
+    'content-type': 'application/json; charset=utf-8',
+    date: 'Fri, 27 Mar 2026 13:55:27 GMT',
     vary: 'Origin',
-    'x-envoy-upstream-service-time': '25982',
-    'x-friendli-lb-weight': '2',
-    'x-ratelimit-limit-requests': '100',
-    'x-ratelimit-remaining-requests': '79',
-    'x-ratelimit-reset-requests': '31'
+    'x-content-type-options': 'nosniff'
   },
-  responseBody: '{"message":"input is too long (received 2573671 tokens; max 202752)"}',
+  responseBody: '{"message":"Error occurred while deserializing json body!"}\n',
   isRetryable: false,
-  data: {
-    message: 'input is too long (received 2573671 tokens; max 202752)'
-  },
+  data: { message: 'Error occurred while deserializing json body!' },
   [Symbol(vercel.ai.error)]: true,
   [Symbol(vercel.ai.error.AI_APICallError)]: true
 }
