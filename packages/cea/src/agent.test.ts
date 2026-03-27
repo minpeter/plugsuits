@@ -74,7 +74,7 @@ describe("AgentManager compaction config", () => {
       async (_messages: ModelMessage[], previousSummary?: string) =>
         previousSummary ? `${previousSummary} :: summary` : "summary"
     );
-    const summarizeFn = buildFileTrackingSummarizeFn(modelSummarizer);
+    const { summarizeFn } = buildFileTrackingSummarizeFn(modelSummarizer);
     const firstMessages = [
       {
         role: "assistant",
@@ -224,5 +224,23 @@ summary`);
     await expect(agentManager.stream([])).rejects.toThrow(
       "Cannot call the model with an empty message list after context preparation."
     );
+  });
+
+  it("buildCompactionConfig includes getStructuredState callback", () => {
+    agentManager.setProvider("friendli");
+    agentManager.setModelId("test-compact");
+
+    const mutableAgentManager = agentManager as unknown as {
+      getProviderModel(
+        modelId: string,
+        provider: string
+      ): Parameters<typeof createModelSummarizer>[0];
+    };
+    mutableAgentManager.getProviderModel = () => ({}) as never;
+
+    const config = agentManager.buildCompactionConfig();
+    expect(typeof config.getStructuredState).toBe("function");
+    const state = config.getStructuredState?.();
+    expect(state === undefined || typeof state === "string").toBe(true);
   });
 });

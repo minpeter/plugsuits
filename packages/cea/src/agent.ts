@@ -434,11 +434,17 @@ export function buildFileTrackingSummarizeFn(
     messages: ModelMessage[],
     previousSummary?: string
   ) => Promise<string>
-): (messages: ModelMessage[], previousSummary?: string) => Promise<string> {
+): {
+  summarizeFn: (
+    messages: ModelMessage[],
+    previousSummary?: string
+  ) => Promise<string>;
+  getStructuredState: () => string | undefined;
+} {
   const allReadFiles = new Set<string>();
   const allModifiedFiles = new Set<string>();
 
-  return async (
+  const summarizeFn = async (
     messages: ModelMessage[],
     previousSummary?: string
   ): Promise<string> => {
@@ -461,6 +467,26 @@ export function buildFileTrackingSummarizeFn(
     const summary = await modelSummarizer(messages, previousSummary);
     return fileContext ? `${fileContext}\n\n${summary}` : summary;
   };
+
+  const getStructuredState = (): string | undefined => {
+    const parts: string[] = [];
+
+    if (allReadFiles.size > 0 || allModifiedFiles.size > 0) {
+      parts.push("## Current File Operations");
+      if (allReadFiles.size > 0) {
+        parts.push(`READ: ${[...allReadFiles].slice(0, 20).join(", ")}`);
+      }
+      if (allModifiedFiles.size > 0) {
+        parts.push(
+          `MODIFIED: ${[...allModifiedFiles].slice(0, 20).join(", ")}`
+        );
+      }
+    }
+
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  };
+
+  return { summarizeFn, getStructuredState };
 }
 
 export class AgentManager {
@@ -595,7 +621,8 @@ export class AgentManager {
         contextLimit: effectiveContextLength,
       }
     );
-    const summarizeFn = buildFileTrackingSummarizeFn(baseModelSummarizer);
+    const { summarizeFn, getStructuredState } =
+      buildFileTrackingSummarizeFn(baseModelSummarizer);
 
     // Compute context-adaptive threshold ratio
     const thresholdRatio = computeAdaptiveThresholdRatio(
@@ -625,6 +652,7 @@ export class AgentManager {
         effectiveReserveTokens
       ),
       summarizeFn,
+      getStructuredState,
       ...overrides,
     };
   }
