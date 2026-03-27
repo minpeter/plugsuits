@@ -93,9 +93,9 @@ if (scenarioArgIdx !== -1 && args[scenarioArgIdx + 1]) {
 const extraArgs: string[] = [];
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (["--dry-run", "--limits", "--scenarios"].includes(arg)) {
-    if (arg !== "--dry-run") {
-      i++; // skip value
+  if (["--dry-run", "--limits", "--scenarios", "--parallel"].includes(arg)) {
+    if (!["--dry-run", "--parallel"].includes(arg)) {
+      i++;
     }
     continue;
   }
@@ -451,30 +451,66 @@ async function main(): Promise<void> {
 
   mkdirSync(RESULTS_DIR, { recursive: true });
   const startedAt = Date.now();
-  const results: RunResult[] = [];
+  const isParallel = args.includes("--parallel");
+  let results: RunResult[];
 
-  for (const sc of activeScenarios) {
-    for (const limit of CONTEXT_LIMITS) {
-      try {
-        results.push(await runOne(sc, limit));
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error(`  ✗ ${sc.id}-${limit} failed: ${msg}`);
-        results.push({
-          promptId: sc.id,
-          contextLimit: limit,
-          compactionCount: 0,
-          blockingCount: 0,
-          maxTokensUsed: 0,
-          probeMax: 0,
-          turnCount: 0,
-          completed: false,
-          durationMs: 0,
-          exitCode: null,
-          timedOut: false,
-          trajectoryPath: "",
-          metricsPath: "",
-        });
+  if (isParallel) {
+    console.log(
+      `⚡ Parallel mode: ${activeScenarios.length} scenarios × ${CONTEXT_LIMITS.length} limits\n`
+    );
+    const allTasks = activeScenarios.flatMap((sc) =>
+      CONTEXT_LIMITS.map((limit) => ({ sc, limit }))
+    );
+    const settled = await Promise.allSettled(
+      allTasks.map(({ sc, limit }) => runOne(sc, limit))
+    );
+    results = settled.map((s, i) => {
+      if (s.status === "fulfilled") {
+        return s.value;
+      }
+      const { sc, limit } = allTasks[i];
+      console.error(`  ✗ ${sc.id}-${limit} failed: ${s.reason}`);
+      return {
+        promptId: sc.id,
+        contextLimit: limit,
+        compactionCount: 0,
+        blockingCount: 0,
+        maxTokensUsed: 0,
+        probeMax: 0,
+        turnCount: 0,
+        completed: false,
+        durationMs: 0,
+        exitCode: null,
+        timedOut: false,
+        trajectoryPath: "",
+        metricsPath: "",
+      };
+    });
+  } else {
+    results = [];
+    for (const sc of activeScenarios) {
+      for (const limit of CONTEXT_LIMITS) {
+        try {
+          results.push(await runOne(sc, limit));
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.error(`  ✗ ${sc.id}-${limit} failed: ${msg}`);
+          results.push({
+            promptId: sc.id,
+            contextLimit: limit,
+            compactionCount: 0,
+            blockingCount: 0,
+            maxTokensUsed: 0,
+            probeMax: 0,
+            turnCount: 0,
+            completed: false,
+            durationMs: 0,
+            exitCode: null,
+            timedOut: false,
+            trajectoryPath: "",
+            metricsPath: "",
+          });
+        }
       }
     }
   }
