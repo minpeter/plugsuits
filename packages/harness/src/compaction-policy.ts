@@ -104,7 +104,11 @@ export function getRecommendedMaxOutputTokens(params: {
     return undefined;
   }
 
-  const remaining = contextLimit - estimatedInputTokens - reserveTokens;
+  const cappedReserve = Math.min(
+    reserveTokens,
+    Math.floor(contextLimit * 0.15)
+  );
+  const remaining = contextLimit - estimatedInputTokens - cappedReserve;
   return Math.max(0, Math.floor(remaining * safetyMargin));
 }
 

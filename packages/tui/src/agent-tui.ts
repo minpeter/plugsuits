@@ -1109,12 +1109,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     let maxOutputTokens =
       config.messageHistory.getRecommendedMaxOutputTokens(nextMessages);
 
-    if (maxOutputTokens !== undefined && maxOutputTokens <= 0) {
+    if (maxOutputTokens !== undefined && maxOutputTokens <= 512) {
       await blockAtHardContextLimit(1, phase);
       nextMessages = config.messageHistory.getMessagesForLLM();
       maxOutputTokens = Math.max(
-        1,
-        config.messageHistory.getRecommendedMaxOutputTokens(nextMessages) ?? 1
+        512,
+        config.messageHistory.getRecommendedMaxOutputTokens(nextMessages) ?? 512
       );
     }
 

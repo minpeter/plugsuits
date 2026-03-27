@@ -1,6 +1,10 @@
-[compaction-debug] contextLimit overridden: 202752 → 80000, reserve=25252, keepRecent=24000
-[compaction-metric] {"ts":1774580534568,"event":"usage_probe","turn":1,"promptTokens":7076,"totalTokens":7077}
-[compaction-metric] {"ts":1774580538557,"event":"turn_complete","turn":1,"estimatedTokens":7071,"source":"actual","contextLimit":80000,"actualTokens":7328}
-[compaction-metric] {"ts":1774580540338,"event":"usage_probe","turn":1,"promptTokens":14795,"totalTokens":14796}
-[compaction-metric] {"ts":1774580543223,"event":"turn_complete","turn":1,"estimatedTokens":14928,"source":"actual","contextLimit":80000,"actualTokens":15083}
-[compaction-metric] {"ts":1774580545670,"event":"usage_probe","turn":1,"promptTokens":20610,"totalTokens":20611}
+[compaction-debug] contextLimit overridden: 202752 → 80000, reserve=12000, keepRecent=24000
+[compaction-metric] {"ts":1774581704527,"event":"usage_probe","turn":1,"promptTokens":7076,"totalTokens":7077}
+[compaction-metric] {"ts":1774581707592,"event":"turn_complete","turn":1,"estimatedTokens":7071,"source":"actual","contextLimit":80000,"actualTokens":7302}
+[compaction-metric] {"ts":1774581708063,"event":"usage_probe","turn":1,"promptTokens":9880,"totalTokens":9881}
+[compaction-metric] {"ts":1774581709796,"event":"turn_complete","turn":1,"estimatedTokens":10014,"source":"actual","contextLimit":80000,"actualTokens":10172}
+[compaction-metric] {"ts":1774581710568,"event":"usage_probe","turn":1,"promptTokens":17171,"totalTokens":17172}
+[compaction-metric] {"ts":1774581712812,"event":"turn_complete","turn":1,"estimatedTokens":17382,"source":"actual","contextLimit":80000,"actualTokens":17565}
+[compaction-metric] {"ts":1774581713700,"event":"usage_probe","turn":1,"promptTokens":20532,"totalTokens":20533}
+[compaction-metric] {"ts":1774581730715,"event":"turn_complete","turn":1,"estimatedTokens":20793,"source":"actual","contextLimit":80000,"actualTokens":21495}
+[compaction-metric] {"ts":1774581731647,"event":"usage_probe","turn":1,"promptTokens":23927,"totalTokens":23928}

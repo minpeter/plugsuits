@@ -256,7 +256,7 @@ describe("runHeadless", () => {
     });
 
     expect(probeCalls).toBe(1);
-    expect(observedMaxOutputTokens).toBe(425);
+    expect(observedMaxOutputTokens).toBe(512);
     expect(history.getContextUsage().source).toBe("actual");
   });
 

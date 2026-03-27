@@ -410,12 +410,12 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       config.messageHistory,
       messages
     );
-    if (maxOutputTokens !== undefined && maxOutputTokens <= 0) {
+    if (maxOutputTokens !== undefined && maxOutputTokens <= 512) {
       await blockAtHardContextLimit(1, phase);
       messages = await getMessagesForLLM(config.messageHistory);
       maxOutputTokens = Math.max(
-        1,
-        getRecommendedMaxOutputTokens(config.messageHistory, messages) ?? 1
+        512,
+        getRecommendedMaxOutputTokens(config.messageHistory, messages) ?? 512
       );
     }
     let overflowRetried = false;

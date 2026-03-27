@@ -574,11 +574,14 @@ export class AgentManager {
         process.env.CONTEXT_LIMIT_OVERRIDE,
         10
       );
-      // Scale reserveTokens proportionally (min 256)
       const ratio = effectiveContextLength / contextLength;
-      effectiveReserveTokens = Math.max(
+      const scaledReserve = Math.max(
         256,
         Math.floor(compactionReserveTokens * ratio)
+      );
+      effectiveReserveTokens = Math.min(
+        scaledReserve,
+        Math.floor(effectiveContextLength * 0.15)
       );
       console.error(
         `[compaction-debug] contextLimit overridden: ${contextLength} → ${effectiveContextLength}, reserve=${effectiveReserveTokens}, keepRecent=${Math.floor(effectiveContextLength * 0.3)}`
