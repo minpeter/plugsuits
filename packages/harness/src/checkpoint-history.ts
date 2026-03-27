@@ -30,6 +30,7 @@ import { progressivePrune, pruneToolOutputs } from "./tool-pruning";
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
   contextLimit: 0,
   enabled: false,
+  getStructuredState: undefined,
   maxTokens: 8000,
   keepRecentTokens: 2000,
   reserveTokens: 2000,
@@ -48,11 +49,32 @@ const DEFAULT_PRUNING_CONFIG: Required<PruningConfig> = {
 
 const TRAILING_NEWLINES = /\n+$/;
 
+const COMPACTION_CONTINUATION_TEXTS = {
+  "auto-with-replay":
+    "Previous context was summarized above. The user's latest request follows — respond to it directly and naturally.",
+  auto: "Context has been compacted. I'll continue working on the current task based on the summary.",
+  manual:
+    "The conversation was summarized above. Continue naturally without mentioning the summary or that compaction occurred.",
+  "tool-loop":
+    "Context was compacted mid-task. Resume your work and continue with any pending tool calls or steps.",
+  overflow:
+    "The context was compacted due to overflow. I'll resume the task from where we left off.",
+} as const;
+
+export function getContinuationText(
+  variant: keyof typeof COMPACTION_CONTINUATION_TEXTS
+): string {
+  return COMPACTION_CONTINUATION_TEXTS[variant];
+}
+
 type NormalizedCompactionConfig = Omit<
   Required<CompactionConfig>,
-  "speculativeStartRatio" | "summarizeFn"
+  "getStructuredState" | "speculativeStartRatio" | "summarizeFn"
 > &
-  Pick<CompactionConfig, "speculativeStartRatio" | "summarizeFn">;
+  Pick<
+    CompactionConfig,
+    "getStructuredState" | "speculativeStartRatio" | "summarizeFn"
+  >;
 
 export interface CheckpointHistoryOptions {
   compaction?: CompactionConfig;
@@ -293,21 +315,10 @@ export class CheckpointHistory {
       ...this.getActiveMessages(),
     ]);
 
-    if (!this.summaryMessageId) {
-      return activeMessages.map((message) => message.message);
-    }
-
-    const summaryIndex = this.messages.findIndex(
-      (message) => message.id === this.summaryMessageId
-    );
-    if (summaryIndex === -1) {
-      return activeMessages.map((message) => message.message);
-    }
-
-    return activeMessages.map((checkpointMessage, index) => {
+    return activeMessages.map((checkpointMessage) => {
       if (
-        index === 0 &&
-        checkpointMessage.isSummary &&
+        checkpointMessage.isSummaryMessage &&
+        checkpointMessage.message.role === "assistant" &&
         typeof checkpointMessage.message.content === "string"
       ) {
         return {
@@ -545,6 +556,7 @@ export class CheckpointHistory {
   async compact(options?: {
     auto?: boolean;
     aggressive?: boolean;
+    compactionTrigger?: "manual" | "auto" | "overflow";
   }): Promise<CompactionResult> {
     if (!this.compactionConfig.enabled) {
       return {
@@ -609,7 +621,7 @@ export class CheckpointHistory {
         ? toSummarizeCandidates.slice(1)
         : toSummarizeCandidates;
 
-    const toSummarizeForSummary = toSummarize;
+    const toSummarizeForSummary = this.prePruneMessagesForSummary(toSummarize);
 
     if (toSummarizeForSummary.length === 0) {
       return {
@@ -651,6 +663,7 @@ export class CheckpointHistory {
       id: randomUUID(),
       createdAt: Date.now(),
       isSummary: true,
+      isSummaryMessage: true,
       message: trimTrailingAssistantNewlines({
         role: "assistant",
         content: summaryText,
@@ -660,9 +673,16 @@ export class CheckpointHistory {
       autoCompact,
       replayMessage
     );
-    const continuationMessage = this.createCheckpointMessage(
-      createContinuationMessage(continuationVariant)
-    );
+    const continuationMessage: CheckpointMessage = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      isSummary: false,
+      isSummaryMessage: false,
+      message: {
+        role: "assistant",
+        content: COMPACTION_CONTINUATION_TEXTS[continuationVariant],
+      },
+    };
     const replayMessageCopy = this.createReplayMessageCopy(replayMessage);
 
     const insertIndex = activeStartIndex + splitIndex;
@@ -690,6 +710,34 @@ export class CheckpointHistory {
       tokensBefore,
       tokensAfter,
     };
+  }
+
+  private prePruneMessagesForSummary(
+    toSummarize: CheckpointMessage[]
+  ): CheckpointMessage[] {
+    const contextLimitForPrune =
+      this.compactionConfig.contextLimit ?? this.getActiveContextLimit();
+    const pruneTarget = Math.floor(contextLimitForPrune * 0.6);
+    const estimatedSummarizeTokens = toSummarize.reduce(
+      (sum, message) => sum + estimateMessageTokens(message.message),
+      0
+    );
+
+    if (estimatedSummarizeTokens <= pruneTarget) {
+      return toSummarize;
+    }
+
+    const pruneResult = progressivePrune(toSummarize, {
+      enabled: true,
+      protectRecentTokens: 40_000,
+      targetTokens: pruneTarget,
+    });
+
+    if (pruneResult.tokensAfter < pruneResult.tokensBefore) {
+      return pruneResult.messages;
+    }
+
+    return toSummarize;
   }
 
   async handleContextOverflow(
@@ -1298,6 +1346,7 @@ export class CheckpointHistory {
       id: randomUUID(),
       createdAt: Date.now(),
       isSummary: true,
+      isSummaryMessage: true,
       message: trimTrailingAssistantNewlines({
         role: "assistant",
         content: summaryText,
@@ -1450,6 +1499,7 @@ export class CheckpointHistory {
       id: randomUUID(),
       createdAt: Date.now(),
       isSummary: false,
+      isSummaryMessage: false,
       originalContent,
       message: trimTrailingAssistantNewlines(message),
     };

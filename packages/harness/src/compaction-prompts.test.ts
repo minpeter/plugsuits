@@ -464,6 +464,103 @@ describe("compaction-prompts", () => {
     });
   });
 
+  describe("createModelSummarizer with structured state injection", () => {
+    it("injects structured state when getStructuredState is provided", async () => {
+      const mockModel = createMockModel("## Summary\nCompacted.");
+      const structuredStateContent =
+        "## Current TODOs\n- [ ] Fix bug\n- [x] Write tests";
+      const summarizer = createModelSummarizer(mockModel, {
+        getStructuredState: () => structuredStateContent,
+      });
+
+      const messages = makeCheckpointMessages({
+        role: "user",
+        content: "Continue with compaction",
+      });
+
+      await summarizer(messages);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const userContent = extractUserContent(callPrompt);
+
+      expect(userContent).toContain("<structured-state>");
+      expect(userContent).toContain(structuredStateContent);
+      expect(userContent).toContain("</structured-state>");
+      expect(userContent.indexOf("<structured-state>")).toBeLessThan(
+        userContent.indexOf("Create a structured handoff summary")
+      );
+    });
+
+    it("does not inject structured state when getStructuredState returns undefined", async () => {
+      const mockModel = createMockModel("## Summary\nCompacted.");
+      const summarizer = createModelSummarizer(mockModel, {
+        getStructuredState: () => undefined,
+      });
+
+      const messages = makeCheckpointMessages({
+        role: "user",
+        content: "Continue with compaction",
+      });
+
+      await summarizer(messages);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const userContent = extractUserContent(callPrompt);
+
+      expect(userContent).not.toContain("<structured-state>");
+      expect(userContent).toContain("Create a structured handoff summary");
+    });
+
+    it("does not inject structured state when getStructuredState is absent", async () => {
+      const mockModel = createMockModel("## Summary\nCompacted.");
+      const summarizer = createModelSummarizer(mockModel);
+
+      const messages = makeCheckpointMessages({
+        role: "user",
+        content: "Continue with compaction",
+      });
+
+      await summarizer(messages);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const userContent = extractUserContent(callPrompt);
+
+      expect(userContent).not.toContain("<structured-state>");
+      expect(userContent).toContain("Create a structured handoff summary");
+    });
+
+    it("injects structured state before previous summary and main prompt", async () => {
+      const mockModel = createMockModel("## Summary\nCompacted.");
+      const structuredStateContent = "## State\nCurrent status";
+      const previousSummary = "## Previous\nOld state";
+      const summarizer = createModelSummarizer(mockModel, {
+        getStructuredState: () => structuredStateContent,
+      });
+
+      const messages = makeCheckpointMessages({
+        role: "user",
+        content: "Continue",
+      });
+
+      await summarizer(messages, previousSummary);
+
+      const callPrompt = mockModel.doGenerateCalls[0].prompt;
+      const userContent = extractUserContent(callPrompt);
+
+      const structuredStateIdx = userContent.indexOf("<structured-state>");
+      const previousSummaryIdx = userContent.indexOf("<previous-summary>");
+      const mainPromptIdx = userContent.indexOf(
+        "Create a structured handoff summary"
+      );
+
+      expect(structuredStateIdx).toBeGreaterThanOrEqual(0);
+      expect(previousSummaryIdx).toBeGreaterThanOrEqual(0);
+      expect(mainPromptIdx).toBeGreaterThanOrEqual(0);
+      expect(structuredStateIdx).toBeLessThan(previousSummaryIdx);
+      expect(previousSummaryIdx).toBeLessThan(mainPromptIdx);
+    });
+  });
+
   describe("createModelSummarizer with previousSummary", () => {
     it("includes previous summary in last user message", async () => {
       const mockModel = createMockModel("Updated summary");

@@ -45,6 +45,7 @@ const COMPACT_COMPACTION_PROMPT =
 
 export interface ModelSummarizerOptions {
   contextLimit?: number;
+  getStructuredState?: () => string | undefined;
   instructions?: string | (() => string | Promise<string>);
 
   maxOutputTokens?: number;
@@ -143,18 +144,25 @@ function buildCompactionPrompt(
 
 function buildUserTurnContent(
   previousSummary: string | undefined,
+  structuredState: string | undefined,
   compactionPrompt: string
 ): string {
-  if (!previousSummary) {
-    return compactionPrompt;
+  const parts: string[] = [];
+
+  if (structuredState) {
+    parts.push(`<structured-state>\n${structuredState}\n</structured-state>`);
   }
 
-  const escapedSummary = previousSummary.replace(
-    PREVIOUS_SUMMARY_CLOSE_TAG_REGEX,
-    "[/previous-summary]"
-  );
+  if (previousSummary) {
+    const escapedSummary = previousSummary.replace(
+      PREVIOUS_SUMMARY_CLOSE_TAG_REGEX,
+      "[/previous-summary]"
+    );
+    parts.push(`<previous-summary>\n${escapedSummary}\n</previous-summary>`);
+  }
 
-  return `<previous-summary>\n${escapedSummary}\n</previous-summary>\n\n${compactionPrompt}`;
+  parts.push(compactionPrompt);
+  return parts.join("\n\n");
 }
 
 async function resolveSystemPrompt(
@@ -273,6 +281,7 @@ export function createModelSummarizer(
 ): (messages: SummarizerInput, previousSummary?: string) => Promise<string> {
   const fullPrompt = options?.prompt ?? DEFAULT_COMPACTION_USER_PROMPT;
   const instructionsSource = options?.instructions;
+  const getStructuredState = options?.getStructuredState;
   const contextLimit = options?.contextLimit ?? 0;
   const configuredMaxOutput =
     options?.maxOutputTokens ?? computeSummarizerMaxOutput(contextLimit);
@@ -290,8 +299,10 @@ export function createModelSummarizer(
 
     try {
       const compactionPrompt = buildCompactionPrompt(contextLimit, fullPrompt);
+      const structuredState = getStructuredState?.();
       const userTurnContent = buildUserTurnContent(
         previousSummary,
+        structuredState,
         compactionPrompt
       );
       const systemPrompt = await resolveSystemPrompt(instructionsSource);
