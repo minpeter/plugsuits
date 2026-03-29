@@ -1,0 +1,59 @@
+
+
+## 코드베이스 개요
+
+이 프로젝트는 **pi (shittycodingagent.ai)**라는 AI 코딩 에이전트를 만들기 위한 **모노레포**입니다. 다양한 패키지로 구성되어 있으며, 각 패키지는 특정 기능을 담당합니다.
+
+### 프로젝트 구조
+
+```
+pi-mono/
+├── packages/
+│   ├── ai/              # LLM API 통합 라이브러리
+│   ├── agent/           # 에이전트 런타임 (tool calling + state 관리)
+│   ├── coding-agent/    # 인터랙티브 코딩 에이전트 CLI
+│   ├── tui/             # 터미널 UI 프레임워크
+│   ├── web-ui/          # 웹 채팅 UI 컴포넌트
+│   ├── mom/             # Slack 봇
+│   └── pods/            # vLLM GPU 배포 관리 CLI
+├── AGENTS.md            # 에이전트 개발 규칙
+└── package.json         # workspaces 설정
+```
+
+### 주요 패키지 설명
+
+| 패키지 | 설명 |
+|--------|------|
+| **@mariozechner/pi-ai** | OpenAI, Anthropic, Google, Azure, Bedrock 등 20+ LLM 프로바이더를统一的 API로 제공. 스트리밍, 도구 호출, thinking/reasoning, 토큰/비용 추적, 크로스 프로바이더 핸드오프 지원 |
+| **@mariozechner/pi-agent-core** | 상태 관리 에이전트 런타임. 도구 실행, 이벤트 스트리밍, steering/follow-up 메시지 지원 |
+| **@mariozechner/pi-coding-agent** | 인터랙티브 터미널 코딩 에이전트. 세션 관리, 브랜칭, 컨텍스트 압축, extensão/스킬/테마 지원 |
+| **@mariozechner/pi-tui** | 차등 렌더링 기반의 최소 TUI 프레임워크. Editor, SelectList, Markdown, Image 등 컴포넌트 제공 |
+| **@mariozechner/pi-web-ui** | 웹 채팅 UI. mini-lit 웹 컴포넌트 + Tailwind CSS. 세션 저장,附件 처리, 아티팩스 지원 |
+| **@mariozechner/pi-mom** | Slack 봇 - 메시지를 pi 코딩 에이전트로 위임 |
+| **@mariozechner/pi-pods** | GPU 파드에 vLLM 배포 관리 CLI |
+
+### 기술 스택
+
+- **언어**: TypeScript
+- **빌드**: npm workspaces (모노레포)
+- **타입 검증**: TypeBox (스키마 정의)
+- **TUI**: 차등 렌더링 + CSI 2026 동기화 출력
+- **웹**: mini-lit (경량 웹 컴포넌트 라이브러리) + Tailwind CSS v4
+
+### 디자인 철학
+
+1. **No MCP** - 스킬과 extensão로 대체
+2. **No 서브 에이전트** - tmux로 분산 실행
+3. **No 권한 팝업** - 확장으로 커스터마이징
+4. **No 플랜 모드** - 파일에春秋
+5. **No 내장 투두** - TODO.md 사용
+
+### 개발 명령어
+
+```bash
+npm install          # 의존성 설치
+npm run build        # 전체 빌드
+npm run check        # lint, format, 타입 체크
+./test.sh            # 테스트 실행
+./pi-test.sh         # 소스에서 pi 실행
+```

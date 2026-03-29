@@ -80,12 +80,12 @@ const LARGE_FILES = [
 const SCENARIOS: Scenario[] = [
   {
     contextLimit: 32_000,
-    maxIterations: 12,
+    maxIterations: 20,
     prompt: buildPrompt(LARGE_FILES.slice(0, 4)),
   },
   {
     contextLimit: 40_000,
-    maxIterations: 16,
+    maxIterations: 20,
     prompt: buildPrompt(LARGE_FILES.slice(0, 7)),
   },
   {

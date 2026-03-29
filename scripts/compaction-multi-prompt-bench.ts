@@ -22,8 +22,8 @@ const HEADLESS_SCRIPT = resolvePath(
   "main.ts"
 );
 const RESULTS_DIR = resolvePath(REPO_ROOT, "results", "multi-prompt");
-const SCENARIO_TIMEOUT_MS = 5 * 60 * 1000;
-const MAX_ITERATIONS = 12;
+const SCENARIO_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_ITERATIONS = 30;
 
 // ─── Prompt Scenarios ───────────────────────────────────────────────
 interface PromptScenario {
@@ -55,21 +55,21 @@ const SCENARIOS: PromptScenario[] = [
     id: "bug-trace",
     label: "Bug investigation (read + trace)",
     prompt:
-      "packages/harness/src/compaction-orchestrator.ts 에서 blockAtHardLimit이 호출되는 전체 흐름을 추적해줘. 어디서 호출되고, 어떤 조건에서 blocking이 발생하고, compaction이 실패하면 어떻게 되는지 상세하게 분석해줘.",
+      "packages/harness/src/compaction-orchestrator.ts 에서 blockAtHardLimit이 호출되는 전체 흐름을 추적해줘. 어디서 호출되고, 어떤 조건에서 blocking이 발생하고, compaction이 실패하면 어떻게 되는지 상세하게 분석해줘. 작업 방식은 다음을 따라: (1) compaction-orchestrator.ts 정의부 확인, (2) headless runner와 tui에서 호출 지점 확인, (3) compaction-policy 또는 overflow 처리 유틸 한두 곳만 확인, (4) 충분한 근거가 모이면 즉시 답변. 같은 subtree에 대해 broad grep을 반복하지 말고, 필요한 파일만 좁게 읽어.",
     pattern: "read-heavy",
   },
   {
     id: "multi-file-refactor",
     label: "Multi-file analysis (cross-module)",
     prompt:
-      "packages/harness/src/index.ts에서 export되는 모든 public API를 분석해줘. 각 export가 어떤 파일에서 오는지, 어떤 타입인지 (function/class/type/const), 그리고 packages/cea, packages/headless, packages/tui 중 어디서 사용되는지 매핑해줘.",
+      "packages/harness/src/index.ts에서 export되는 모든 public API를 분석해줘. 각 export가 어떤 파일에서 오는지, 어떤 타입인지 (function/class/type/const), 그리고 packages/cea, packages/headless, packages/tui 중 어디서 사용되는지 매핑해줘. 작업 방식은 다음을 따라: (1) index.ts를 source of truth로 사용해 export 목록을 만든다, (2) export source file은 index.ts의 re-export 경로로 판별한다, (3) usages는 각 패키지에서 grep_files로 찾고, 필요할 때만 해당 파일을 read_file 한다, (4) harness의 모든 소스 파일을 전수로 읽지 말고 표를 작성할 수 있을 만큼의 근거가 모이면 바로 답한다.",
     pattern: "multi-step",
   },
   {
     id: "write-heavy",
     label: "Code generation (write-heavy)",
     prompt:
-      "packages/harness/src/compaction-types.ts를 읽고, 모든 인터페이스와 타입에 대한 단위 테스트 파일 packages/harness/src/compaction-types.test.ts를 새로 작성해줘. 각 필드의 기본값, optional 여부, 타입 호환성을 테스트해야 해.",
+      "packages/harness/src/compaction-types.ts를 읽고, 모든 인터페이스와 타입에 대한 단위 테스트 파일 packages/harness/src/compaction-types.test.ts를 새로 작성해줘. 각 필드의 기본값, optional 여부, 타입 호환성을 테스트해야 해. 작업 방식은 다음을 따라: (1) 대상 타입 파일을 읽는다, (2) 기존 test 파일이 있으면 참고로 한 번만 읽는다, (3) 바로 테스트 파일을 작성한다, (4) 실패하면 에러 줄만 고친다. shell로 cat/head/wc 하지 말고 read_file와 테스트 실행 결과만 사용해.",
     pattern: "write-heavy",
   },
 ];
@@ -90,10 +90,30 @@ if (scenarioArgIdx !== -1 && args[scenarioArgIdx + 1]) {
   scenarioFilter = args[scenarioArgIdx + 1].split(",");
 }
 
+function readFlagValue(flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) {
+    return undefined;
+  }
+  return args[index + 1];
+}
+
+const parallelLimit = Number(readFlagValue("--parallel-limit") ?? "3");
+const staggerMs = Number(readFlagValue("--stagger-ms") ?? "750");
+
 const extraArgs: string[] = [];
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (["--dry-run", "--limits", "--scenarios", "--parallel"].includes(arg)) {
+  if (
+    [
+      "--dry-run",
+      "--limits",
+      "--parallel",
+      "--parallel-limit",
+      "--scenarios",
+      "--stagger-ms",
+    ].includes(arg)
+  ) {
     if (!["--dry-run", "--parallel"].includes(arg)) {
       i++;
     }
@@ -137,6 +157,11 @@ interface RunResult {
   turnCount: number;
 }
 
+interface PendingRun {
+  contextLimit: number;
+  scenario: PromptScenario;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 function tryParseJson<T>(s: string): T | null {
   try {
@@ -169,6 +194,10 @@ function formatDuration(ms: number): string {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ─── Spawn ──────────────────────────────────────────────────────────
 async function spawnRun(
   prompt: string,
@@ -195,6 +224,8 @@ async function spawnRun(
 
   const env = {
     ...process.env,
+    BENCHMARK_SEED: process.env.BENCHMARK_SEED ?? "42",
+    BENCHMARK_TEMPERATURE: process.env.BENCHMARK_TEMPERATURE ?? "0",
     COMPACTION_DEBUG: "1",
     CONTEXT_LIMIT_OVERRIDE: String(contextLimit),
   };
@@ -318,6 +349,58 @@ async function runOne(
     trajectoryPath,
     metricsPath,
   };
+}
+
+async function runParallelWithLimit(tasks: PendingRun[]): Promise<RunResult[]> {
+  const results: RunResult[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function worker(workerIndex: number): Promise<void> {
+    while (nextIndex < tasks.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      const task = tasks[currentIndex];
+      if (!task) {
+        return;
+      }
+
+      const waitMs = workerIndex === 0 && currentIndex === 0 ? 0 : staggerMs;
+      if (waitMs > 0) {
+        await sleepMs(waitMs);
+      }
+
+      try {
+        results[currentIndex] = await runOne(task.scenario, task.contextLimit);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(
+          `  ✗ ${task.scenario.id}-${task.contextLimit} failed: ${msg}`
+        );
+        results[currentIndex] = {
+          promptId: task.scenario.id,
+          contextLimit: task.contextLimit,
+          compactionCount: 0,
+          blockingCount: 0,
+          maxTokensUsed: 0,
+          probeMax: 0,
+          turnCount: 0,
+          completed: false,
+          durationMs: 0,
+          exitCode: null,
+          timedOut: false,
+          trajectoryPath: "",
+          metricsPath: "",
+        };
+      }
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(parallelLimit, tasks.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, (_, index) => worker(index))
+  );
+
+  return results;
 }
 
 // ─── Summary ────────────────────────────────────────────────────────
@@ -456,36 +539,12 @@ async function main(): Promise<void> {
 
   if (isParallel) {
     console.log(
-      `⚡ Parallel mode: ${activeScenarios.length} scenarios × ${CONTEXT_LIMITS.length} limits\n`
+      `⚡ Parallel mode: ${activeScenarios.length} scenarios × ${CONTEXT_LIMITS.length} limits (limit=${parallelLimit}, stagger=${staggerMs}ms)\n`
     );
-    const allTasks = activeScenarios.flatMap((sc) =>
-      CONTEXT_LIMITS.map((limit) => ({ sc, limit }))
+    const allTasks = activeScenarios.flatMap((scenario) =>
+      CONTEXT_LIMITS.map((contextLimit) => ({ scenario, contextLimit }))
     );
-    const settled = await Promise.allSettled(
-      allTasks.map(({ sc, limit }) => runOne(sc, limit))
-    );
-    results = settled.map((s, i) => {
-      if (s.status === "fulfilled") {
-        return s.value;
-      }
-      const { sc, limit } = allTasks[i];
-      console.error(`  ✗ ${sc.id}-${limit} failed: ${s.reason}`);
-      return {
-        promptId: sc.id,
-        contextLimit: limit,
-        compactionCount: 0,
-        blockingCount: 0,
-        maxTokensUsed: 0,
-        probeMax: 0,
-        turnCount: 0,
-        completed: false,
-        durationMs: 0,
-        exitCode: null,
-        timedOut: false,
-        trajectoryPath: "",
-        metricsPath: "",
-      };
-    });
+    results = await runParallelWithLimit(allTasks);
   } else {
     results = [];
     for (const sc of activeScenarios) {

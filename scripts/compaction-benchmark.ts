@@ -18,8 +18,8 @@ const HEADLESS_SCRIPT = resolvePath(
 const RESULTS_DIR = resolvePath(REPO_ROOT, "results");
 const PROMPT = "코드베이스를 탐색하고, 이 코드 베이스에 대해서 설명해줘";
 const CONTEXT_LIMITS = [8000, 20_000, 40_000, 80_000] as const;
-const MAX_ITERATIONS = 12;
-const SCENARIO_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_ITERATIONS = 30;
+const SCENARIO_TIMEOUT_MS = 10 * 60 * 1000;
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run");
@@ -235,6 +235,8 @@ async function spawnScenario(contextLimit: number): Promise<SpawnResult> {
 
   const env = {
     ...process.env,
+    BENCHMARK_SEED: process.env.BENCHMARK_SEED ?? "42",
+    BENCHMARK_TEMPERATURE: process.env.BENCHMARK_TEMPERATURE ?? "0",
     COMPACTION_DEBUG: "1",
     CONTEXT_LIMIT_OVERRIDE: String(contextLimit),
   };

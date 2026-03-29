@@ -1,0 +1,66 @@
+## Crush 코드베이스 개요
+
+**Crush**는 [Charm](https://charm.sh)이 Go로 만든 **터미널 기반 AI 코딩 어시스턴트**입니다. 바로 이 도구(Crush) 자체의 소스코드입니다.
+
+---
+
+## 핵심 구조
+
+```
+main.go              → 진입점, pprof 프로파일링 옵션 포함
+internal/
+  cmd/               → CLI 커맨드 (cobra): root, run, login, models, stats, sessions
+  app/               → 최상위 와이어링: DB, config, agents, LSP, MCP, events 초기화
+  config/            → crush.json 로드, 프로바이더/모델 설정
+  agent/             → LLM 대화 실행 핵심 로직
+  ui/                → Bubble Tea v2 기반 TUI
+  db/                → SQLite + sqlc (세션/메시지 영속화)
+  lsp/               → LSP 클라이언트 관리 (코드 인텔리전스)
+  session/           → 세션 CRUD
+  permission/        → 툴 실행 권한 관리
+  pubsub/            → 컴포넌트 간 내부 이벤트 버스
+  shell/             → Bash 실행 + 백그라운드 잡 관리
+  skills/            → 스킬 파일 로드 (확장성)
+```
+
+---
+
+## Agent 레이어 (`internal/agent/`)
+
+핵심 두 구조체:
+
+| 구조체 | 역할 |
+|---|---|
+| `SessionAgent` (`agent.go`) | 하나의 세션에서 LLM과 대화를 반복 실행 |
+| `Coordinator` (`coordinator.go`) | `"coder"`, `"task"` 등 Named Agent들을 관리 |
+
+**내장 툴** (`internal/agent/tools/`): `bash`, `view`, `edit`, `multiedit`, `write`, `grep`, `glob`, `ls`, `fetch`, `download`, `sourcegraph`, `todos`, `diagnostics`, `lsp_restart` 등 25개 이상. 각 툴은 `.go` 구현 + `.md` 설명 파일 쌍으로 구성.
+
+---
+
+## 멀티 프로바이더 지원
+
+`charm.land/fantasy` 추상화 레이어를 통해:
+- Anthropic, OpenAI, Gemini, AWS Bedrock
+- GitHub Copilot, Hyper, MiniMax, Vercel, OpenRouter 등 지원
+
+---
+
+## UI 레이어 (`internal/ui/`)
+
+- **Bubble Tea v2** 기반 TUI
+- `model/` — 채팅, 사이드바, 세션, 온보딩 등 화면 모델
+- `dialog/` — 모달 다이얼로그 (API 키 입력, 모델 선택, 권한 요청 등)
+- `chat/` — 메시지 렌더링 (어시스턴트/유저/툴별 뷰)
+- `diffview/` — 코드 diff 뷰어 (Split/Unified 모드, golden file 테스트 완비)
+
+---
+
+## 기타 특징
+
+- **CGO 비활성화** (`CGO_ENABLED=0`) + `GOEXPERIMENT=greenteagc`로 빌드
+- **MCP(Model Context Protocol)** 서버 연동 지원
+- **SQLite + sqlc** 로 세션/메시지 영속화
+- **시스템 프롬프트**는 Go 템플릿 (`.md.tpl`) 으로 관리
+- **루프 감지** (`loop_detection.go`) — LLM이 반복 행동에 빠지면 중단
+- **Taskfile** 기반 개발 워크플로: `task test`, `task lint:fix`, `task fmt`, `task dev`
