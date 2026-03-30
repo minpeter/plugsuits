@@ -7,8 +7,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { executeReadFile } from "./read-file";
+import { resetReadOnlyToolCallGuard } from "./read-only-call-guard";
 
 const ISO_DATE_PATTERN = /\d{4}-\d{2}-\d{2}T/;
 const FILE_HASH_PATTERN = /file_hash:\s+[0-9a-f]{8}/;
@@ -17,7 +18,7 @@ const HASHLINE_ALPHABET = "[ZPMQVRWSNKTXJBYH]{2}";
 const REGEX_ESCAPE_PATTERN = /[.*+?^${}()|[\]\\]/g;
 
 function buildTaggedLinePattern(lineNumber: number, text: string): RegExp {
-  const escaped = text.replaceAll(REGEX_ESCAPE_PATTERN, "\\$&");
+  const escaped = text.replace(REGEX_ESCAPE_PATTERN, "\\$&");
   return new RegExp(`${lineNumber}#${HASHLINE_ALPHABET}\\|${escaped}`);
 }
 
@@ -26,6 +27,10 @@ describe("executeReadFile", () => {
 
   beforeAll(() => {
     tempDir = mkdtempSync(join(tmpdir(), "read-file-test-"));
+  });
+
+  beforeEach(() => {
+    resetReadOnlyToolCallGuard();
   });
 
   afterAll(() => {
@@ -191,6 +196,21 @@ describe("executeReadFile", () => {
 
       expect(result).toContain("truncated: false");
       expect(result).toMatch(LINE_TAG_PATTERN);
+    });
+  });
+
+  describe("duplicate request guard", () => {
+    it("suppresses the third identical read_file request", async () => {
+      const testFile = join(tempDir, "repeat.txt");
+      writeFileSync(testFile, "alpha\nbeta\ngamma");
+
+      await executeReadFile({ path: testFile });
+      await executeReadFile({ path: testFile });
+      const result = await executeReadFile({ path: testFile });
+
+      expect(result).toContain("duplicate request suppressed");
+      expect(result).toContain(`path: ${testFile}`);
+      expect(result).toContain("repeat_count: 3");
     });
   });
 

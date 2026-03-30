@@ -8,6 +8,7 @@ import { ensureTool } from "../../utils/tools-manager";
 import { formatLineTag } from "../utils/hashline/hash-computation";
 import { formatBlock } from "../utils/safety-utils";
 import { truncateToolOutput } from "../utils/tool-output-truncation";
+import { recordReadOnlyToolCall } from "./read-only-call-guard";
 
 const GREP_FILES_DESCRIPTION = readTextAsset(
   "./grep-files.txt",
@@ -212,6 +213,30 @@ export async function executeGrep({
   after,
   no_ignore = false,
 }: GrepInput): Promise<string> {
+  const parsedInput = inputSchema.parse({
+    pattern,
+    path,
+    include,
+    case_sensitive,
+    fixed_strings,
+    context,
+    before,
+    after,
+    no_ignore,
+  });
+
+  const guard = recordReadOnlyToolCall("grep_files", parsedInput);
+  if (guard.suppress) {
+    return [
+      "OK - grep (duplicate request suppressed)",
+      `pattern: "${parsedInput.pattern}"`,
+      `path: ${parsedInput.path ?? "."}`,
+      `repeat_count: ${guard.repeatCount}`,
+      "The exact same grep query was already run recently.",
+      "Narrow the path/include or inspect the strongest current hits with read_file instead of repeating the same broad search.",
+    ].join("\n");
+  }
+
   const searchDir = resolveSearchDir(path);
 
   const args: string[] = ["--line-number", "--with-filename", "--color=never"];

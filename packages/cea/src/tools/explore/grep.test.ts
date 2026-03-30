@@ -7,9 +7,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { computeLineHash } from "../utils/hashline/hash-computation";
 import { executeGrep } from "./grep";
+import { resetReadOnlyToolCallGuard } from "./read-only-call-guard";
 
 const HASHLINE_ALPHABET = "[ZPMQVRWSNKTXJBYH]{2}";
 
@@ -28,6 +29,10 @@ describe("executeGrep", () => {
       join(tempDir, "sub", "nested.ts"),
       "export const foo = 'nested';"
     );
+  });
+
+  beforeEach(() => {
+    resetReadOnlyToolCallGuard();
   });
 
   afterAll(() => {
@@ -178,6 +183,19 @@ describe("executeGrep", () => {
       expect(result).toContain("include: *.ts");
       expect(result).toContain("case_sensitive: true");
       expect(result).toContain("fixed_strings: true");
+    });
+  });
+
+  describe("duplicate request guard", () => {
+    it("suppresses the third identical grep request", async () => {
+      await executeGrep({ pattern: "foo", path: tempDir });
+      await executeGrep({ pattern: "foo", path: tempDir });
+      const result = await executeGrep({ pattern: "foo", path: tempDir });
+
+      expect(result).toContain("duplicate request suppressed");
+      expect(result).toContain('pattern: "foo"');
+      expect(result).toContain(`path: ${tempDir}`);
+      expect(result).toContain("repeat_count: 3");
     });
   });
 });

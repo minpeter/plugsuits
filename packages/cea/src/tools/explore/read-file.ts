@@ -4,6 +4,7 @@ import { z } from "zod";
 import { readTextAsset } from "../../utils/text-asset";
 import { formatBlock, safeReadFileEnhanced } from "../utils/safety-utils";
 import { truncateToolOutput } from "../utils/tool-output-truncation";
+import { recordReadOnlyToolCall } from "./read-only-call-guard";
 
 const READ_FILE_DESCRIPTION = readTextAsset("./read-file.txt", import.meta.url);
 
@@ -68,6 +69,17 @@ export async function executeReadFile({
     after,
     respect_git_ignore,
   });
+
+  const guard = recordReadOnlyToolCall("read_file", parsedInput);
+  if (guard.suppress) {
+    return [
+      "OK - read file (duplicate request suppressed)",
+      `path: ${parsedInput.path}`,
+      `repeat_count: ${guard.repeatCount}`,
+      "The exact same file slice was already read recently.",
+      "Use the existing context or request a different path/range/around_line if you need new information.",
+    ].join("\n");
+  }
 
   const result = await safeReadFileEnhanced(path, {
     offset: parsedInput.offset,
