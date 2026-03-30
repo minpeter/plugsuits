@@ -88,14 +88,14 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
     },
   },
   {
-    id: "test-compact",
+    id: "compact-test",
     apiModelId: "MiniMaxAI/MiniMax-M2.5",
-    name: "minimax 2.5 (20k compact test)",
+    name: "minimax 2.5 (32k compact test)",
     provider: "friendli",
     type: "serverless",
-    contextLength: 20_480,
+    contextLength: 32_768,
     compactionReserveTokens: 2048,
-    maxCompletionTokens: 20_480,
+    maxCompletionTokens: 32_768,
     reasoning: {
       ...DEFAULT_FRIENDLI_REASONING,
     },

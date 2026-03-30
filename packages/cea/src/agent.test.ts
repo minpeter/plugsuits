@@ -171,7 +171,7 @@ summary`);
 
   it("uses a soft compaction threshold and earlier speculative ratio based on usable input budget", () => {
     agentManager.setProvider("friendli");
-    agentManager.setModelId("test-compact");
+    agentManager.setModelId("compact-test");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(
@@ -228,7 +228,7 @@ summary`);
 
   it("buildCompactionConfig includes getStructuredState callback", () => {
     agentManager.setProvider("friendli");
-    agentManager.setModelId("test-compact");
+    agentManager.setModelId("compact-test");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(
