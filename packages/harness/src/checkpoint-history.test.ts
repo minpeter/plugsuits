@@ -1304,8 +1304,7 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     const usage = h.getActualUsage();
     expect(usage).not.toBeNull();
     if (usage) {
-      expect(usage.totalTokens).toBeGreaterThan(0);
-      expect(usage.completionTokens).toBe(0);
+      expect(usage.promptTokens).toBe(1000);
     }
   });
 });
@@ -1442,7 +1441,7 @@ describe("systemPromptTokens in estimated usage", () => {
 });
 
 describe("post-recovery actualUsage preservation", () => {
-  it("preserves non-null actualUsage after successful overflow recovery", async () => {
+  it("preserves stale actualUsage after overflow recovery for runtime re-measurement", async () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
@@ -1469,9 +1468,10 @@ describe("post-recovery actualUsage preservation", () => {
 
     const usage = h.getActualUsage();
     expect(usage).not.toBeNull();
+    expect(usage?.promptTokens).toBe(1000);
   });
 
-  it("synthetic actualUsage totalTokens is at least as large as current estimate", async () => {
+  it("actualUsage preserved after overflow recovery, runtime measures on next call", async () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
@@ -1489,13 +1489,8 @@ describe("post-recovery actualUsage preservation", () => {
     const result = await h.handleContextOverflow();
     expect(result.success).toBe(true);
 
-    const usage = h.getActualUsage();
-    expect(usage).not.toBeNull();
-
-    if (usage) {
-      const estimatedAfter = h.getEstimatedTokens();
-      expect(usage.totalTokens).toBeGreaterThanOrEqual(estimatedAfter);
-    }
+    expect(h.getActualUsage()).toBeNull();
+    expect(h.getEstimatedTokens()).toBeGreaterThan(0);
   });
 
   it("real updateActualUsage overwrites synthetic post-recovery value", async () => {
@@ -1589,11 +1584,10 @@ describe("20K spike prevention — integration", () => {
     const result = await h.handleContextOverflow();
     expect(result.success).toBe(true);
 
-    const usage = h.getActualUsage();
-    expect(usage).not.toBeNull();
-    expect(usage?.totalTokens).toBeGreaterThan(0);
+    expect(h.getActualUsage()).toBeNull();
 
     const postRecoveryUsage = h.getContextUsage();
+    expect(postRecoveryUsage.source).toBe("estimated");
     expect(postRecoveryUsage.used).toBeLessThan(20_000 - 2000);
   });
 });

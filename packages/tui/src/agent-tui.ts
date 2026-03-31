@@ -359,6 +359,7 @@ export interface AgentTUIMessageHistory {
     aggressive?: boolean;
     auto?: boolean;
   }): Promise<boolean | CompactionResult>;
+  getActualUsage(): { promptTokens?: number; totalTokens?: number } | null;
   getCompactionConfig(): {
     contextLimit?: number;
     enabled?: boolean;
@@ -791,8 +792,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   };
 
   const compactBeforeNextTurnIfNeeded = async (): Promise<void> => {
-    await compactionOrchestrator.checkAndCompact();
-    applyReadySpeculativeCompaction();
+    const didBlockingCompact = await compactionOrchestrator.checkAndCompact();
+    const readyResult = applyReadySpeculativeCompaction();
+    if (didBlockingCompact || readyResult.applied) {
+      await measureUsageAfterCompaction();
+    }
   };
 
   const measureUsageIfAvailable = async (
@@ -818,6 +822,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     });
     updateHeader();
     return true;
+  };
+
+  const measureUsageAfterCompaction = async (): Promise<void> => {
+    if (!config.measureUsage) {
+      return;
+    }
+    const messages = config.messageHistory.getMessagesForLLM();
+    await measureUsageIfAvailable(messages);
   };
 
   const cancelActiveStream = (): boolean => {
@@ -1025,6 +1037,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     const readyResult = applyReadySpeculativeCompaction();
     if (readyResult.stale) {
       startSpeculativeCompaction();
+    }
+    if (readyResult.applied) {
+      await measureUsageAfterCompaction();
     }
 
     await blockAtHardContextLimit(0, phase);
@@ -1484,6 +1499,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       const inputReadyResult = applyReadySpeculativeCompaction();
       if (inputReadyResult.stale) {
         startSpeculativeCompaction();
+      }
+      if (inputReadyResult.applied) {
+        await measureUsageAfterCompaction();
       }
 
       if (isCommand(trimmed)) {

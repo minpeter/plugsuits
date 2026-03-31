@@ -399,18 +399,19 @@ export class CompactionOrchestrator {
     return this.runCompaction(history, { auto: false });
   }
 
-  async checkAndCompact(): Promise<void> {
+  async checkAndCompact(): Promise<boolean> {
     const history = this.requireHistory();
 
     if (this.compactionInProgress || !this.needsCompaction(history)) {
       this.debugLog(
         `checkAndCompact skip: inProgress=${this.compactionInProgress}, needs=${this.needsCompaction(history)}`
       );
-      return;
+      return false;
     }
 
     this.debugLog("checkAndCompact → blocking compaction");
     await this.runCompaction(history, { auto: true });
+    return true;
   }
 
   async handleOverflow(error?: unknown): Promise<OverflowRecoveryResult> {

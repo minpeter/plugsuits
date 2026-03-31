@@ -746,7 +746,6 @@ export class CheckpointHistory {
     this.summaryMessageId = summaryMessage.id;
     this.revision += 1;
     this.messageRevision += 1;
-    this.rebaselineActualUsageToCurrentEstimate();
 
     await this.persistCompactionMessages({
       continuationMessage,
@@ -822,14 +821,6 @@ export class CheckpointHistory {
 
       const pruneResult = this.tryPruneRecovery(tokensBefore, contextLimit);
       if (pruneResult) {
-        const estimatedTokens =
-          this.getEstimatedTokens() + this.systemPromptTokens;
-        this.actualUsage = {
-          promptTokens: estimatedTokens,
-          completionTokens: 0,
-          totalTokens: estimatedTokens,
-          updatedAt: new Date(),
-        };
         return pruneResult;
       }
 
@@ -839,14 +830,6 @@ export class CheckpointHistory {
         contextLimit
       );
       if (compactResult) {
-        const estimatedTokens =
-          this.getEstimatedTokens() + this.systemPromptTokens;
-        this.actualUsage = {
-          promptTokens: estimatedTokens,
-          completionTokens: 0,
-          totalTokens: estimatedTokens,
-          updatedAt: new Date(),
-        };
         return compactResult;
       }
 
@@ -856,14 +839,6 @@ export class CheckpointHistory {
         contextLimit
       );
       if (aggressiveResult) {
-        const estimatedTokens =
-          this.getEstimatedTokens() + this.systemPromptTokens;
-        this.actualUsage = {
-          promptTokens: estimatedTokens,
-          completionTokens: 0,
-          totalTokens: estimatedTokens,
-          updatedAt: new Date(),
-        };
         return aggressiveResult;
       }
 
@@ -872,16 +847,6 @@ export class CheckpointHistory {
         contextLimit
       );
       if (truncateResult) {
-        if (truncateResult.success) {
-          const estimatedTokens =
-            this.getEstimatedTokens() + this.systemPromptTokens;
-          this.actualUsage = {
-            promptTokens: estimatedTokens,
-            completionTokens: 0,
-            totalTokens: estimatedTokens,
-            updatedAt: new Date(),
-          };
-        }
         return truncateResult;
       }
 
@@ -928,7 +893,6 @@ export class CheckpointHistory {
 
     if (result.tokensAfter < result.tokensBefore) {
       this.applyPrunedMessages(result.messages);
-      this.rebaselineActualUsageToCurrentEstimate();
     }
 
     return Promise.resolve({
@@ -1036,16 +1000,6 @@ export class CheckpointHistory {
       return this.actualUsage.promptTokens ?? this.actualUsage.totalTokens ?? 0;
     }
     return this.getEstimatedTokens() + this.systemPromptTokens;
-  }
-
-  private rebaselineActualUsageToCurrentEstimate(): void {
-    const promptTokens = this.getEstimatedTokens() + this.systemPromptTokens;
-    this.actualUsage = {
-      promptTokens,
-      completionTokens: 0,
-      totalTokens: promptTokens,
-      updatedAt: new Date(),
-    };
   }
 
   private getActiveContextLimit(): number {

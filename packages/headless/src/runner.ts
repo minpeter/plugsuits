@@ -523,9 +523,22 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     compactionOrchestrator.startSpeculative(config.messageHistory);
   };
 
+  const measureUsageAfterCompaction = async (): Promise<void> => {
+    if (!(config.measureUsage && hasUsageTracking(config.messageHistory))) {
+      return;
+    }
+    const messages = config.messageHistory.getMessagesForLLM();
+    await measureUsageIfAvailable(messages);
+  };
+
   const compactBeforeNextTurnIfNeeded = async (): Promise<void> => {
-    await compactionOrchestrator.checkAndCompact();
-    compactionOrchestrator.applyReady(config.messageHistory);
+    const didBlockingCompact = await compactionOrchestrator.checkAndCompact();
+    const readyResult = compactionOrchestrator.applyReady(
+      config.messageHistory
+    );
+    if (didBlockingCompact || readyResult.applied) {
+      await measureUsageAfterCompaction();
+    }
   };
 
   const enqueueUserMessage = async (
