@@ -1,5 +1,18 @@
 # plugsuits
 
+## 2.1.1
+
+### Patch Changes
+
+- 5aaef15: fix: publish @ai-sdk-tool/headless and @ai-sdk-tool/tui to npm
+
+  Initial major release of headless and tui packages to npm registry.
+  Republish plugsuits with corrected dependency versions.
+
+- Updated dependencies [5aaef15]
+  - @ai-sdk-tool/headless@2.0.0
+  - @ai-sdk-tool/tui@2.0.0
+
 ## 2.1.0
 
 ### Minor Changes

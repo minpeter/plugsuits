@@ -1,5 +1,14 @@
 # @ai-sdk-tool/tui
 
+## 2.0.0
+
+### Major Changes
+
+- 5aaef15: fix: publish @ai-sdk-tool/headless and @ai-sdk-tool/tui to npm
+
+  Initial major release of headless and tui packages to npm registry.
+  Republish plugsuits with corrected dependency versions.
+
 ## 1.0.0
 
 ### Minor Changes
