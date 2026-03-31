@@ -291,10 +291,9 @@ export function createModelSummarizer(
     previousSummary?: string
   ): Promise<string> => {
     const normalizedMessages = normalizeMessages(messages);
-    const fallbackSummary = buildExtractiveSummary(messages, previousSummary);
 
     if (normalizedMessages.length === 0) {
-      return fallbackSummary;
+      return buildExtractiveSummary(messages, previousSummary);
     }
 
     try {
@@ -330,9 +329,12 @@ export function createModelSummarizer(
         normalizedMessages.length
       );
 
-      return extractSummaryFromResponse(result.text.trim()) || fallbackSummary;
+      return (
+        extractSummaryFromResponse(result.text.trim()) ||
+        buildExtractiveSummary(messages, previousSummary)
+      );
     } catch {
-      return fallbackSummary;
+      return buildExtractiveSummary(messages, previousSummary);
     }
   };
 }

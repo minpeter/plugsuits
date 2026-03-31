@@ -462,10 +462,7 @@ export class CheckpointHistory {
     this.revision += 1;
   }
 
-  needsCompaction(options?: {
-    phase?: "new-turn" | "intermediate-step";
-  }): boolean {
-    this.getEffectiveReserveTokens(options);
+  needsCompaction(): boolean {
     const contextLimit = this.getActiveContextLimit();
     const configuredThresholdRatio =
       this.compactionConfig.thresholdRatio ?? 0.5;

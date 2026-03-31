@@ -57,7 +57,7 @@ export function needsCompactionFromUsage(params: {
   }
 
   const normalizedThresholdRatio =
-    Number.isFinite(thresholdRatio) && thresholdRatio > 0
+    Number.isFinite(thresholdRatio) && thresholdRatio > 0 && thresholdRatio <= 1
       ? thresholdRatio
       : 0.5;
   const thresholdLimit = contextLimit * normalizedThresholdRatio;
