@@ -1,5 +1,11 @@
 # plugsuits
 
+## 2.1.3
+
+### Patch Changes
+
+- 5fb0fa6: fix: force zod v4 resolution via overrides to prevent runtime crash
+
 ## 2.1.2
 
 ### Patch Changes
