@@ -1,5 +1,13 @@
 # @ai-sdk-tool/headless
 
+## 2.0.1
+
+### Patch Changes
+
+- 9ba8e20: fix: add .js extensions to ESM imports for Node.js compatibility
+- Updated dependencies [9ba8e20]
+  - @ai-sdk-tool/harness@1.1.1
+
 ## 2.0.0
 
 ### Major Changes

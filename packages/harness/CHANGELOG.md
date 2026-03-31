@@ -1,5 +1,11 @@
 # @ai-sdk-tool/harness
 
+## 1.1.1
+
+### Patch Changes
+
+- 9ba8e20: fix: add .js extensions to ESM imports for Node.js compatibility
+
 ## 1.1.0
 
 ### Minor Changes

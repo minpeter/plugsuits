@@ -1,5 +1,15 @@
 # plugsuits
 
+## 2.1.2
+
+### Patch Changes
+
+- 9ba8e20: fix: add .js extensions to ESM imports for Node.js compatibility
+- Updated dependencies [9ba8e20]
+  - @ai-sdk-tool/harness@1.1.1
+  - @ai-sdk-tool/headless@2.0.1
+  - @ai-sdk-tool/tui@2.0.1
+
 ## 2.1.1
 
 ### Patch Changes

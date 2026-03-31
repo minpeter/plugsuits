@@ -1,6 +1,6 @@
 {
   "name": "plugsuits",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
   "type": "module",
   "main": "dist/index.js",
