@@ -402,25 +402,11 @@ export class CompactionOrchestrator {
 
   async checkAndCompact(): Promise<boolean> {
     const history = this.requireHistory();
-    const needs = this.needsCompaction(history);
 
-    if (this.compactionInProgress) {
-      if (needs) {
-        const runningJob = this.getLatestRunningSpeculativeCompaction();
-        if (runningJob) {
-          this.debugLog("checkAndCompact → awaiting in-flight speculative");
-          await runningJob.promise;
-          return false;
-        }
-      }
+    if (this.compactionInProgress || !this.needsCompaction(history)) {
       this.debugLog(
-        `checkAndCompact skip: inProgress=${this.compactionInProgress}, needs=${needs}`
+        `checkAndCompact skip: inProgress=${this.compactionInProgress}, needs=${this.needsCompaction(history)}`
       );
-      return false;
-    }
-
-    if (!needs) {
-      this.debugLog("checkAndCompact skip: needs=false");
       return false;
     }
 
@@ -673,9 +659,23 @@ export class CompactionOrchestrator {
       hasHistoryArg ? maybePhase : additionalTokensOrPhase
     ) as CompactionPhase;
 
-    const blocking = this.isAtHardLimit(history, additionalTokens, phase);
+    let blocking = this.isAtHardLimit(history, additionalTokens, phase);
     if (!blocking) {
       return false;
+    }
+
+    if (this.compactionInProgress) {
+      const runningJob = this.getLatestRunningSpeculativeCompaction();
+      if (runningJob) {
+        this.debugLog(
+          "blockAtHardLimit → awaiting in-flight speculative before emergency"
+        );
+        await runningJob.promise;
+        blocking = this.isAtHardLimit(history, additionalTokens, phase);
+        if (!blocking) {
+          return true;
+        }
+      }
     }
 
     const tokensBefore = history.getEstimatedTokens();
