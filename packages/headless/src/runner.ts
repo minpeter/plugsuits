@@ -29,10 +29,8 @@ type MaxOutputAwareMessageHistory = HeadlessMessageHistory & {
 };
 
 interface UsageMeasurement {
-  completionTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
-  promptTokens?: number;
   totalTokens?: number;
 }
 
@@ -70,31 +68,29 @@ function normalizeUsageMeasurement(
   }
 
   const usageRecord = usage as Record<string, unknown>;
-  const promptTokens = getUsageNumber(
+  const inputTokens = getUsageNumber(
     usageRecord,
-    "promptTokens",
-    "inputTokens"
+    "inputTokens",
+    "promptTokens"
   );
-  const completionTokens = getUsageNumber(
+  const outputTokens = getUsageNumber(
     usageRecord,
-    "completionTokens",
-    "outputTokens"
+    "outputTokens",
+    "completionTokens"
   );
   const totalTokens = getUsageNumber(usageRecord, "totalTokens");
 
   if (
-    promptTokens === undefined &&
-    completionTokens === undefined &&
+    inputTokens === undefined &&
+    outputTokens === undefined &&
     totalTokens === undefined
   ) {
     return null;
   }
 
   return {
-    promptTokens,
-    inputTokens: promptTokens,
-    completionTokens,
-    outputTokens: completionTokens,
+    inputTokens,
+    outputTokens,
     totalTokens,
   };
 }
@@ -136,10 +132,8 @@ function updateHistoryUsage(
   }
 
   history.updateActualUsage({
-    completionTokens: normalizedUsage.completionTokens,
     inputTokens: normalizedUsage.inputTokens,
     outputTokens: normalizedUsage.outputTokens,
-    promptTokens: normalizedUsage.promptTokens,
     totalTokens: normalizedUsage.totalTokens,
     updatedAt: new Date(),
   });
@@ -204,10 +198,8 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     }
 
     config.messageHistory.updateActualUsage({
-      completionTokens: measured.completionTokens,
       inputTokens: measured.inputTokens,
       outputTokens: measured.outputTokens,
-      promptTokens: measured.promptTokens,
       totalTokens: measured.totalTokens,
       updatedAt: new Date(),
     });
@@ -215,7 +207,8 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     emitMetric?.({
       event: "usage_probe",
       turn: turnNumber,
-      promptTokens: measured.promptTokens ?? measured.inputTokens ?? null,
+      inputTokens: measured.inputTokens ?? null,
+      promptTokens: measured.inputTokens ?? null,
       totalTokens: measured.totalTokens ?? null,
     });
 
@@ -381,12 +374,12 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     updateHistoryUsage(config.messageHistory, usage);
     if (process.env.DEBUG_TOKENS) {
       const input =
-        usage.promptTokens ??
-        (usage as Record<string, unknown>).inputTokens ??
+        usage.inputTokens ??
+        (usage as Record<string, unknown>).promptTokens ??
         0;
       const output =
-        usage.completionTokens ??
-        (usage as Record<string, unknown>).outputTokens ??
+        usage.outputTokens ??
+        (usage as Record<string, unknown>).completionTokens ??
         0;
       const total = usage.totalTokens ?? (input as number) + (output as number);
       console.error(

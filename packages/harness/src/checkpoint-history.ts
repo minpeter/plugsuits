@@ -276,6 +276,7 @@ export class CheckpointHistory {
 
     this.messages.push(message);
     this.persistMessage(message);
+    this.actualUsage = null;
     this.revision += 1;
     this.messageRevision += 1;
 
@@ -302,6 +303,7 @@ export class CheckpointHistory {
     }
 
     if (accepted.length > 0) {
+      this.actualUsage = null;
       this.revision += 1;
       this.messageRevision += 1;
     }
@@ -354,15 +356,27 @@ export class CheckpointHistory {
   }
 
   updateActualUsage(usage: ActualTokenUsageInput): void {
-    const promptTokens =
-      usage.promptTokens ?? usage.inputTokens ?? usage.totalTokens ?? 0;
-    const completionTokens = usage.completionTokens ?? usage.outputTokens ?? 0;
+    const inputTokens = usage.inputTokens ?? usage.promptTokens;
+
+    if (inputTokens === undefined || inputTokens === null) {
+      if (
+        process.env.COMPACTION_DEBUG === "1" ||
+        process.env.COMPACTION_DEBUG === "true"
+      ) {
+        console.error(
+          `[compaction-debug] updateActualUsage: no inputTokens/promptTokens in usage data, skipping (received keys: ${Object.keys(usage).join(", ")})`
+        );
+      }
+      return;
+    }
+
+    const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
     const totalTokens =
-      usage.totalTokens ?? Math.max(0, promptTokens + completionTokens);
+      usage.totalTokens ?? Math.max(0, inputTokens + outputTokens);
 
     this.actualUsage = {
-      promptTokens,
-      completionTokens,
+      inputTokens,
+      outputTokens,
       totalTokens,
       updatedAt: usage.updatedAt ?? new Date(),
     };
@@ -741,6 +755,7 @@ export class CheckpointHistory {
     }
 
     this.summaryMessageId = summaryMessage.id;
+    this.actualUsage = null;
     this.revision += 1;
     this.messageRevision += 1;
 
@@ -994,7 +1009,7 @@ export class CheckpointHistory {
 
   private getCurrentUsageTokens(): number {
     if (this.actualUsage) {
-      return this.actualUsage.promptTokens ?? this.actualUsage.totalTokens ?? 0;
+      return this.actualUsage.inputTokens;
     }
     return this.getEstimatedTokens() + this.systemPromptTokens;
   }
@@ -1252,6 +1267,7 @@ export class CheckpointHistory {
     } else {
       this.messages = pruneResult.messages;
     }
+    this.actualUsage = null;
     this.revision += 1;
     this.messageRevision += 1;
 
@@ -1311,6 +1327,7 @@ export class CheckpointHistory {
       summaryMessageId: this.summaryMessageId,
       revision: this.revision,
       messageRevision: this.messageRevision,
+      actualUsage: this.actualUsage,
     };
 
     let messagesToSummarize: CheckpointMessage[];
@@ -1344,6 +1361,7 @@ export class CheckpointHistory {
     } catch {
       this.messages = snapshot.messages;
       this.summaryMessageId = snapshot.summaryMessageId;
+      this.actualUsage = snapshot.actualUsage;
       this.revision = snapshot.revision;
       this.messageRevision = snapshot.messageRevision;
       return null;
@@ -1388,6 +1406,7 @@ export class CheckpointHistory {
       this.messages.push(replayMessageCopy);
     }
     this.summaryMessageId = summaryMessage.id;
+    this.actualUsage = null;
     this.revision += 1;
     this.messageRevision += 1;
 
@@ -1401,6 +1420,7 @@ export class CheckpointHistory {
     ) {
       this.messages = snapshot.messages;
       this.summaryMessageId = snapshot.summaryMessageId;
+      this.actualUsage = snapshot.actualUsage;
       this.revision = snapshot.revision;
       this.messageRevision = snapshot.messageRevision;
       return null;
@@ -1473,6 +1493,7 @@ export class CheckpointHistory {
       this.messageRevision += 1;
     }
 
+    this.actualUsage = null;
     const tokensAfter = this.getEstimatedTokens();
 
     if (tokensAfter >= contextLimit) {

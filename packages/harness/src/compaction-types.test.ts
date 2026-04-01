@@ -126,15 +126,15 @@ describe("compaction-types", () => {
   describe("SessionMetadata", () => {
     it("should have all required fields", () => {
       const metadata: SessionMetadata = {
-        completionTokens: 100,
+        outputTokens: 100,
         createdAt: Date.now(),
-        promptTokens: 50,
+        inputTokens: 50,
         sessionId: "session-123",
         summaryMessageId: null,
         updatedAt: Date.now(),
       };
-      expect(metadata.completionTokens).toBe(100);
-      expect(metadata.promptTokens).toBe(50);
+      expect(metadata.outputTokens).toBe(100);
+      expect(metadata.inputTokens).toBe(50);
       expect(metadata.sessionId).toBe("session-123");
       expect(metadata.summaryMessageId).toBeNull();
       expect(metadata.createdAt).toBeDefined();
@@ -143,9 +143,9 @@ describe("compaction-types", () => {
 
     it("should allow summaryMessageId as string after compaction", () => {
       const metadata: SessionMetadata = {
-        completionTokens: 200,
+        outputTokens: 200,
         createdAt: Date.now(),
-        promptTokens: 100,
+        inputTokens: 100,
         sessionId: "session-456",
         summaryMessageId: "summary-msg-id",
         updatedAt: Date.now(),
@@ -155,15 +155,15 @@ describe("compaction-types", () => {
 
     it("should have numeric token fields", () => {
       const metadata: SessionMetadata = {
-        completionTokens: 0,
+        outputTokens: 0,
         createdAt: Date.now(),
-        promptTokens: 0,
+        inputTokens: 0,
         sessionId: "session-zero",
         summaryMessageId: null,
         updatedAt: Date.now(),
       };
-      expect(typeof metadata.completionTokens).toBe("number");
-      expect(typeof metadata.promptTokens).toBe("number");
+      expect(typeof metadata.outputTokens).toBe("number");
+      expect(typeof metadata.inputTokens).toBe("number");
     });
   });
 
@@ -491,33 +491,31 @@ describe("compaction-types", () => {
   describe("ActualTokenUsage", () => {
     it("should have all required fields", () => {
       const usage: ActualTokenUsage = {
-        completionTokens: 100,
-        promptTokens: 50,
+        outputTokens: 100,
+        inputTokens: 50,
         totalTokens: 150,
         updatedAt: new Date(),
       };
-      expect(usage.completionTokens).toBe(100);
-      expect(usage.promptTokens).toBe(50);
+      expect(usage.outputTokens).toBe(100);
+      expect(usage.inputTokens).toBe(50);
       expect(usage.totalTokens).toBe(150);
       expect(usage.updatedAt).toBeInstanceOf(Date);
     });
 
-    it("should have totalTokens equal to sum of prompt and completion", () => {
+    it("should have totalTokens equal to sum of input and output", () => {
       const usage: ActualTokenUsage = {
-        completionTokens: 200,
-        promptTokens: 300,
+        outputTokens: 200,
+        inputTokens: 300,
         totalTokens: 500,
         updatedAt: new Date(),
       };
-      expect(usage.totalTokens).toBe(
-        usage.promptTokens + usage.completionTokens
-      );
+      expect(usage.totalTokens).toBe(usage.inputTokens + usage.outputTokens);
     });
 
     it("should allow zero values", () => {
       const usage: ActualTokenUsage = {
-        completionTokens: 0,
-        promptTokens: 0,
+        outputTokens: 0,
+        inputTokens: 0,
         totalTokens: 0,
         updatedAt: new Date(),
       };
@@ -1067,8 +1065,8 @@ describe("compaction-types", () => {
 
     it("should accept actualUsage", () => {
       const usage: ActualTokenUsage = {
-        completionTokens: 100,
-        promptTokens: 50,
+        outputTokens: 100,
+        inputTokens: 50,
         totalTokens: 150,
         updatedAt: new Date(),
       };
@@ -1305,7 +1303,7 @@ describe("compaction-types", () => {
         totalTokens: 150,
       };
 
-      expect(input1.completionTokens).toBeUndefined();
+      expect(input1.outputTokens).toBeUndefined();
       expect(input2.completionTokens).toBe(100);
       expect(input3.promptTokens).toBe(50);
       expect(input3.totalTokens).toBe(150);

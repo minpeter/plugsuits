@@ -69,10 +69,8 @@ export type AgentStreamResult = HarnessAgentStreamResult;
 export type ProviderType = "friendli" | "anthropic";
 
 export interface UsageMeasurement {
-  completionTokens: number;
   inputTokens: number;
   outputTokens: number;
-  promptTokens: number;
   totalTokens: number;
 }
 
@@ -98,33 +96,31 @@ const normalizeUsageMeasurement = (usage: unknown): UsageMeasurement | null => {
   }
 
   const usageRecord = usage as Record<string, unknown>;
-  const promptTokens = getUsageNumber(
+  const inputTokens = getUsageNumber(
     usageRecord,
-    "promptTokens",
-    "inputTokens"
+    "inputTokens",
+    "promptTokens"
   );
-  const completionTokens = getUsageNumber(
+  const outputTokens = getUsageNumber(
     usageRecord,
-    "completionTokens",
-    "outputTokens"
+    "outputTokens",
+    "completionTokens"
   );
   const totalTokens = getUsageNumber(usageRecord, "totalTokens");
 
   if (
-    promptTokens === undefined &&
-    completionTokens === undefined &&
+    inputTokens === undefined &&
+    outputTokens === undefined &&
     totalTokens === undefined
   ) {
     return null;
   }
 
   return {
-    promptTokens: promptTokens ?? 0,
-    inputTokens: promptTokens ?? 0,
-    completionTokens: completionTokens ?? 0,
-    outputTokens: completionTokens ?? 0,
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
     totalTokens:
-      totalTokens ?? Math.max(0, (promptTokens ?? 0) + (completionTokens ?? 0)),
+      totalTokens ?? Math.max(0, (inputTokens ?? 0) + (outputTokens ?? 0)),
   };
 };
 
@@ -590,12 +586,34 @@ export class AgentManager {
   }
 
   /**
+   * Parse CONTEXT_LIMIT_OVERRIDE when COMPACTION_DEBUG is active.
+   * Returns the override value if valid, or null if not applicable.
+   */
+  private getContextLimitOverride(): number | null {
+    if (
+      (process.env.COMPACTION_DEBUG === "1" ||
+        process.env.COMPACTION_DEBUG === "true") &&
+      process.env.CONTEXT_LIMIT_OVERRIDE
+    ) {
+      const override = Number.parseInt(process.env.CONTEXT_LIMIT_OVERRIDE, 10);
+      if (Number.isFinite(override) && override > 0) {
+        return override;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Get the token limits for the currently selected model.
    * Used by compaction and context management systems.
    */
   getModelTokenLimits(): ModelTokenLimits {
+    const contextLength =
+      this.getContextLimitOverride() ??
+      getModelContextLength(this.modelId, this.provider);
+
     return {
-      contextLength: getModelContextLength(this.modelId, this.provider),
+      contextLength,
       maxCompletionTokens: getModelMaxCompletionTokens(
         this.modelId,
         this.provider
@@ -612,18 +630,10 @@ export class AgentManager {
       this.provider
     );
 
-    // CONTEXT_LIMIT_OVERRIDE for testing — only active when COMPACTION_DEBUG is set
-    let effectiveContextLength = contextLength;
+    const contextOverride = this.getContextLimitOverride();
+    const effectiveContextLength = contextOverride ?? contextLength;
     let effectiveReserveTokens = compactionReserveTokens;
-    if (
-      (process.env.COMPACTION_DEBUG === "1" ||
-        process.env.COMPACTION_DEBUG === "true") &&
-      process.env.CONTEXT_LIMIT_OVERRIDE
-    ) {
-      effectiveContextLength = Number.parseInt(
-        process.env.CONTEXT_LIMIT_OVERRIDE,
-        10
-      );
+    if (contextOverride !== null) {
       const ratio = effectiveContextLength / contextLength;
       const scaledReserve = Math.max(
         256,
@@ -923,13 +933,11 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     }
 
     const probeMessageTokens = estimateTokens(TOKEN_PROBE_SENTINEL);
-    const promptTokens = Math.max(0, usage.promptTokens - probeMessageTokens);
+    const inputTokens = Math.max(0, usage.inputTokens - probeMessageTokens);
     return {
-      promptTokens,
-      inputTokens: promptTokens,
-      completionTokens: usage.completionTokens,
+      inputTokens,
       outputTokens: usage.outputTokens,
-      totalTokens: promptTokens + usage.completionTokens,
+      totalTokens: inputTokens + usage.outputTokens,
     };
   }
 }

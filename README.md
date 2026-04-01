@@ -132,6 +132,26 @@ pnpm run lint        # Lint — auto-fix
 pnpm run build       # Build (harness → cea)
 ```
 
+## Debugging
+
+### Compaction debugging
+
+The context compaction system can be debugged by setting environment variables:
+
+```bash
+# Enable compaction debug logging (stderr)
+COMPACTION_DEBUG=1 pnpm dev
+
+# Override the context limit to simulate a smaller context window
+COMPACTION_DEBUG=1 CONTEXT_LIMIT_OVERRIDE=32768 pnpm -F plugsuits dev -- -m zai-org/GLM-5
+```
+
+`COMPACTION_DEBUG=1` enables:
+- `[compaction-debug]` logs on stderr showing `needsCompaction`, `speculative?`, and `checkAndCompact` decisions each turn
+- `CONTEXT_LIMIT_OVERRIDE` support — forces the context limit to the given value regardless of the model's actual limit, useful for triggering compaction with fewer messages
+
+Both the TUI footer and the compaction engine will reflect the overridden limit. `CONTEXT_LIMIT_OVERRIDE` has no effect without `COMPACTION_DEBUG=1`.
+
 ## Built With
 
 - [Vercel AI SDK](https://sdk.vercel.ai) — Model provider abstraction and streaming

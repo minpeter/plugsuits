@@ -359,7 +359,7 @@ export interface AgentTUIMessageHistory {
     aggressive?: boolean;
     auto?: boolean;
   }): Promise<boolean | CompactionResult>;
-  getActualUsage(): { promptTokens?: number; totalTokens?: number } | null;
+  getActualUsage(): { inputTokens?: number; totalTokens?: number } | null;
   getCompactionConfig(): {
     contextLimit?: number;
     enabled?: boolean;
@@ -388,19 +388,15 @@ export interface AgentTUIMessageHistory {
   ): boolean;
   toModelMessages(): ModelMessage[];
   updateActualUsage(usage: {
-    completionTokens?: number;
     inputTokens?: number;
     outputTokens?: number;
-    promptTokens?: number;
     totalTokens?: number;
   }): void;
 }
 
 interface UsageMeasurement {
-  completionTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
-  promptTokens?: number;
   totalTokens?: number;
 }
 
@@ -587,31 +583,29 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     const usageRecord = usage as Record<string, unknown>;
-    const promptTokens = getUsageNumber(
+    const inputTokens = getUsageNumber(
       usageRecord,
-      "promptTokens",
-      "inputTokens"
+      "inputTokens",
+      "promptTokens"
     );
-    const completionTokens = getUsageNumber(
+    const outputTokens = getUsageNumber(
       usageRecord,
-      "completionTokens",
-      "outputTokens"
+      "outputTokens",
+      "completionTokens"
     );
     const totalTokens = getUsageNumber(usageRecord, "totalTokens");
 
     if (
-      promptTokens === undefined &&
-      completionTokens === undefined &&
+      inputTokens === undefined &&
+      outputTokens === undefined &&
       totalTokens === undefined
     ) {
       return null;
     }
 
     return {
-      promptTokens,
-      inputTokens: promptTokens,
-      completionTokens,
-      outputTokens: completionTokens,
+      inputTokens,
+      outputTokens,
       totalTokens,
     };
   };
@@ -825,10 +819,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     config.messageHistory.updateActualUsage({
-      completionTokens: measured.completionTokens,
       inputTokens: measured.inputTokens,
       outputTokens: measured.outputTokens,
-      promptTokens: measured.promptTokens,
       totalTokens: measured.totalTokens,
     });
     updateHeader();
@@ -1164,10 +1156,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     streamAbortController: AbortController;
     usage:
       | {
-          completionTokens?: number;
           inputTokens?: number;
           outputTokens?: number;
-          promptTokens?: number;
           totalTokens?: number;
         }
       | null

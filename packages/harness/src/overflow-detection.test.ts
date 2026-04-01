@@ -152,20 +152,20 @@ describe("isUsageSilentOverflow", () => {
     });
   });
 
-  describe("promptTokens field", () => {
-    it("returns true when promptTokens exceed contextWindow", () => {
+  describe("legacy promptTokens alias", () => {
+    it("returns true when legacy promptTokens exceed contextWindow", () => {
       const usage = { promptTokens: 100_000 };
       const contextWindow = 50_000;
       expect(isUsageSilentOverflow(usage, contextWindow)).toBe(true);
     });
 
-    it("returns false when promptTokens are within contextWindow", () => {
+    it("returns false when legacy promptTokens are within contextWindow", () => {
       const usage = { promptTokens: 40_000 };
       const contextWindow = 50_000;
       expect(isUsageSilentOverflow(usage, contextWindow)).toBe(false);
     });
 
-    it("returns false when promptTokens equal contextWindow", () => {
+    it("returns false when legacy promptTokens equal contextWindow", () => {
       const usage = { promptTokens: 50_000 };
       const contextWindow = 50_000;
       expect(isUsageSilentOverflow(usage, contextWindow)).toBe(false);

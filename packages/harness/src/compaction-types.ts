@@ -24,11 +24,11 @@ export interface CheckpointMessage {
 // --- Session Metadata ---
 
 export interface SessionMetadata {
-  completionTokens: number;
   createdAt: number;
-  promptTokens: number;
+  inputTokens: number;
+  outputTokens: number;
   sessionId: string;
-  summaryMessageId: string | null; // checkpoint pointer, null = no compaction yet
+  summaryMessageId: string | null;
   updatedAt: number;
 }
 
@@ -201,16 +201,18 @@ export interface PreparedCompactionV2 {
 // --- Token Tracking ---
 
 export interface ActualTokenUsage {
-  completionTokens: number;
-  promptTokens: number;
+  inputTokens: number;
+  outputTokens: number;
   totalTokens: number;
   updatedAt: Date;
 }
 
 export interface ActualTokenUsageInput {
+  /** @deprecated Use outputTokens instead. */
   completionTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /** @deprecated Use inputTokens instead. */
   promptTokens?: number;
   totalTokens?: number;
   updatedAt?: Date;

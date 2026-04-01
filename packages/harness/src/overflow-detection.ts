@@ -66,7 +66,7 @@ export function isContextOverflowError(error: unknown): boolean {
  * Silent overflows occur when the input tokens exceed the context window,
  * but the API doesn't explicitly reject the request.
  *
- * @param usage - Token usage object with inputTokens or promptTokens
+ * @param usage - Token usage object with inputTokens (or legacy promptTokens alias)
  * @param contextWindow - The LLM's context window size
  * @returns true if input tokens exceed the context window
  *

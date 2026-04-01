@@ -214,8 +214,8 @@ export interface ProcessStreamResult {
   currentText: string;
   shouldContinue: boolean;
   usage: {
-    completionTokens?: number;
-    promptTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
     totalTokens?: number;
   } | null;
 }

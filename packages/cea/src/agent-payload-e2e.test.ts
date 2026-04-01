@@ -171,9 +171,7 @@ describe("AgentManager Friendli payload E2E", () => {
     ]);
 
     expect(usage).toEqual({
-      promptTokens: 321,
       inputTokens: 321,
-      completionTokens: 1,
       outputTokens: 1,
       totalTokens: 322,
     });

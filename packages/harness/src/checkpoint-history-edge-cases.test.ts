@@ -911,7 +911,7 @@ describe("CheckpointHistory edge cases", () => {
     orchestrator.startSpeculative();
     await orchestrator.getLatestRunningSpeculativeCompaction()?.promise;
 
-    history.updateActualUsage({ promptTokens: 100, completionTokens: 50 });
+    history.updateActualUsage({ inputTokens: 100, outputTokens: 50 });
     history.setContextLimit(200);
     history.setSystemPromptTokens(500);
 
@@ -1022,7 +1022,7 @@ describe("CheckpointHistory edge cases", () => {
     const rev1 = history.getMessageRevision();
     expect(rev1).toBe(rev0 + 1);
 
-    history.updateActualUsage({ promptTokens: 100 });
+    history.updateActualUsage({ inputTokens: 100 });
     expect(history.getMessageRevision()).toBe(rev1);
 
     history.setContextLimit(200);

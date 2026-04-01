@@ -911,19 +911,19 @@ describe("CheckpointHistory", () => {
     it("updateActualUsage stores usage and getActualUsage retrieves it", () => {
       const h = new CheckpointHistory();
       h.updateActualUsage({
-        promptTokens: 100,
-        completionTokens: 50,
+        inputTokens: 100,
+        outputTokens: 50,
         totalTokens: 150,
         updatedAt: new Date(),
       });
       const usage = h.getActualUsage();
       expect(usage).not.toBeNull();
-      expect(usage?.promptTokens).toBe(100);
-      expect(usage?.completionTokens).toBe(50);
+      expect(usage?.inputTokens).toBe(100);
+      expect(usage?.outputTokens).toBe(50);
       expect(usage?.totalTokens).toBe(150);
     });
 
-    it("normalizes AI SDK inputTokens/outputTokens usage into prompt/completion tokens", () => {
+    it("normalizes AI SDK inputTokens/outputTokens usage", () => {
       const h = new CheckpointHistory({ compaction: { contextLimit: 5000 } });
       h.updateActualUsage({
         inputTokens: 1000,
@@ -932,13 +932,13 @@ describe("CheckpointHistory", () => {
       });
 
       const usage = h.getActualUsage();
-      expect(usage?.promptTokens).toBe(1000);
-      expect(usage?.completionTokens).toBe(500);
+      expect(usage?.inputTokens).toBe(1000);
+      expect(usage?.outputTokens).toBe(500);
       expect(usage?.totalTokens).toBe(1500);
       expect(h.getContextUsage().used).toBe(1000);
     });
 
-    it("preserves legacy prompt/completion usage shape", () => {
+    it("accepts legacy promptTokens/completionTokens aliases as input", () => {
       const h = new CheckpointHistory({ compaction: { contextLimit: 5000 } });
       h.updateActualUsage({
         promptTokens: 1000,
@@ -947,8 +947,8 @@ describe("CheckpointHistory", () => {
       });
 
       const usage = h.getActualUsage();
-      expect(usage?.promptTokens).toBe(1000);
-      expect(usage?.completionTokens).toBe(500);
+      expect(usage?.inputTokens).toBe(1000);
+      expect(usage?.outputTokens).toBe(500);
       expect(usage?.totalTokens).toBe(1500);
       expect(h.getContextUsage().used).toBe(1000);
     });
@@ -961,8 +961,8 @@ describe("CheckpointHistory", () => {
     it("clear() resets actual usage to null", () => {
       const h = new CheckpointHistory();
       h.updateActualUsage({
-        promptTokens: 100,
-        completionTokens: 0,
+        inputTokens: 100,
+        outputTokens: 0,
         totalTokens: 100,
         updatedAt: new Date(),
       });
@@ -982,8 +982,8 @@ describe("CheckpointHistory", () => {
       const h = new CheckpointHistory();
       h.addUserMessage("hello");
       h.updateActualUsage({
-        promptTokens: 42,
-        completionTokens: 10,
+        inputTokens: 42,
+        outputTokens: 10,
         totalTokens: 52,
         updatedAt: new Date(),
       });
@@ -1292,8 +1292,8 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     }
 
     h.updateActualUsage({
-      promptTokens: 1000,
-      completionTokens: 500,
+      inputTokens: 1000,
+      outputTokens: 500,
       totalTokens: 1500,
       updatedAt: new Date(),
     });
@@ -1302,10 +1302,7 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     expect(result.success).toBe(true);
 
     const usage = h.getActualUsage();
-    expect(usage).not.toBeNull();
-    if (usage) {
-      expect(usage.promptTokens).toBe(1000);
-    }
+    expect(usage).toBeNull();
   });
 });
 
@@ -1336,8 +1333,8 @@ describe("systemPromptTokens in estimated usage", () => {
 
     // Set actual usage from API (already includes system prompt in API's total)
     h.updateActualUsage({
-      promptTokens: 4800,
-      completionTokens: 200,
+      inputTokens: 4800,
+      outputTokens: 200,
       totalTokens: 5000,
       updatedAt: new Date(),
     });
@@ -1347,12 +1344,12 @@ describe("systemPromptTokens in estimated usage", () => {
 
     const usage = h.getContextUsage();
     expect(usage.source).toBe("actual");
-    // Must be exactly 4800 (promptTokens from actual, NO +500 double-count)
-    // getContextUsage actual branch uses: this.actualUsage.promptTokens ?? this.actualUsage.totalTokens
+    // Must be exactly 4800 (inputTokens from actual, NO +500 double-count)
+    // getContextUsage actual branch uses: this.actualUsage.inputTokens
     expect(usage.used).toBe(4800);
   });
 
-  it("uses promptTokens instead of totalTokens for hard limit checks when actual usage is available", () => {
+  it("uses inputTokens instead of totalTokens for hard limit checks when actual usage is available", () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
@@ -1363,8 +1360,8 @@ describe("systemPromptTokens in estimated usage", () => {
     });
 
     h.updateActualUsage({
-      promptTokens: 400,
-      completionTokens: 24_600,
+      inputTokens: 400,
+      outputTokens: 24_600,
       totalTokens: 25_000,
       updatedAt: new Date(),
     });
@@ -1409,8 +1406,8 @@ describe("systemPromptTokens in estimated usage", () => {
 
     h.addUserMessage("investigate compaction timing");
     h.updateActualUsage({
-      promptTokens: 8500,
-      completionTokens: 0,
+      inputTokens: 8500,
+      outputTokens: 0,
       totalTokens: 8500,
       updatedAt: new Date(),
     });
@@ -1440,8 +1437,8 @@ describe("systemPromptTokens in estimated usage", () => {
   });
 });
 
-describe("post-recovery actualUsage preservation", () => {
-  it("preserves stale actualUsage after overflow recovery for runtime re-measurement", async () => {
+describe("post-recovery actualUsage invalidation", () => {
+  it("invalidates actualUsage after overflow recovery because addUserMessage resets stale measurements", async () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
@@ -1453,8 +1450,8 @@ describe("post-recovery actualUsage preservation", () => {
     });
 
     h.updateActualUsage({
-      promptTokens: 1000,
-      completionTokens: 500,
+      inputTokens: 1000,
+      outputTokens: 500,
       totalTokens: 1500,
       updatedAt: new Date(),
     });
@@ -1467,8 +1464,7 @@ describe("post-recovery actualUsage preservation", () => {
     expect(result.success).toBe(true);
 
     const usage = h.getActualUsage();
-    expect(usage).not.toBeNull();
-    expect(usage?.promptTokens).toBe(1000);
+    expect(usage).toBeNull();
   });
 
   it("actualUsage preserved after overflow recovery, runtime measures on next call", async () => {
@@ -1512,8 +1508,8 @@ describe("post-recovery actualUsage preservation", () => {
     expect(result.success).toBe(true);
 
     const realUsage = {
-      promptTokens: 42,
-      completionTokens: 8,
+      inputTokens: 42,
+      outputTokens: 8,
       totalTokens: 50,
       updatedAt: new Date(),
     };
@@ -1524,7 +1520,7 @@ describe("post-recovery actualUsage preservation", () => {
 
     if (usage) {
       expect(usage.totalTokens).toBe(50);
-      expect(usage.promptTokens).toBe(42);
+      expect(usage.inputTokens).toBe(42);
     }
   });
 });
@@ -1662,5 +1658,91 @@ describe("speculative compaction fires before blocking", () => {
       expect(speculativeFirstAt).toBeLessThan(blockingFirstAt);
       expect(blockingFirstAt - speculativeFirstAt).toBeGreaterThanOrEqual(10);
     }
+  });
+});
+
+describe("updateActualUsage — totalTokens must not be misattributed as inputTokens", () => {
+  it("does not store totalTokens as inputTokens when inputTokens is missing", () => {
+    const h = new CheckpointHistory({ compaction: { contextLimit: 32_768 } });
+    h.addUserMessage("hello");
+    h.updateActualUsage({ totalTokens: 19_063, outputTokens: 11_000 });
+    const usage = h.getContextUsage();
+    // totalTokens (19063) should NOT be used as input usage —
+    // it includes output tokens and would cause premature compaction
+    expect(usage.used).not.toBe(19_063);
+    expect(usage.source).toBe("estimated");
+  });
+
+  it("treats inputTokens=0 as a valid value (does not fall through to totalTokens)", () => {
+    const h = new CheckpointHistory({ compaction: { contextLimit: 5000 } });
+    h.addUserMessage("hello");
+    h.updateActualUsage({
+      inputTokens: 0,
+      outputTokens: 500,
+      totalTokens: 500,
+    });
+    const usage = h.getContextUsage();
+    // inputTokens=0 is a valid measurement; context usage should be 0
+    expect(usage.used).toBe(0);
+    expect(usage.source).toBe("actual");
+  });
+
+  it("correctly stores inputTokens when present alongside totalTokens", () => {
+    const h = new CheckpointHistory({ compaction: { contextLimit: 5000 } });
+    h.addUserMessage("hello");
+    h.updateActualUsage({
+      inputTokens: 8384,
+      outputTokens: 11_000,
+      totalTokens: 19_384,
+    });
+    const usage = h.getContextUsage();
+    expect(usage.used).toBe(8384);
+    expect(usage.source).toBe("actual");
+  });
+});
+
+describe("stale actualUsage invalidation after message changes", () => {
+  it("invalidates actualUsage after addModelMessages", () => {
+    const h = new CheckpointHistory({ compaction: { contextLimit: 5000 } });
+    h.addUserMessage("hello");
+    h.updateActualUsage({
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+    });
+    expect(h.getActualUsage()).not.toBeNull();
+
+    h.addModelMessages([{ role: "assistant", content: "world" }]);
+
+    // After adding new messages, the prior actual usage is stale
+    // and must be invalidated so getCurrentUsageTokens falls back to estimated
+    expect(h.getActualUsage()).toBeNull();
+    expect(h.getContextUsage().source).toBe("estimated");
+  });
+
+  it("invalidates actualUsage after compact", async () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        contextLimit: 5000,
+        enabled: true,
+        maxTokens: 100,
+        summarizeFn: async () => "summary",
+      },
+    });
+    h.addUserMessage("hello");
+    h.addModelMessages([{ role: "assistant", content: "a ".repeat(500) }]);
+    h.addUserMessage("another message");
+    h.updateActualUsage({
+      inputTokens: 4500,
+      outputTokens: 100,
+      totalTokens: 4600,
+    });
+    expect(h.getActualUsage()).not.toBeNull();
+
+    await h.compact();
+
+    // After compaction rewrites the message history, usage is stale
+    expect(h.getActualUsage()).toBeNull();
+    expect(h.getContextUsage().source).toBe("estimated");
   });
 });
