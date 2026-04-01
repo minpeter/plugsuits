@@ -74,18 +74,6 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
     reasoning: {
       ...DEFAULT_FRIENDLI_REASONING,
     },
-    masked: true,
-  },
-  {
-    id: "zai-org/GLM-5",
-    name: "GLM 5",
-    provider: "friendli",
-    type: "serverless",
-    contextLength: 202_752,
-    maxCompletionTokens: 202_752,
-    reasoning: {
-      ...DEFAULT_FRIENDLI_REASONING,
-    },
   },
 ] as const;
 

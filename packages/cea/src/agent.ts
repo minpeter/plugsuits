@@ -586,12 +586,10 @@ export class AgentManager {
   }
 
   /**
-   * Get the token limits for the currently selected model.
-   * Used by compaction and context management systems.
+   * Parse CONTEXT_LIMIT_OVERRIDE when COMPACTION_DEBUG is active.
+   * Returns the override value if valid, or null if not applicable.
    */
-  getModelTokenLimits(): ModelTokenLimits {
-    let contextLength = getModelContextLength(this.modelId, this.provider);
-
+  private getContextLimitOverride(): number | null {
     if (
       (process.env.COMPACTION_DEBUG === "1" ||
         process.env.COMPACTION_DEBUG === "true") &&
@@ -599,9 +597,20 @@ export class AgentManager {
     ) {
       const override = Number.parseInt(process.env.CONTEXT_LIMIT_OVERRIDE, 10);
       if (Number.isFinite(override) && override > 0) {
-        contextLength = override;
+        return override;
       }
     }
+    return null;
+  }
+
+  /**
+   * Get the token limits for the currently selected model.
+   * Used by compaction and context management systems.
+   */
+  getModelTokenLimits(): ModelTokenLimits {
+    const contextLength =
+      this.getContextLimitOverride() ??
+      getModelContextLength(this.modelId, this.provider);
 
     return {
       contextLength,
@@ -621,18 +630,10 @@ export class AgentManager {
       this.provider
     );
 
-    // CONTEXT_LIMIT_OVERRIDE for testing — only active when COMPACTION_DEBUG is set
-    let effectiveContextLength = contextLength;
+    const contextOverride = this.getContextLimitOverride();
+    const effectiveContextLength = contextOverride ?? contextLength;
     let effectiveReserveTokens = compactionReserveTokens;
-    if (
-      (process.env.COMPACTION_DEBUG === "1" ||
-        process.env.COMPACTION_DEBUG === "true") &&
-      process.env.CONTEXT_LIMIT_OVERRIDE
-    ) {
-      const override = Number.parseInt(process.env.CONTEXT_LIMIT_OVERRIDE, 10);
-      if (Number.isFinite(override) && override > 0) {
-        effectiveContextLength = override;
-      }
+    if (contextOverride !== null) {
       const ratio = effectiveContextLength / contextLength;
       const scaledReserve = Math.max(
         256,

@@ -359,6 +359,14 @@ export class CheckpointHistory {
     const inputTokens = usage.inputTokens ?? usage.promptTokens;
 
     if (inputTokens === undefined || inputTokens === null) {
+      if (
+        process.env.COMPACTION_DEBUG === "1" ||
+        process.env.COMPACTION_DEBUG === "true"
+      ) {
+        console.error(
+          `[compaction-debug] updateActualUsage: no inputTokens/promptTokens in usage data, skipping (received keys: ${Object.keys(usage).join(", ")})`
+        );
+      }
       return;
     }
 
@@ -1395,6 +1403,7 @@ export class CheckpointHistory {
       this.messages.push(replayMessageCopy);
     }
     this.summaryMessageId = summaryMessage.id;
+    this.actualUsage = null;
     this.revision += 1;
     this.messageRevision += 1;
 
