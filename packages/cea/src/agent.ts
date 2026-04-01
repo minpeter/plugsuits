@@ -594,8 +594,18 @@ export class AgentManager {
    * Used by compaction and context management systems.
    */
   getModelTokenLimits(): ModelTokenLimits {
+    let contextLength = getModelContextLength(this.modelId, this.provider);
+
+    if (
+      (process.env.COMPACTION_DEBUG === "1" ||
+        process.env.COMPACTION_DEBUG === "true") &&
+      process.env.CONTEXT_LIMIT_OVERRIDE
+    ) {
+      contextLength = Number.parseInt(process.env.CONTEXT_LIMIT_OVERRIDE, 10);
+    }
+
     return {
-      contextLength: getModelContextLength(this.modelId, this.provider),
+      contextLength,
       maxCompletionTokens: getModelMaxCompletionTokens(
         this.modelId,
         this.provider

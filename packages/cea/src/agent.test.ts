@@ -171,7 +171,7 @@ summary`);
 
   it("uses a soft compaction threshold and earlier speculative ratio based on usable input budget", () => {
     agentManager.setProvider("friendli");
-    agentManager.setModelId("compact-test");
+    agentManager.setModelId("zai-org/GLM-5");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(
@@ -187,20 +187,19 @@ summary`);
     history.setContextLimit(contextLength);
     history.addUserMessage("hello");
 
+    const reserveTokens = compaction.reserveTokens ?? 0;
     const expectedRatio = computeSpeculativeStartRatio(
       contextLength,
-      compaction.reserveTokens ?? 0
+      reserveTokens
     );
     const expectedMaxTokens = computeCompactionMaxTokens(
       contextLength,
-      compaction.reserveTokens ?? 0
+      reserveTokens
     );
     const expectedThresholdRatio = computeAdaptiveThresholdRatio(contextLength);
 
     expect(compaction.maxTokens).toBe(expectedMaxTokens);
     expect(compaction.thresholdRatio).toBe(expectedThresholdRatio);
-    expect(agentManager.getModelTokenLimits().maxCompletionTokens).toBe(32_768);
-    expect(compaction.reserveTokens).toBe(2048);
     expect(compaction.keepRecentTokens).toBe(
       Math.min(
         Math.floor(contextLength * 0.3),
@@ -208,11 +207,17 @@ summary`);
       )
     );
     expect(compaction.speculativeStartRatio).toBe(expectedRatio);
-    expect(expectedRatio).toBeCloseTo(0.75, 2);
+
+    // Speculative fires before blocking for a well-calibrated config
+    const blockingThreshold = Math.floor(
+      contextLength *
+        Math.min(expectedThresholdRatio, expectedMaxTokens / contextLength)
+    );
+    const speculativeThreshold = Math.floor(blockingThreshold * expectedRatio);
 
     history.updateActualUsage({
-      totalTokens: 16_000,
-      promptTokens: 16_000,
+      totalTokens: speculativeThreshold + 1,
+      promptTokens: speculativeThreshold + 1,
       completionTokens: 0,
       updatedAt: new Date(),
     });
@@ -220,8 +225,8 @@ summary`);
     expect(history.needsCompaction()).toBe(false);
 
     history.updateActualUsage({
-      totalTokens: 20_000,
-      promptTokens: 20_000,
+      totalTokens: blockingThreshold + 1,
+      promptTokens: blockingThreshold + 1,
       completionTokens: 0,
       updatedAt: new Date(),
     });
@@ -236,7 +241,7 @@ summary`);
 
   it("buildCompactionConfig includes getStructuredState callback", () => {
     agentManager.setProvider("friendli");
-    agentManager.setModelId("compact-test");
+    agentManager.setModelId("zai-org/GLM-5");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(

@@ -87,19 +87,6 @@ export const FRIENDLI_MODELS: readonly FriendliModelInfo[] = [
       ...DEFAULT_FRIENDLI_REASONING,
     },
   },
-  {
-    id: "compact-test",
-    apiModelId: "zai-org/GLM-5",
-    name: "GLM 5 (32k compact test)",
-    provider: "friendli",
-    type: "serverless",
-    contextLength: 32_768,
-    compactionReserveTokens: 2048,
-    maxCompletionTokens: 32_768,
-    reasoning: {
-      ...DEFAULT_FRIENDLI_REASONING,
-    },
-  },
 ] as const;
 
 export const getFriendliModelById = (
