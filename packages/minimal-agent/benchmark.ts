@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import {
   CheckpointHistory,
   CompactionOrchestrator,
@@ -448,10 +449,7 @@ function printResults(
   console.log();
 }
 
-async function runBenchmark(opts: {
-  contextLimit: number;
-  modelId: string;
-}): Promise<void> {
+async function runBenchmark(opts: { contextLimit: number; modelId: string }) {
   const { contextLimit, modelId } = opts;
 
   const thresholdRatio = 0.65;
@@ -581,6 +579,47 @@ async function runBenchmark(opts: {
   }
 
   printResults(metrics, contextLimit, blockingThreshold, speculativeThreshold);
+
+  return {
+    contextLimit,
+    blockingThreshold,
+    speculativeThreshold,
+    modelId,
+    turns: metrics.map((m) => ({
+      turn: m.turn,
+      type: m.type,
+      contextAfter: m.contextAfter,
+      compactionEvent: m.compactionEvent || null,
+      probeScore: m.probeScore || null,
+    })),
+    probes: metrics
+      .filter((m) => m.type === "probe")
+      .map((m) => {
+        const parts = (m.probeScore || "0/0").split("/").map(Number);
+        return { turn: m.turn, found: parts[0], expected: parts[1] };
+      }),
+    summary: (() => {
+      const probes = metrics.filter((m) => m.type === "probe");
+      let found = 0;
+      let expected = 0;
+      for (const p of probes) {
+        const parts = (p.probeScore || "0/0").split("/").map(Number);
+        found += parts[0];
+        expected += parts[1];
+      }
+      const compactionCount = metrics.filter((m) =>
+        m.compactionEvent.includes("compacted")
+      ).length;
+      const maxTokens = Math.max(...metrics.map((m) => m.contextAfter));
+      return {
+        totalFound: found,
+        totalExpected: expected,
+        retentionPct: expected > 0 ? Math.round((found / expected) * 100) : 0,
+        compactionCycles: compactionCount,
+        peakTokens: maxTokens,
+      };
+    })(),
+  };
 }
 
 const main = defineCommand({
@@ -599,6 +638,11 @@ const main = defineCommand({
       type: "string",
       description: "Model ID (default: zai-org/GLM-5)",
     },
+    output: {
+      alias: ["o"],
+      type: "string",
+      description: "Write JSON results to file path",
+    },
   },
   async run({ args }) {
     const contextLimit = Number.parseInt(args.contextLimit || "4096", 10);
@@ -609,7 +653,12 @@ const main = defineCommand({
       process.exit(1);
     }
 
-    await runBenchmark({ contextLimit, modelId });
+    const result = await runBenchmark({ contextLimit, modelId });
+
+    if (args.output) {
+      writeFileSync(args.output, JSON.stringify(result, null, 2));
+      process.stderr.write(`\nJSON results written to ${args.output}\n`);
+    }
   },
 });
 
