@@ -15,18 +15,32 @@ When the user shares personal information (name, preferences, pets, job, hobbies
 When asked to recall information, list ALL known facts — do not omit any details.`;
 
 const CHATBOT_COMPACTION_PROMPT = `[INTERNAL COMPACTION — NOT USER INPUT]
-Summarize this conversation to preserve the user's identity and all shared facts.
+This is a summarization task. Do NOT call any tools. Respond with text only.
+Recent messages are preserved separately — focus your summary on OLDER messages only.
 
-## User Profile
-Extract ALL personal details the user shared: name, job, location, pets, hobbies, preferences, favorites, family, routines, goals, and any other facts. Use bullet points. Omit nothing.
+First, wrap your analysis in <analysis> tags to organize your thoughts:
+1. Chronologically review each user message and identify every personal fact shared
+2. Check if there is a <previous-summary> — if so, extract ALL user facts from it
+3. Merge old facts with new facts, ensuring nothing is lost
+4. Verify completeness: have you captured every name, place, preference, pet, person, date, and detail?
 
-## Conversation Highlights
-Summarize key topics discussed, questions asked, and advice given. Keep it brief but include any specific recommendations or decisions.
+Then provide your summary in <summary> tags with these sections:
 
-## Current Topic
-What was the most recent topic of conversation? What would the user likely ask about next?
+## 1. User Profile
+Extract ALL personal details from the ENTIRE conversation history AND any <previous-summary>.
+Use bullet points. Include: name, job, location, pets (name, breed, age, tricks), family (names, relationships), hobbies, preferences, favorites (food, book, color, movie, music), routines, goals, and any other facts.
+CRITICAL: If a <previous-summary> contains user facts, you MUST carry them forward even if they were not mentioned in recent messages. Never drop facts.
 
-Respond with ONLY the <summary>...</summary> block.`;
+## 2. All User Messages
+List every user message (not tool results) as a brief summary. This preserves the user's intent and feedback trail.
+
+## 3. Key Conversations
+Summarize important topics: questions asked, advice given, decisions made. Be brief but specific.
+
+## 4. Current State
+What was being discussed most recently? What would the user likely ask about next?
+
+Output format: <analysis>your thinking</analysis><summary>your summary</summary>`;
 
 const C = {
   reset: "\x1b[0m",
