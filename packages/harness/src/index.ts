@@ -25,6 +25,11 @@ export {
   resolveRegisteredCommandName,
 } from "./commands";
 export type {
+  CompactionCircuitBreakerOptions,
+  CompactionCircuitBreakerState,
+} from "./compaction-circuit-breaker";
+export { CompactionCircuitBreaker } from "./compaction-circuit-breaker";
+export type {
   BlockingCompactionEvent,
   BlockingCompactionReason,
   BlockingCompactionStage,
@@ -71,6 +76,11 @@ export {
   getLastUserText,
   getMessageText,
 } from "./message-text";
+export type {
+  MicroCompactOptions,
+  MicroCompactResult,
+} from "./micro-compact";
+export { microCompactMessages } from "./micro-compact";
 export type { MiddlewareConfig } from "./middleware";
 export { buildMiddlewareChain } from "./middleware";
 export {
@@ -80,6 +90,8 @@ export {
 export type { AgentPaths, AgentPathsOptions } from "./paths";
 export { createAgentPaths } from "./paths";
 export { SessionManager } from "./session";
+export type { MemoryFact, SessionMemoryConfig } from "./session-memory";
+export { SessionMemoryTracker } from "./session-memory";
 export type { SessionData } from "./session-store";
 export { SessionStore } from "./session-store";
 export {
