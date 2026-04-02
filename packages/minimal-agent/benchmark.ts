@@ -2,7 +2,6 @@ import { writeFileSync } from "node:fs";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import {
   BackgroundMemoryExtractor,
-  CHAT_MEMORY_PRESET,
   CheckpointHistory,
   CompactionOrchestrator,
   createModelSummarizer,
@@ -625,11 +624,12 @@ async function runBenchmark(opts: {
   const memoryExtractor = new BackgroundMemoryExtractor({
     model,
     store: new InMemoryStore(),
-    preset: CHAT_MEMORY_PRESET,
+    preset: "chat",
     thresholds: {
-      minTokenGrowth: 300,
-      minTurns: 2,
+      minTokenGrowth: 500,
+      minTurns: 5,
     },
+    maxExtractionTokens: 500,
   });
 
   const history = new CheckpointHistory({

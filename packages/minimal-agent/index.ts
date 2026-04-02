@@ -1,6 +1,5 @@
 import {
   BackgroundMemoryExtractor,
-  CHAT_MEMORY_PRESET,
   CheckpointHistory,
   type Command,
   CompactionCircuitBreaker,
@@ -168,11 +167,12 @@ const main = defineCommand({
     const memoryExtractor = new BackgroundMemoryExtractor({
       model,
       store: memoryStore,
-      preset: CHAT_MEMORY_PRESET,
+      preset: "chat",
       thresholds: {
-        minTokenGrowth: 300,
-        minTurns: 2,
+        minTokenGrowth: 500,
+        minTurns: 5,
       },
+      maxExtractionTokens: 500,
     });
     const compaction = createCompactionConfig(model, memoryExtractor);
     const messageHistory = new CheckpointHistory({

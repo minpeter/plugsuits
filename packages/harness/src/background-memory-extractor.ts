@@ -49,13 +49,15 @@ export class BackgroundMemoryExtractor {
   private tokensSinceLastExtraction = 0;
   private turnsSinceLastExtraction = 0;
 
+  private hasExtractedAtLeastOnce = false;
+
   constructor(config: BackgroundMemoryExtractorConfig) {
     this.config = config;
 
     const resolved = resolvePresetConfig(config.preset);
     this.preset = resolved.preset;
     this.defaults = resolved.defaults;
-    this.cachedState = this.preset.template;
+    this.cachedState = undefined;
     this.initialization = this.initializeStore();
   }
 
@@ -84,6 +86,9 @@ export class BackgroundMemoryExtractor {
   }
 
   getStructuredState(): string | undefined {
+    if (!this.hasExtractedAtLeastOnce) {
+      return undefined;
+    }
     const content = this.cachedState?.trim();
     return content && content.length > 0 ? this.cachedState : undefined;
   }
@@ -127,6 +132,7 @@ export class BackgroundMemoryExtractor {
     if (extracted) {
       await this.config.store.write(extracted);
       this.cachedState = extracted;
+      this.hasExtractedAtLeastOnce = true;
     }
 
     this.resetCounters();

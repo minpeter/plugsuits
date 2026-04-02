@@ -76,14 +76,14 @@ function createDeferred<T>(): {
 }
 
 describe("BackgroundMemoryExtractor", () => {
-  it("initializes empty store with preset template", async () => {
+  it("returns undefined structured state before first extraction", async () => {
     const extractor = new BackgroundMemoryExtractor({
       model: createMockModel("<memory>unused</memory>"),
       store: new InMemoryStore(),
       preset: "chat",
     });
 
-    expect(extractor.getStructuredState()).toBe(CHAT_MEMORY_PRESET.template);
+    expect(extractor.getStructuredState()).toBeUndefined();
     expect(await extractor.getMemoryContent()).toBe(
       CHAT_MEMORY_PRESET.template
     );
