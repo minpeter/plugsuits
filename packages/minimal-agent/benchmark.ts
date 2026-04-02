@@ -201,6 +201,127 @@ const TURNS: TurnDef[] = [
       "Final test: what was the very first thing I told you about myself, and what is my sister's name?",
     expected: ["Alice", "Italian", "Emma"],
   },
+
+  // Block 7: Extended conversation (turns 31-34)
+  {
+    type: "fact",
+    message:
+      "I just adopted a cat named Luna. She is a black cat, about 2 years old.",
+  },
+  {
+    type: "fact",
+    message:
+      "My favorite restaurant is called Trattoria Milano. They make amazing risotto.",
+  },
+  {
+    type: "fact",
+    message: "I am learning to play guitar. I started about 3 months ago.",
+  },
+  {
+    type: "chat",
+    message:
+      "What are some easy Italian songs I could learn on guitar as a beginner?",
+  },
+  // Probe 7 (turn 35): test old + new facts after likely compaction
+  {
+    type: "probe",
+    message:
+      "What pets do I have? List all of them with their names and details.",
+    expected: ["Max", "golden retriever", "Luna", "cat"],
+  },
+
+  // Block 8: More depth (turns 36-39)
+  {
+    type: "fact",
+    message: "My birthday is March 15th. I am turning 30 this year.",
+  },
+  {
+    type: "fact",
+    message: "I recently got promoted to senior engineer at my startup.",
+  },
+  {
+    type: "fact",
+    message: "My partner's name is David. He works as a teacher.",
+  },
+  {
+    type: "chat",
+    message:
+      "David and I want to cook a special Italian dinner for my birthday. What would you suggest for a 4-course menu?",
+  },
+  // Probe 8 (turn 40): cross-reference old and new facts
+  {
+    type: "probe",
+    message:
+      "Tell me about my family and relationships — who are the people in my life?",
+    expected: ["Emma", "David", "sister", "partner"],
+  },
+
+  // Block 9: Lifestyle updates (turns 41-44)
+  {
+    type: "fact",
+    message: "I switched from running 5k to training for a half marathon.",
+  },
+  {
+    type: "fact",
+    message:
+      "I just finished reading Project Hail Mary by Andy Weir. Loved it even more than Dune.",
+  },
+  {
+    type: "fact",
+    message:
+      "Luna and Max actually get along really well. They sleep together on the couch.",
+  },
+  {
+    type: "chat",
+    message:
+      "Can you recommend some science fiction books similar to Project Hail Mary and Dune?",
+  },
+  // Probe 9 (turn 45): test deep memory after multiple compactions
+  {
+    type: "probe",
+    message:
+      "What is my name, where do I work, and what programming language do I use?",
+    expected: ["Alice", "senior engineer", "Rust"],
+  },
+
+  // Block 10: Final stretch (turns 46-49)
+  {
+    type: "fact",
+    message:
+      "I am planning to visit the Amalfi Coast next summer with David for my birthday trip.",
+  },
+  {
+    type: "fact",
+    message:
+      "I started a food blog where I share my grandmother's Italian recipes.",
+  },
+  {
+    type: "fact",
+    message:
+      "Max just learned a new trick: he can now catch a frisbee mid-air!",
+  },
+  {
+    type: "chat",
+    message:
+      "What are the must-visit spots on the Amalfi Coast for food lovers?",
+  },
+  // Probe 10 (turn 50): comprehensive final recall
+  {
+    type: "probe",
+    message:
+      "Give me a complete summary of everything you know about me — name, job, city, pets, family, hobbies, favorites, and goals.",
+    expected: [
+      "Alice",
+      "Rust",
+      "San Francisco",
+      "Max",
+      "Luna",
+      "David",
+      "Emma",
+      "Italian",
+      "hiking",
+    ],
+  },
 ];
 
 interface TurnMetrics {
@@ -466,6 +587,7 @@ function printResults(
 }
 
 async function runBenchmark(opts: {
+  baseline?: boolean;
   contextLimit: number;
   model: LanguageModel;
   modelId: string;
@@ -481,7 +603,7 @@ async function runBenchmark(opts: {
 
   const summarizeFn = createModelSummarizer(model, {
     contextLimit,
-    prompt: CHATBOT_COMPACTION_PROMPT,
+    ...(opts.baseline ? {} : { prompt: CHATBOT_COMPACTION_PROMPT }),
   });
 
   const history = new CheckpointHistory({
@@ -665,6 +787,11 @@ const main = defineCommand({
       type: "string",
       description: "Provider: friendli (default) or anthropic",
     },
+    baseline: {
+      type: "boolean",
+      description:
+        "Use default compaction prompt instead of chatbot-optimized prompt",
+    },
   },
   async run({ args }) {
     const contextLimit = Number.parseInt(args.contextLimit || "4096", 10);
@@ -695,7 +822,12 @@ const main = defineCommand({
       model = friendli(modelId);
     }
 
-    const result = await runBenchmark({ contextLimit, model, modelId });
+    const result = await runBenchmark({
+      baseline: args.baseline === true,
+      contextLimit,
+      model,
+      modelId,
+    });
 
     if (args.output) {
       writeFileSync(args.output, JSON.stringify(result, null, 2));
