@@ -13,8 +13,9 @@
   },
   "dependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
-    "@ai-sdk-tool/tui": "workspace:*",
     "@ai-sdk-tool/headless": "workspace:*",
+    "@ai-sdk-tool/tui": "workspace:*",
+    "@ai-sdk/anthropic": "^3.0.58",
     "@friendliai/ai-provider": "^1.1.7",
     "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",

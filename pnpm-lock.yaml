@@ -161,6 +161,9 @@ importers:
       '@ai-sdk-tool/tui':
         specifier: workspace:*
         version: link:../tui
+      '@ai-sdk/anthropic':
+        specifier: ^3.0.58
+        version: 3.0.58(zod@4.3.6)
       '@friendliai/ai-provider':
         specifier: ^1.1.7
         version: 1.1.7(zod@4.3.6)

@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import {
   CheckpointHistory,
   CompactionOrchestrator,
@@ -6,7 +7,7 @@ import {
   estimateTokens,
 } from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
-import { generateText, type ModelMessage } from "ai";
+import { generateText, type LanguageModel, type ModelMessage } from "ai";
 import { defineCommand, runMain } from "citty";
 
 const SYSTEM_PROMPT =
@@ -200,7 +201,7 @@ interface TurnMetrics {
 }
 
 async function callModel(
-  model: ReturnType<ReturnType<typeof createFriendli>>,
+  model: LanguageModel,
   messages: ModelMessage[],
   maxRetries = 1
 ): Promise<{
@@ -449,8 +450,12 @@ function printResults(
   console.log();
 }
 
-async function runBenchmark(opts: { contextLimit: number; modelId: string }) {
-  const { contextLimit, modelId } = opts;
+async function runBenchmark(opts: {
+  contextLimit: number;
+  model: LanguageModel;
+  modelId: string;
+}) {
+  const { contextLimit, model, modelId } = opts;
 
   const thresholdRatio = 0.65;
   const speculativeRatio = 0.8;
@@ -459,12 +464,6 @@ async function runBenchmark(opts: { contextLimit: number; modelId: string }) {
   const blockingThreshold = Math.floor(contextLimit * thresholdRatio);
   const speculativeThreshold = Math.floor(blockingThreshold * speculativeRatio);
 
-  const friendli = createFriendli({
-    apiKey: process.env.FRIENDLI_TOKEN ?? "",
-    baseURL: process.env.FRIENDLI_BASE_URL || "serverless",
-    includeUsage: true,
-  });
-  const model = friendli(modelId);
   const summarizeFn = createModelSummarizer(model, { contextLimit });
 
   const history = new CheckpointHistory({
@@ -643,17 +642,42 @@ const main = defineCommand({
       type: "string",
       description: "Write JSON results to file path",
     },
+    provider: {
+      alias: ["p"],
+      type: "string",
+      description: "Provider: friendli (default) or anthropic",
+    },
   },
   async run({ args }) {
     const contextLimit = Number.parseInt(args.contextLimit || "4096", 10);
-    const modelId = args.model || process.env.FRIENDLI_MODEL || "zai-org/GLM-5";
+    const provider = args.provider || "friendli";
 
-    if (!process.env.FRIENDLI_TOKEN) {
-      process.stderr.write("Error: FRIENDLI_TOKEN required\n");
-      process.exit(1);
+    let model: LanguageModel;
+    let modelId: string;
+
+    if (provider === "anthropic") {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        process.stderr.write("Error: ANTHROPIC_API_KEY required\n");
+        process.exit(1);
+      }
+      modelId = args.model || "claude-sonnet-4-20250514";
+      const anthropic = createAnthropic({});
+      model = anthropic(modelId);
+    } else {
+      if (!process.env.FRIENDLI_TOKEN) {
+        process.stderr.write("Error: FRIENDLI_TOKEN required\n");
+        process.exit(1);
+      }
+      modelId = args.model || process.env.FRIENDLI_MODEL || "zai-org/GLM-5";
+      const friendli = createFriendli({
+        apiKey: process.env.FRIENDLI_TOKEN ?? "",
+        baseURL: process.env.FRIENDLI_BASE_URL || "serverless",
+        includeUsage: true,
+      });
+      model = friendli(modelId);
     }
 
-    const result = await runBenchmark({ contextLimit, modelId });
+    const result = await runBenchmark({ contextLimit, model, modelId });
 
     if (args.output) {
       writeFileSync(args.output, JSON.stringify(result, null, 2));
