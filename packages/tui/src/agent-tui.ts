@@ -3,6 +3,7 @@ import {
   type CommandAction,
   type CommandResult,
   CompactionOrchestrator,
+  type CompactionOrchestratorCallbacks,
   type CompactionResult,
   estimateTokens,
   executeCommand,
@@ -463,6 +464,7 @@ export async function retryStreamTurnOnNoOutput<T>(params: {
 export interface AgentTUIConfig {
   agent: RunnableAgent;
   commands?: Command[];
+  compactionCallbacks?: CompactionOrchestratorCallbacks;
   footer?: { text?: string };
   header?: { title: string; subtitle?: string };
   measureUsage?: (messages: ModelMessage[]) => Promise<UsageMeasurement | null>;
@@ -692,18 +694,26 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     return detail;
   };
 
+  const userCompactionCallbacks = config.compactionCallbacks;
+
   const compactionOrchestrator = new CompactionOrchestrator(
     config.messageHistory,
     {
-      onApplied: ({ baseMessageCount, jobId, newMessageCount, tokenDelta }) => {
+      ...userCompactionCallbacks,
+      onApplied: (appliedDetail) => {
+        const { baseMessageCount, jobId, newMessageCount, tokenDelta } =
+          appliedDetail;
         const saved = Math.abs(tokenDelta);
         const usage = config.messageHistory.getContextUsage();
         const after = usage ? `${usage.used}` : "?";
         const summarizedCount = baseMessageCount - newMessageCount;
-        const detail = buildCompactionDetail(saved, after, summarizedCount);
-        addCompactionNotice(formatCompactionAppliedNotice({ detail, jobId }));
+        const detailText = buildCompactionDetail(saved, after, summarizedCount);
+        addCompactionNotice(
+          formatCompactionAppliedNotice({ detail: detailText, jobId })
+        );
         updateHeader();
         tui.requestRender();
+        userCompactionCallbacks?.onApplied?.(appliedDetail);
       },
       onBlockingChange: (event) => {
         if (event.blocking) {
@@ -714,6 +724,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
             "Compacting...",
             "running"
           );
+          userCompactionCallbacks?.onBlockingChange?.(event);
           return;
         }
 
@@ -721,11 +732,19 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         clearBackgroundStatus("blocking-compaction");
         updateHeader();
         tui.requestRender();
+        userCompactionCallbacks?.onBlockingChange?.(event);
+      },
+      onCompactionComplete: (result) => {
+        userCompactionCallbacks?.onCompactionComplete?.(result);
+      },
+      onCompactionError: (error) => {
+        userCompactionCallbacks?.onCompactionError?.(error);
       },
       onError: (message, error) => {
         console.error(`${message}:`, error);
+        userCompactionCallbacks?.onError?.(message, error);
       },
-      onJobStatus: (id, _message, state) => {
+      onJobStatus: (id, message, state) => {
         if (
           !shouldDisplayBackgroundCompactionStatus({
             blockingCompactionActive,
@@ -737,6 +756,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           }
           updateHeader();
           tui.requestRender();
+          userCompactionCallbacks?.onJobStatus?.(id, message, state);
           return;
         }
 
@@ -747,11 +767,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         }
         updateHeader();
         tui.requestRender();
+        userCompactionCallbacks?.onJobStatus?.(id, message, state);
       },
       onRejected: () => {
         addCompactionNotice("↻ Compaction skipped (no token reduction)");
         updateHeader();
         tui.requestRender();
+        userCompactionCallbacks?.onRejected?.();
       },
       onSpeculativeReady: () => {
         const result = compactionOrchestrator.applyReady();
@@ -763,6 +785,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
             })
             .catch(Boolean);
         }
+        userCompactionCallbacks?.onSpeculativeReady?.();
       },
       onStillExceeded: () => {
         addCompactionNotice(
@@ -770,6 +793,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         );
         updateHeader();
         tui.requestRender();
+        userCompactionCallbacks?.onStillExceeded?.();
       },
     }
   );

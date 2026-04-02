@@ -18,6 +18,7 @@ import type {
   PruningConfig,
 } from "./compaction-types";
 import { createContinuationMessage } from "./continuation";
+import { microCompactMessages } from "./micro-compact";
 import type { SessionStore } from "./session-store";
 import {
   estimateMessageTokens,
@@ -30,6 +31,7 @@ const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
   contextLimit: 0,
   enabled: false,
   getStructuredState: undefined,
+  microCompact: undefined,
   maxTokens: 8000,
   keepRecentTokens: 2000,
   reserveTokens: 2000,
@@ -69,11 +71,17 @@ export function getContinuationText(
 
 type NormalizedCompactionConfig = Omit<
   Required<CompactionConfig>,
-  "getStructuredState" | "speculativeStartRatio" | "summarizeFn"
+  | "getStructuredState"
+  | "microCompact"
+  | "speculativeStartRatio"
+  | "summarizeFn"
 > &
   Pick<
     CompactionConfig,
-    "getStructuredState" | "speculativeStartRatio" | "summarizeFn"
+    | "getStructuredState"
+    | "microCompact"
+    | "speculativeStartRatio"
+    | "summarizeFn"
   >;
 
 export interface CheckpointHistoryOptions {
@@ -674,7 +682,11 @@ export class CheckpointHistory {
 
     const toSummarizeForSummary = this.prePruneMessagesForSummary(toSummarize);
 
-    if (toSummarizeForSummary.length === 0) {
+    const toSummarizeForCompaction = this.applyMicroCompactionForSummary(
+      toSummarizeForSummary
+    );
+
+    if (toSummarizeForCompaction.length === 0) {
       return {
         success: false,
         tokensBefore,
@@ -700,7 +712,7 @@ export class CheckpointHistory {
       previousSummary,
       splitIndex,
       summarizeFn,
-      toSummarizeForSummary,
+      toSummarizeForSummary: toSummarizeForCompaction,
     });
 
     if (!summaryText || summaryText.trim().length === 0) {
@@ -801,6 +813,37 @@ export class CheckpointHistory {
     }
 
     return toSummarize;
+  }
+
+  private applyMicroCompactionForSummary(
+    messagesToSummarize: CheckpointMessage[]
+  ): CheckpointMessage[] {
+    const microCompactSetting = this.compactionConfig.microCompact;
+    const shouldRunMicroCompact =
+      microCompactSetting === true ||
+      (typeof microCompactSetting === "object" && microCompactSetting !== null);
+
+    if (!shouldRunMicroCompact) {
+      return messagesToSummarize;
+    }
+
+    const result = microCompactMessages(
+      messagesToSummarize,
+      typeof microCompactSetting === "object" && microCompactSetting !== null
+        ? microCompactSetting
+        : undefined
+    );
+
+    if (
+      process.env.COMPACTION_DEBUG === "1" ||
+      process.env.COMPACTION_DEBUG === "true"
+    ) {
+      console.error(
+        `[compaction-debug] microCompact: modified=${result.messagesModified}, tokensSaved=${result.tokensSaved}`
+      );
+    }
+
+    return result.messages;
   }
 
   async handleContextOverflow(

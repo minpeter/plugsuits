@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import type { MicroCompactOptions } from "./micro-compact";
 
 // Forward declaration types for messages that reference Message
 // (Message is defined in message-history.ts to avoid circular imports)
@@ -83,6 +84,8 @@ export interface CompactionConfig {
    * @minimum 0
    */
   maxTokens?: number;
+
+  microCompact?: MicroCompactOptions | boolean;
 
   /**
    * Tokens reserved for model output generation.

@@ -2,6 +2,9 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
   type CompactionConfig,
+  computeAdaptiveThresholdRatio as computeAdaptiveThresholdRatioFromPolicy,
+  computeCompactionMaxTokens as computeCompactionMaxTokensFromPolicy,
+  computeSpeculativeStartRatio as computeSpeculativeStartRatioFromPolicy,
   createAgent,
   createModelSummarizer,
   estimateTokens,
@@ -991,52 +994,16 @@ export function createAgentManager(options?: {
 
 export const agentManager = createAgentManager();
 
-export const computeAdaptiveThresholdRatio = (
-  contextLength: number
-): number => {
-  if (!(contextLength > 0)) {
-    return 0.5;
-  }
-
-  if (contextLength <= 16_000) {
-    return 0.45;
-  }
-  if (contextLength <= 32_000) {
-    return 0.5;
-  }
-  if (contextLength <= 64_000) {
-    return 0.55;
-  }
-  if (contextLength <= 128_000) {
-    return 0.6;
-  }
-  return 0.65;
-};
+export const computeAdaptiveThresholdRatio = (contextLength: number): number =>
+  computeAdaptiveThresholdRatioFromPolicy(contextLength);
 
 export const computeCompactionMaxTokens = (
   contextLength: number,
   reserveTokens: number
-): number => {
-  if (!(contextLength > 0)) {
-    return 8000;
-  }
-
-  const usableInputBudget = Math.max(
-    1,
-    contextLength - Math.max(0, reserveTokens)
-  );
-  return Math.max(1024, Math.floor(usableInputBudget * 0.8));
-};
+): number => computeCompactionMaxTokensFromPolicy(contextLength, reserveTokens);
 
 export const computeSpeculativeStartRatio = (
   contextLength: number,
   reserveTokens: number
-): number => {
-  if (!(contextLength > 0)) {
-    return 0.75;
-  }
-
-  const softBudget = computeCompactionMaxTokens(contextLength, reserveTokens);
-  const speculativeThreshold = Math.max(512, Math.floor(softBudget * 0.75));
-  return Math.max(0.15, Math.min(0.95, speculativeThreshold / softBudget));
-};
+): number =>
+  computeSpeculativeStartRatioFromPolicy(contextLength, reserveTokens);

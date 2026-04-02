@@ -51,6 +51,9 @@ export {
 } from "./compaction-planner";
 export type { CompactionPolicyInput } from "./compaction-policy";
 export {
+  computeAdaptiveThresholdRatio,
+  computeCompactionMaxTokens,
+  computeSpeculativeStartRatio,
   getRecommendedMaxOutputTokens,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,

@@ -1,4 +1,5 @@
 import type { OverflowRecoveryResult } from "./checkpoint-history";
+import type { CompactionCircuitBreaker } from "./compaction-circuit-breaker";
 import {
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
@@ -71,6 +72,21 @@ export interface CompactionOrchestratorCallbacks extends CompactionCallbacks {
   onRejected?: () => void;
   onSpeculativeReady?: () => void;
   onStillExceeded?: () => void;
+}
+
+export interface CompactionOrchestratorOptions {
+  callbacks?: CompactionOrchestratorCallbacks;
+  circuitBreaker?: CompactionCircuitBreaker;
+}
+
+function isCompactionOrchestratorOptions(
+  value: unknown
+): value is CompactionOrchestratorOptions {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return "callbacks" in value || "circuitBreaker" in value;
 }
 
 export function discardAllJobsCore(params: {
@@ -322,6 +338,7 @@ function toCompactionResult(
 
 export class CompactionOrchestrator {
   private readonly callbacks: CompactionOrchestratorCallbacks;
+  private readonly circuitBreaker: CompactionCircuitBreaker | undefined;
   private readonly history: CompactionHistoryLike | null;
   private compactionInProgress = false;
   private jobCounter = 0;
@@ -330,24 +347,58 @@ export class CompactionOrchestrator {
 
   constructor(
     history: CompactionHistoryLike,
-    callbacks?: CompactionOrchestratorCallbacks
+    callbacksOrOptions?:
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions
   );
-  constructor(callbacks?: CompactionOrchestratorCallbacks);
+  constructor(
+    callbacksOrOptions?:
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions
+  );
   constructor(
     historyOrCallbacks?:
       | CompactionHistoryLike
-      | CompactionOrchestratorCallbacks,
-    maybeCallbacks?: CompactionOrchestratorCallbacks
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions,
+    maybeCallbacks?:
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions
   ) {
+    const resolveCallbacks = (
+      value?: CompactionOrchestratorCallbacks | CompactionOrchestratorOptions
+    ): CompactionOrchestratorCallbacks => {
+      if (!value) {
+        return {};
+      }
+
+      if (isCompactionOrchestratorOptions(value)) {
+        return value.callbacks ?? {};
+      }
+
+      return value;
+    };
+
+    const resolveCircuitBreaker = (
+      value?: CompactionOrchestratorCallbacks | CompactionOrchestratorOptions
+    ): CompactionCircuitBreaker | undefined => {
+      if (!(value && isCompactionOrchestratorOptions(value))) {
+        return undefined;
+      }
+
+      return value.circuitBreaker;
+    };
+
     if (isHistoryLike(historyOrCallbacks)) {
       this.history = historyOrCallbacks;
-      this.callbacks = maybeCallbacks ?? {};
+      this.callbacks = resolveCallbacks(maybeCallbacks);
+      this.circuitBreaker = resolveCircuitBreaker(maybeCallbacks);
       return;
     }
 
     this.history = null;
-    this.callbacks =
-      (historyOrCallbacks as CompactionOrchestratorCallbacks) ?? {};
+    this.callbacks = resolveCallbacks(historyOrCallbacks);
+    this.circuitBreaker = resolveCircuitBreaker(historyOrCallbacks);
   }
 
   private debugLog(message: string): void {
@@ -402,6 +453,11 @@ export class CompactionOrchestrator {
 
   async checkAndCompact(): Promise<boolean> {
     const history = this.requireHistory();
+
+    if (this.circuitBreaker?.isOpen()) {
+      this.debugLog("checkAndCompact skip: circuit breaker open");
+      return false;
+    }
 
     if (this.compactionInProgress || !this.needsCompaction(history)) {
       this.debugLog(
@@ -948,9 +1004,15 @@ export class CompactionOrchestrator {
 
     try {
       const result = toCompactionResult(await history.compact(options));
+      if (result.success) {
+        this.circuitBreaker?.recordSuccess();
+      }
       this.emitCompactionResult(result, { phase: "new-turn" });
       return result;
     } catch (error) {
+      this.circuitBreaker?.recordFailure(
+        error instanceof Error ? error.message : String(error)
+      );
       this.reportError("Compaction failed", error);
       return {
         ...DEFAULT_FAILURE_RESULT,
@@ -968,6 +1030,18 @@ export class CompactionOrchestrator {
         });
       }
     }
+  }
+
+  getState(): {
+    circuitBreakerOpen: boolean;
+    compactionInProgress: boolean;
+    jobs: number;
+  } {
+    return {
+      circuitBreakerOpen: this.circuitBreaker?.isOpen() ?? false,
+      compactionInProgress: this.compactionInProgress,
+      jobs: this.jobs.filter((job) => !job.discarded).length,
+    };
   }
 
   private emitCompactionResult(

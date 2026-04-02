@@ -1,5 +1,7 @@
 import type {
   CheckpointHistory,
+  CompactionAppliedDetail,
+  CompactionOrchestratorCallbacks,
   ModelMessage,
   RunnableAgent,
 } from "@ai-sdk-tool/harness";
@@ -152,6 +154,7 @@ function getRecommendedMaxOutputTokens(
 
 export interface HeadlessRunnerConfig {
   agent: RunnableAgent;
+  compactionCallbacks?: CompactionOrchestratorCallbacks;
   emitEvent?: (event: TrajectoryEvent) => void;
   initialUserMessage?: InitialUserMessage;
   maxIterations?: number;
@@ -214,13 +217,15 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
 
     return true;
   };
+  const userCompactionCallbacks = config.compactionCallbacks;
   const baseCompactionCallbacks = isMetricsEnabled
     ? {
-        onApplied: () => {
+        onApplied: (detail: CompactionAppliedDetail) => {
           console.error(
             "[compaction] Applied: context reduced, some older messages were summarized"
           );
           emitMetric?.({ event: "applied", turn: turnNumber });
+          userCompactionCallbacks?.onApplied?.(detail);
         },
         onError: (message: string, error: unknown) => {
           console.error(`${message} in headless runner:`, error);
@@ -229,114 +234,141 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
             turn: turnNumber,
             message: String(message),
           });
+          userCompactionCallbacks?.onError?.(message, error);
         },
         onRejected: () => {
           console.error(
             "[compaction] Compaction rejected: summary would not reduce tokens"
           );
           emitMetric?.({ event: "rejected", turn: turnNumber });
+          userCompactionCallbacks?.onRejected?.();
         },
         onStillExceeded: () => {
           console.warn(
             "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
           );
           emitMetric?.({ event: "still_exceeded", turn: turnNumber });
+          userCompactionCallbacks?.onStillExceeded?.();
         },
       }
     : {
-        onApplied: () => {
+        onApplied: (detail: CompactionAppliedDetail) => {
           console.error(
             "[compaction] Applied: context reduced, some older messages were summarized"
           );
+          userCompactionCallbacks?.onApplied?.(detail);
         },
         onError: (message: string, error: unknown) => {
           console.error(`${message} in headless runner:`, error);
+          userCompactionCallbacks?.onError?.(message, error);
         },
         onRejected: () => {
           console.error(
             "[compaction] Compaction rejected: summary would not reduce tokens"
           );
+          userCompactionCallbacks?.onRejected?.();
         },
         onStillExceeded: () => {
           console.warn(
             "[compaction] Hard limit still exceeded after retries — some context may be lost due to small context window. Proceeding with truncated context."
           );
+          userCompactionCallbacks?.onStillExceeded?.();
         },
       };
+  const metricsCompactionCallbacks: Partial<CompactionOrchestratorCallbacks> =
+    isMetricsEnabled
+      ? {
+          onCompactionStart: () => {
+            emitMetric?.({ event: "compaction_start", turn: turnNumber });
+          },
+          onCompactionComplete: (result) => {
+            emitMetric?.({
+              event: "compaction_complete",
+              turn: turnNumber,
+              success: result.success,
+              tokensBefore: result.tokensBefore,
+              tokensAfter: result.tokensAfter,
+              strategy: (result as unknown as Record<string, unknown>).strategy,
+            });
+          },
+          onCompactionError: (error: unknown) => {
+            emitMetric?.({
+              event: "compaction_error",
+              turn: turnNumber,
+              error: String(error),
+            });
+          },
+          onBlockingChange: (event) => {
+            if (event.blocking) {
+              blockingStartTime = Date.now();
+              emitMetric?.({
+                event: "blocking_start",
+                turn: turnNumber,
+                reason: event.reason,
+                tokensBefore: event.tokensBefore,
+              });
+              return;
+            }
+
+            const durationMs =
+              blockingStartTime == null ? null : Date.now() - blockingStartTime;
+            blockingStartTime = null;
+            emitMetric?.({
+              event: "blocking_end",
+              turn: turnNumber,
+              durationMs,
+              reason: event.reason,
+              tokensBefore: event.tokensBefore,
+              tokensAfter: event.tokensAfter,
+            });
+          },
+          onJobStatus: (
+            id: string,
+            message: string,
+            state: "clear" | "running"
+          ) => {
+            emitMetric?.({
+              event: "job_status",
+              turn: turnNumber,
+              id,
+              message,
+              state,
+            });
+          },
+        }
+      : {};
   const compactionOrchestrator = new CompactionOrchestrator(
     config.messageHistory,
     {
       ...baseCompactionCallbacks,
+      ...metricsCompactionCallbacks,
+      onBlockingChange: (event) => {
+        metricsCompactionCallbacks.onBlockingChange?.(event);
+        userCompactionCallbacks?.onBlockingChange?.(event);
+      },
+      onCompactionComplete: (result) => {
+        metricsCompactionCallbacks.onCompactionComplete?.(result);
+        userCompactionCallbacks?.onCompactionComplete?.(result);
+      },
+      onCompactionError: (error) => {
+        metricsCompactionCallbacks.onCompactionError?.(error);
+        userCompactionCallbacks?.onCompactionError?.(error);
+      },
+      onCompactionStart: () => {
+        metricsCompactionCallbacks.onCompactionStart?.();
+        userCompactionCallbacks?.onCompactionStart?.();
+      },
+      onJobStatus: (id, message, state) => {
+        metricsCompactionCallbacks.onJobStatus?.(id, message, state);
+        userCompactionCallbacks?.onJobStatus?.(id, message, state);
+      },
       onSpeculativeReady: () => {
         const result = compactionOrchestrator.applyReady(config.messageHistory);
         if (result.applied) {
           measureUsageAfterCompaction().catch(Boolean);
         }
+        userCompactionCallbacks?.onSpeculativeReady?.();
       },
-      ...(isMetricsEnabled
-        ? {
-            onCompactionStart: () => {
-              emitMetric?.({ event: "compaction_start", turn: turnNumber });
-            },
-            onCompactionComplete: (result) => {
-              emitMetric?.({
-                event: "compaction_complete",
-                turn: turnNumber,
-                success: result.success,
-                tokensBefore: result.tokensBefore,
-                tokensAfter: result.tokensAfter,
-                strategy: (result as unknown as Record<string, unknown>)
-                  .strategy,
-              });
-            },
-            onCompactionError: (error: unknown) => {
-              emitMetric?.({
-                event: "compaction_error",
-                turn: turnNumber,
-                error: String(error),
-              });
-            },
-            onBlockingChange: (event) => {
-              if (event.blocking) {
-                blockingStartTime = Date.now();
-                emitMetric?.({
-                  event: "blocking_start",
-                  turn: turnNumber,
-                  reason: event.reason,
-                  tokensBefore: event.tokensBefore,
-                });
-                return;
-              }
-
-              const durationMs =
-                blockingStartTime == null
-                  ? null
-                  : Date.now() - blockingStartTime;
-              blockingStartTime = null;
-              emitMetric?.({
-                event: "blocking_end",
-                turn: turnNumber,
-                durationMs,
-                reason: event.reason,
-                tokensBefore: event.tokensBefore,
-                tokensAfter: event.tokensAfter,
-              });
-            },
-            onJobStatus: (
-              id: string,
-              message: string,
-              state: "clear" | "running"
-            ) => {
-              emitMetric?.({
-                event: "job_status",
-                turn: turnNumber,
-                id,
-                message,
-                state,
-              });
-            },
-          }
-        : {}),
     }
   );
 

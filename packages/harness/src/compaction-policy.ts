@@ -112,6 +112,54 @@ export function getRecommendedMaxOutputTokens(params: {
   return Math.max(0, Math.floor(remaining * safetyMargin));
 }
 
+export function computeAdaptiveThresholdRatio(contextLength: number): number {
+  if (!(contextLength > 0)) {
+    return 0.5;
+  }
+
+  if (contextLength <= 16_000) {
+    return 0.45;
+  }
+  if (contextLength <= 32_000) {
+    return 0.5;
+  }
+  if (contextLength <= 64_000) {
+    return 0.55;
+  }
+  if (contextLength <= 128_000) {
+    return 0.6;
+  }
+  return 0.65;
+}
+
+export function computeCompactionMaxTokens(
+  contextLength: number,
+  reserveTokens: number
+): number {
+  if (!(contextLength > 0)) {
+    return 8000;
+  }
+
+  const usableInputBudget = Math.max(
+    1,
+    contextLength - Math.max(0, reserveTokens)
+  );
+  return Math.max(1024, Math.floor(usableInputBudget * 0.8));
+}
+
+export function computeSpeculativeStartRatio(
+  contextLength: number,
+  reserveTokens: number
+): number {
+  if (!(contextLength > 0)) {
+    return 0.75;
+  }
+
+  const softBudget = computeCompactionMaxTokens(contextLength, reserveTokens);
+  const speculativeThreshold = Math.max(512, Math.floor(softBudget * 0.75));
+  return Math.max(0.15, Math.min(0.95, speculativeThreshold / softBudget));
+}
+
 /**
  * Returns true if the error indicates a context length exceeded error from a provider.
  * Used to trigger emergency overflow recovery compaction.
