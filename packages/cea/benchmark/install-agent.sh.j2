@@ -15,11 +15,14 @@ npm install -g corepack@latest
 corepack enable
 corepack prepare pnpm@10.32.1 --activate
 
-git clone --depth 1 --single-branch https://github.com/minpeter/code-editing-agent.git /agent
+AGENT_REPO="${AGENT_REPO:-https://github.com/minpeter/plugsuits.git}"
+AGENT_BRANCH="${AGENT_BRANCH:-feat/minimal-agent-speculative-compaction}"
+
+git clone --depth 1 --single-branch -b "$AGENT_BRANCH" "$AGENT_REPO" /agent
 cd /agent
 
 pnpm install --frozen-lockfile
 
-echo "code-editing-agent installed successfully"
+echo "agent installed successfully (branch: $AGENT_BRANCH)"
 node --version
 pnpm --version
