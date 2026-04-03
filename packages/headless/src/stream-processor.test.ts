@@ -16,7 +16,7 @@ describe("processStream", () => {
       },
       modelId: "mock-model",
       onMessages: () => undefined,
-      sessionId: "timeout-case",
+      stepId: 1,
       shouldContinue: (finishReason) => finishReason === "tool-calls",
       stream: {
         finishReason: Promise.resolve("stop"),
@@ -38,7 +38,6 @@ describe("processStream", () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: "error",
-        sessionId: "timeout-case",
         error: "Error: Stream response timeout",
       }),
     ]);
