@@ -3,11 +3,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CheckpointHistory,
+  type CheckpointMessage,
   type Command,
   type CommandContext,
   CompactionCircuitBreaker,
   CompactionOrchestrator,
+  type CompactionResult,
   estimateTokens,
+  PostCompactRestorer,
   parseCommand,
   type RunnableAgent,
   SessionManager,
@@ -220,6 +223,137 @@ const compactionCircuitBreaker = new CompactionCircuitBreaker();
 const compactionOrchestrator = new CompactionOrchestrator(messageHistory, {
   circuitBreaker: compactionCircuitBreaker,
 });
+const postCompactRestorer = new PostCompactRestorer();
+const trackedReadToolResultIds = new Set<string>();
+
+const toRecord = (value: unknown): Record<string, unknown> | null => {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+};
+
+const readTextFromOutput = (output: unknown): string => {
+  if (typeof output === "string") {
+    return output;
+  }
+
+  const outputRecord = toRecord(output);
+  if (outputRecord) {
+    const text = outputRecord.text;
+    if (typeof text === "string") {
+      return text;
+    }
+  }
+
+  try {
+    return JSON.stringify(output);
+  } catch {
+    return String(output);
+  }
+};
+
+const collectReadCallPathMap = (
+  messages: CheckpointMessage[]
+): Map<string, string> => {
+  const readCallPaths = new Map<string, string>();
+
+  for (const checkpointMessage of messages) {
+    if (checkpointMessage.message.role !== "assistant") {
+      continue;
+    }
+
+    const content = checkpointMessage.message.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const part of content) {
+      const record = toRecord(part);
+      if (
+        !record ||
+        record.type !== "tool-call" ||
+        record.toolName !== "read_file" ||
+        typeof record.toolCallId !== "string"
+      ) {
+        continue;
+      }
+
+      const input = toRecord(record.input);
+      const path = input?.path;
+      if (typeof path === "string" && path.trim().length > 0) {
+        readCallPaths.set(record.toolCallId, path);
+      }
+    }
+  }
+
+  return readCallPaths;
+};
+
+const trackReadResultPart = (
+  part: unknown,
+  readCallPaths: Map<string, string>
+): void => {
+  const record = toRecord(part);
+  if (!record || record.type !== "tool-result") {
+    return;
+  }
+
+  const toolCallId =
+    typeof record.toolCallId === "string" ? record.toolCallId : null;
+  if (!toolCallId || trackedReadToolResultIds.has(toolCallId)) {
+    return;
+  }
+
+  const path = readCallPaths.get(toolCallId);
+  if (!path) {
+    return;
+  }
+
+  const text = readTextFromOutput(record.output).trim();
+  if (text.length > 0) {
+    postCompactRestorer.trackItem({
+      content: text,
+      label: path,
+      priority: 100,
+      type: "file",
+    });
+  }
+
+  trackedReadToolResultIds.add(toolCallId);
+};
+
+const trackReadFileRestorationItems = (messages: CheckpointMessage[]): void => {
+  const readCallPaths = collectReadCallPathMap(messages);
+
+  for (const checkpointMessage of messages) {
+    if (checkpointMessage.message.role !== "tool") {
+      continue;
+    }
+
+    const content = checkpointMessage.message.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const part of content) {
+      trackReadResultPart(part, readCallPaths);
+    }
+  }
+};
+
+const handleCompactionComplete = (result: CompactionResult): void => {
+  if (!result.success) {
+    return;
+  }
+
+  const restorationMessage = postCompactRestorer.buildRestorationMessage();
+  if (!restorationMessage) {
+    return;
+  }
+
+  messageHistory.addUserMessage(restorationMessage);
+  postCompactRestorer.clear();
+};
 
 let requestedProcessExitCode: number | null = null;
 let signalShutdownRequested = false;
@@ -527,6 +661,12 @@ const mainCommand = defineCommand({
           maxIterations,
           messageHistory,
           modelId: agentManager.getModelId(),
+          compactionCallbacks: {
+            onCompactionComplete: handleCompactionComplete,
+          },
+          onTurnComplete: (messages) => {
+            trackReadFileRestorationItems(messages);
+          },
           onTodoReminder: async () => {
             const incompleteTodos = await getIncompleteTodos();
             if (incompleteTodos.length === 0) {
@@ -1061,6 +1201,9 @@ const mainCommand = defineCommand({
         messageHistory,
         skills,
         commands: createCliCommands(),
+        compactionCallbacks: {
+          onCompactionComplete: handleCompactionComplete,
+        },
         footer: {
           get text() {
             const contextUsage = messageHistory.getContextUsage();
@@ -1085,10 +1228,16 @@ const mainCommand = defineCommand({
         showRawToolIo: env.DEBUG_SHOW_RAW_TOOL_IO,
         preprocessCommand: createCommandPreprocessor(),
         preprocessUserInput: createTranslationPreprocessor(),
+        onTurnComplete: (messages) => {
+          trackReadFileRestorationItems(messages);
+        },
         onCommandAction: async (action) => {
           if (action.type === "new-session") {
             sessionManager.initialize();
             messageHistory.setSession(sessionManager.getId());
+            compactionCircuitBreaker.resetForNewSession();
+            postCompactRestorer.clear();
+            trackedReadToolResultIds.clear();
             await updateCompactionForCurrentModel();
             resetMissingLinesFailures();
           }

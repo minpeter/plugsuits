@@ -49,6 +49,8 @@ export interface CompactionConfig {
    */
   compactionDirection?: "keep-recent" | "keep-prefix";
 
+  contextCollapse?: boolean;
+
   /**
    * Maximum number of tokens allowed in the model's context window.
    * 모델의 컨텍스트 창에 허용되는 최대 토큰 수입니다.

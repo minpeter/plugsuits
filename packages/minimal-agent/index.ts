@@ -4,9 +4,12 @@ import {
   CompactionCircuitBreaker,
   type CompactionResult,
   type ContextUsage,
+  computeContextBudget,
   createAgent,
   createModelSummarizer,
   estimateTokens,
+  getContextPressureLevel,
+  PostCompactRestorer,
   SessionManager,
   SessionMemoryTracker,
 } from "@ai-sdk-tool/harness";
@@ -135,7 +138,14 @@ function formatContextUsage(contextUsage: ContextUsage): string {
     return `?/${formatTokens(contextUsage.limit)} (?)`;
   }
 
-  return `${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%)`;
+  const budget = computeContextBudget({
+    contextLimit: contextUsage.limit,
+    reserveTokens: COMPACTION_RESERVE_TOKENS,
+    thresholdRatio: COMPACTION_THRESHOLD_RATIO,
+  });
+  const pressure = getContextPressureLevel(contextUsage.used, budget);
+
+  return `${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%) [${pressure}]`;
 }
 
 const main = defineCommand({
@@ -160,6 +170,7 @@ const main = defineCommand({
     const sessionManager = new SessionManager("minimal-agent");
     sessionManager.initialize();
     const circuitBreaker = new CompactionCircuitBreaker();
+    const postCompactRestorer = new PostCompactRestorer();
     const sessionMemoryTracker = new SessionMemoryTracker();
     const selectedModelId = resolveModelId(args.model);
     const friendli = createFriendliProvider();
@@ -190,6 +201,13 @@ const main = defineCommand({
       if (!(result.success && result.summaryMessageId)) {
         return;
       }
+
+      const restorationMessage = postCompactRestorer.buildRestorationMessage();
+      if (restorationMessage) {
+        messageHistory.addUserMessage(restorationMessage);
+        postCompactRestorer.clear();
+      }
+
       const msg = messageHistory
         .getAll()
         .find((m) => m.id === result.summaryMessageId);
@@ -250,6 +268,8 @@ const main = defineCommand({
       onCommandAction: (action) => {
         if (action.type === "new-session") {
           sessionManager.initialize();
+          circuitBreaker.resetForNewSession();
+          postCompactRestorer.clear();
         }
       },
     });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ModelMessage, TextPart } from "ai";
 import { calculateCompactionSplitIndex } from "./compaction-planner";
 import {
+  computeContextBudget,
   getRecommendedMaxOutputTokens as getRecommendedMaxOutputTokensFromPolicy,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
@@ -17,6 +18,7 @@ import type {
   MessageLine,
   PruningConfig,
 } from "./compaction-types";
+import { collapseConsecutiveOps } from "./context-collapse";
 import { createContinuationMessage } from "./continuation";
 import { microCompactMessages } from "./micro-compact";
 import type { SessionStore } from "./session-store";
@@ -31,6 +33,7 @@ import { progressivePrune, pruneToolOutputs } from "./tool-pruning";
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
   compactionDirection: "keep-recent",
   contextLimit: 0,
+  contextCollapse: true,
   enabled: false,
   getStructuredState: undefined,
   microCompact: undefined,
@@ -493,7 +496,7 @@ export class CheckpointHistory {
   }
 
   needsCompaction(): boolean {
-    const contextLimit = this.getActiveContextLimit();
+    const contextLimit = this.getCompactionPolicyContextLimit();
     const configuredThresholdRatio =
       this.compactionConfig.thresholdRatio ?? 0.5;
     const maxTokensRatio =
@@ -525,7 +528,7 @@ export class CheckpointHistory {
       return false;
     }
 
-    const contextLimit = this.getActiveContextLimit();
+    const contextLimit = this.getCompactionPolicyContextLimit();
     const currentUsage = this.getCurrentUsageTokens();
 
     const configuredThresholdRatio =
@@ -931,17 +934,24 @@ export class CheckpointHistory {
   private applyMicroCompactionForSummary(
     messagesToSummarize: CheckpointMessage[]
   ): CheckpointMessage[] {
+    let preparedMessages = messagesToSummarize;
+
+    if (this.compactionConfig.contextCollapse !== false) {
+      const collapsed = collapseConsecutiveOps(preparedMessages);
+      preparedMessages = collapsed.messages;
+    }
+
     const microCompactSetting = this.compactionConfig.microCompact;
     const shouldRunMicroCompact =
       microCompactSetting === true ||
       (typeof microCompactSetting === "object" && microCompactSetting !== null);
 
     if (!shouldRunMicroCompact) {
-      return messagesToSummarize;
+      return preparedMessages;
     }
 
     const result = microCompactMessages(
-      messagesToSummarize,
+      preparedMessages,
       typeof microCompactSetting === "object" && microCompactSetting !== null
         ? microCompactSetting
         : undefined
@@ -1215,6 +1225,22 @@ export class CheckpointHistory {
     );
   }
 
+  private getCompactionPolicyContextLimit(): number {
+    const rawContextLimit = this.getActiveContextLimit();
+    if (rawContextLimit <= 0) {
+      return rawContextLimit;
+    }
+
+    const budget = computeContextBudget({
+      contextLimit: rawContextLimit,
+      maxOutputTokens: this.compactionConfig.maxTokens,
+      reserveTokens: this.compactionConfig.reserveTokens,
+      thresholdRatio: this.compactionConfig.thresholdRatio,
+    });
+
+    return budget.effectiveContextWindow;
+  }
+
   private getEffectiveReserveTokens(options?: {
     phase?: "new-turn" | "intermediate-step";
   }): number {
@@ -1286,7 +1312,7 @@ export class CheckpointHistory {
     }
 
     if (forceAggressive) {
-      return 1;
+      return adjustSplitIndexForToolPairs(activeMessages, 1);
     }
 
     const keepPrefixTokens = this.compactionConfig.keepRecentTokens ?? 2000;
@@ -1316,10 +1342,10 @@ export class CheckpointHistory {
     }
 
     if (splitIndex <= 0) {
-      return 1;
+      return adjustSplitIndexForToolPairs(activeMessages, 1);
     }
 
-    return splitIndex;
+    return adjustSplitIndexForToolPairs(activeMessages, splitIndex);
   }
 
   private async buildCompactionSummaryText(params: {

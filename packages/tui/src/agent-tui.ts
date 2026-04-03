@@ -1,4 +1,5 @@
 import {
+  analyzeContextTokens,
   type CheckpointMessage,
   type Command,
   type CommandAction,
@@ -7,8 +8,11 @@ import {
   CompactionOrchestrator,
   type CompactionOrchestratorCallbacks,
   type CompactionResult,
+  computeContextBudget,
   estimateTokens,
   executeCommand,
+  generateContextSuggestions,
+  getContextPressureLevel,
   isCommand,
   isContextOverflowError,
   isSkillCommandResult,
@@ -59,6 +63,8 @@ const ANSI_BG_GRAY = "\x1b[100m";
 const ANSI_CYAN = "\x1b[36m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_BRIGHT_YELLOW = "\x1b[93m";
 const ANSI_RED = "\x1b[31m";
 const CTRL_C_ETX = "\u0003";
 const CTRL_C_EXIT_WINDOW_MS = 500;
@@ -149,6 +155,7 @@ const truncatePlainToWidth = (text: string, maxWidth: number): string => {
 };
 
 interface FooterStatusEntry {
+  level?: "error" | "info" | "warning";
   message: string;
   state: "ready" | "running";
 }
@@ -159,6 +166,12 @@ class FooterStatusBar extends Text {
   private intervalId: NodeJS.Timeout | null = null;
   private entries: FooterStatusEntry[] = [];
   private rightText: string | undefined;
+  private rightTextPressure:
+    | "critical"
+    | "elevated"
+    | "normal"
+    | "warning"
+    | undefined;
   private readonly tui: TUI;
 
   constructor(tui: TUI) {
@@ -173,8 +186,12 @@ class FooterStatusBar extends Text {
     this.tui.requestRender();
   }
 
-  setRightText(text: string | undefined): void {
+  setRightText(
+    text: string | undefined,
+    pressure?: "critical" | "elevated" | "normal" | "warning"
+  ): void {
     this.rightText = text?.trim() || undefined;
+    this.rightTextPressure = pressure;
     this.invalidate();
     this.tui.requestRender();
   }
@@ -195,7 +212,10 @@ class FooterStatusBar extends Text {
     const lines: string[] = [];
     const rightTextPlain = this.rightText ?? "";
     const rightTextStyled = rightTextPlain
-      ? style(ANSI_DIM, rightTextPlain)
+      ? style(
+          this.resolvePressureStylePrefix(this.rightTextPressure),
+          rightTextPlain
+        )
       : "";
 
     const renderLeftEntry = (
@@ -206,6 +226,7 @@ class FooterStatusBar extends Text {
         entry.state === "running" ? this.frames[this.currentFrame] : "";
       const prefixStyle =
         entry.state === "running" ? style(ANSI_CYAN, prefix) : "";
+      const messageStylePrefix = this.resolveEntryStylePrefix(entry.level);
       const reservedPrefixWidth = prefix ? visibleWidth(prefix) + 1 : 0;
       const maxMessageWidth = Math.max(0, maxWidth - reservedPrefixWidth);
       const message = truncatePlainToWidth(entry.message, maxMessageWidth);
@@ -213,8 +234,8 @@ class FooterStatusBar extends Text {
       return {
         plain: prefix ? `${prefix}${message ? ` ${message}` : ""}` : message,
         styled: prefix
-          ? `${prefixStyle}${message ? ` ${style(ANSI_DIM, message)}` : ""}`
-          : style(ANSI_DIM, message),
+          ? `${prefixStyle}${message ? ` ${style(messageStylePrefix, message)}` : ""}`
+          : style(messageStylePrefix, message),
       };
     };
 
@@ -249,6 +270,33 @@ class FooterStatusBar extends Text {
       this.invalidate();
       this.tui.requestRender();
     }, 80);
+  }
+
+  private resolvePressureStylePrefix(
+    pressure: "critical" | "elevated" | "normal" | "warning" | undefined
+  ): string {
+    if (pressure === "critical") {
+      return `${ANSI_BOLD}${ANSI_RED}`;
+    }
+    if (pressure === "warning") {
+      return `${ANSI_BOLD}${ANSI_BRIGHT_YELLOW}`;
+    }
+    if (pressure === "elevated") {
+      return ANSI_YELLOW;
+    }
+    return ANSI_DIM;
+  }
+
+  private resolveEntryStylePrefix(
+    level: "error" | "info" | "warning" | undefined
+  ): string {
+    if (level === "error") {
+      return ANSI_RED;
+    }
+    if (level === "warning") {
+      return ANSI_YELLOW;
+    }
+    return ANSI_DIM;
   }
 }
 
@@ -371,6 +419,7 @@ export interface AgentTUIMessageHistory {
     maxTokens?: number;
     reserveTokens?: number;
     speculativeStartRatio?: number;
+    thresholdRatio?: number;
   };
   getContextUsage(): {
     limit: number;
@@ -530,12 +579,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     const headerTitle = config.header?.title ?? "Agent TUI";
     const subtitle = config.header?.subtitle;
     const footer = config.footer?.text?.trim();
+    const contextPressure = resolveContextPressure();
     title.setText(
       subtitle
         ? `${style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)}\n${style(ANSI_DIM, subtitle)}`
         : style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)
     );
-    footerStatusBar.setRightText(footer);
+    footerStatusBar.setRightText(footer, contextPressure ?? undefined);
+    refreshContextSuggestions(contextPressure);
     tui.requestRender();
   };
 
@@ -571,8 +622,69 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   let lastCtrlCPressAt = 0;
   let foregroundStatus: StatusSpinner | null = null;
   const backgroundStatuses = new Map<string, FooterStatusEntry>();
+  let contextSuggestionEntries: FooterStatusEntry[] = [];
   let blockingCompactionActive = false;
   let commandInputListenerActive = false;
+
+  const resolveContextPressure = ():
+    | "critical"
+    | "elevated"
+    | "normal"
+    | "warning"
+    | null => {
+    const usage = config.messageHistory.getContextUsage();
+    if (!usage || usage.limit <= 0) {
+      return null;
+    }
+
+    const compactionConfig = config.messageHistory.getCompactionConfig();
+    const budget = computeContextBudget({
+      contextLimit: usage.limit,
+      maxOutputTokens: compactionConfig.maxTokens,
+      reserveTokens: compactionConfig.reserveTokens,
+      thresholdRatio: compactionConfig.thresholdRatio,
+    });
+
+    return getContextPressureLevel(usage.used, budget);
+  };
+
+  const refreshContextSuggestions = (
+    pressure: "critical" | "elevated" | "normal" | "warning" | null
+  ): void => {
+    const usage = config.messageHistory.getContextUsage();
+    if (!(usage && usage.limit > 0)) {
+      contextSuggestionEntries = [];
+      renderFooterStatuses();
+      return;
+    }
+
+    const compactionConfig = config.messageHistory.getCompactionConfig();
+    const budget = computeContextBudget({
+      contextLimit: usage.limit,
+      maxOutputTokens: compactionConfig.maxTokens,
+      reserveTokens: compactionConfig.reserveTokens,
+      thresholdRatio: compactionConfig.thresholdRatio,
+    });
+
+    const stats = analyzeContextTokens(config.messageHistory.getAll(), {
+      topN: 3,
+    });
+    const suggestions = generateContextSuggestions(stats, budget, usage.used)
+      .filter((suggestion) => {
+        if (suggestion.level !== "info") {
+          return true;
+        }
+        return pressure !== "normal";
+      })
+      .slice(0, 2);
+
+    contextSuggestionEntries = suggestions.map((suggestion) => ({
+      level: suggestion.level,
+      message: suggestion.message,
+      state: "ready",
+    }));
+    renderFooterStatuses();
+  };
 
   const getUsageNumber = (
     usage: Record<string, unknown>,
@@ -641,7 +753,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   };
 
   const renderFooterStatuses = (): void => {
-    footerStatusBar.setEntries([...backgroundStatuses.values()]);
+    footerStatusBar.setEntries([
+      ...backgroundStatuses.values(),
+      ...contextSuggestionEntries,
+    ]);
   };
 
   const clearBackgroundStatus = (id: string): void => {

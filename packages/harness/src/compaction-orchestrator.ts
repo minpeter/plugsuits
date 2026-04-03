@@ -1,6 +1,7 @@
 import type { OverflowRecoveryResult } from "./checkpoint-history";
 import type { CompactionCircuitBreaker } from "./compaction-circuit-breaker";
 import {
+  computeContextBudget,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
   shouldStartSpeculativeCompaction,
@@ -840,12 +841,19 @@ export class CompactionOrchestrator {
   private resolvePolicyContextLimit(
     config: ReturnType<CompactionHistoryLike["getCompactionConfig"]>
   ): number {
-    const contextLimit = config.contextLimit ?? 0;
-    if (contextLimit > 0) {
-      return contextLimit;
-    }
+    const rawContextLimit =
+      (config.contextLimit ?? 0) > 0
+        ? (config.contextLimit ?? 0)
+        : Math.max(1, config.maxTokens ?? 0, (config.reserveTokens ?? 0) * 3);
 
-    return Math.max(1, config.maxTokens ?? 0, (config.reserveTokens ?? 0) * 3);
+    const budget = computeContextBudget({
+      contextLimit: rawContextLimit,
+      maxOutputTokens: config.maxTokens,
+      reserveTokens: config.reserveTokens,
+      thresholdRatio: config.thresholdRatio,
+    });
+
+    return Math.max(1, budget.effectiveContextWindow);
   }
 
   private needsCompaction(history: CompactionHistoryLike): boolean {
