@@ -7,6 +7,84 @@ export interface CompactionPolicyInput {
   thresholdRatio?: number;
 }
 
+export interface ContextBudget {
+  autoCompactAt: number;
+  effectiveContextWindow: number;
+  hardLimitAt: number;
+  rawContextWindow: number;
+  reservedForCompaction: number;
+  speculativeStartAt: number;
+  warningAt: number;
+}
+
+const DEFAULT_COMPACTION_OUTPUT_RESERVE_RATIO = 0.1;
+const MAX_COMPACTION_OUTPUT_RESERVE = 20_000;
+const MIN_COMPACTION_OUTPUT_RESERVE = 500;
+const WARNING_BUFFER_RATIO = 0.15;
+
+export function computeContextBudget(params: {
+  contextLimit: number;
+  maxOutputTokens?: number;
+  reserveTokens?: number;
+  thresholdRatio?: number;
+}): ContextBudget {
+  const {
+    contextLimit,
+    maxOutputTokens,
+    reserveTokens = 0,
+    thresholdRatio = 0.5,
+  } = params;
+
+  const compactionReserve = Math.min(
+    MAX_COMPACTION_OUTPUT_RESERVE,
+    Math.max(
+      MIN_COMPACTION_OUTPUT_RESERVE,
+      Math.floor(contextLimit * DEFAULT_COMPACTION_OUTPUT_RESERVE_RATIO)
+    )
+  );
+
+  const effectiveWindow = Math.max(0, contextLimit - compactionReserve);
+  const autoCompactAt = Math.floor(effectiveWindow * thresholdRatio);
+  const warningAt = Math.floor(effectiveWindow * (1 - WARNING_BUFFER_RATIO));
+  const hardLimitAt = Math.max(
+    0,
+    contextLimit - (maxOutputTokens ?? reserveTokens)
+  );
+  const speculativeStartAt = Math.floor(autoCompactAt * 0.75);
+
+  return {
+    autoCompactAt,
+    effectiveContextWindow: effectiveWindow,
+    hardLimitAt,
+    rawContextWindow: contextLimit,
+    reservedForCompaction: compactionReserve,
+    speculativeStartAt,
+    warningAt,
+  };
+}
+
+export type ContextPressureLevel =
+  | "normal"
+  | "elevated"
+  | "warning"
+  | "critical";
+
+export function getContextPressureLevel(
+  currentTokens: number,
+  budget: ContextBudget
+): ContextPressureLevel {
+  if (currentTokens >= budget.hardLimitAt) {
+    return "critical";
+  }
+  if (currentTokens >= budget.warningAt) {
+    return "warning";
+  }
+  if (currentTokens >= budget.autoCompactAt) {
+    return "elevated";
+  }
+  return "normal";
+}
+
 export function shouldStartSpeculativeCompaction(params: {
   contextLimit: number;
   input: CompactionPolicyInput;

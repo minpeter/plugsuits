@@ -51,11 +51,17 @@ export {
   calculateCompactionSplitIndex,
   calculateDefaultCompactionSplitIndex,
 } from "./compaction-planner";
-export type { CompactionPolicyInput } from "./compaction-policy";
+export type {
+  CompactionPolicyInput,
+  ContextBudget,
+  ContextPressureLevel,
+} from "./compaction-policy";
 export {
   computeAdaptiveThresholdRatio,
   computeCompactionMaxTokens,
+  computeContextBudget,
   computeSpeculativeStartRatio,
+  getContextPressureLevel,
   getRecommendedMaxOutputTokens,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
