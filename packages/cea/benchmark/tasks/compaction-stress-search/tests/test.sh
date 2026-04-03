@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+cd /agent
+
 REWARD=0
 PASS=0
 FAIL=0

@@ -1,6 +1,8 @@
 #!/bin/bash
 # Verifier for compaction-stress-short
 set -e
+cd /agent
+
 
 REWARD=0
 PASS=0
