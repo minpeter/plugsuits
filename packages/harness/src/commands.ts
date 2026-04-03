@@ -3,7 +3,7 @@ export interface CommandContext {
 }
 
 export interface CommandAction {
-  type: "new-session";
+  type: "compact" | "new-session";
 }
 
 export interface CommandResult {

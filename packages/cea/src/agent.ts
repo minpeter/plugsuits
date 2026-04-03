@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
@@ -9,9 +10,9 @@ import {
   createAgent,
   createModelSummarizer,
   estimateTokens,
+  FileMemoryStore,
   type AgentStreamOptions as HarnessAgentStreamOptions,
   type AgentStreamResult as HarnessAgentStreamResult,
-  InMemoryStore,
   type PruningConfig,
 } from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
@@ -57,6 +58,11 @@ export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_CAP = 64_000;
 const DEFAULT_CONTEXT_LENGTH = 200_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
+const DEFAULT_SESSION_MEMORY_STORE_PATH = join(
+  process.cwd(),
+  ".plugsuits",
+  "session-memory.md"
+);
 
 type ProviderOptions = AiProviderOptions | undefined;
 
@@ -511,7 +517,7 @@ export function buildFileTrackingSummarizeFn(
 }
 
 export class AgentManager {
-  _memoryExtractor?: BackgroundMemoryExtractor;
+  _memoryExtractor?: BackgroundMemoryExtractor | null;
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
   private provider: ProviderType = "friendli";
@@ -520,6 +526,7 @@ export class AgentManager {
   private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private translationEnabled = true;
+  private sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
   private readonly friendliClient: ReturnType<typeof createFriendli> | null;
   private readonly anthropicClient: ReturnType<typeof createAnthropic> | null;
 
@@ -544,7 +551,12 @@ export class AgentManager {
     this.toolRegistry = defaultToolRegistry;
     this.toolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
     this.translationEnabled = true;
+    this.sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
     this.applyBestReasoningModeForCurrentModel();
+  }
+
+  setSessionMemoryStorePath(filePath: string): void {
+    this.sessionMemoryStorePath = filePath;
   }
 
   private applyBestReasoningModeForCurrentModel(): void {
@@ -664,16 +676,19 @@ export class AgentManager {
     const { summarizeFn, getStructuredState: fileTrackingState } =
       buildFileTrackingSummarizeFn(baseModelSummarizer);
 
-    const memoryExtractor = new BackgroundMemoryExtractor({
-      model: this.getProviderModel(this.modelId, this.provider),
-      store: new InMemoryStore(),
-      preset: "code",
-    });
+    const bmeDisabled = process.env.DISABLE_BME === "1";
+    const memoryExtractor = bmeDisabled
+      ? null
+      : new BackgroundMemoryExtractor({
+          model: this.getProviderModel(this.modelId, this.provider),
+          store: new FileMemoryStore(this.sessionMemoryStorePath),
+          preset: "code",
+        });
     this._memoryExtractor = memoryExtractor;
 
     const getStructuredState = (): string | undefined => {
       const fileState = fileTrackingState();
-      const memoryState = memoryExtractor.getStructuredState();
+      const memoryState = memoryExtractor?.getStructuredState();
       if (!(fileState || memoryState)) {
         return undefined;
       }

@@ -13,6 +13,7 @@ const SHRUNK_RESPONSE_RATIO = 0.3;
 
 export interface MicroCompactOptions {
   clearableToolNames?: string[];
+  clearOlderThanMs?: number;
   clearToolResults?: boolean;
   keepRecentToolResults?: number;
   maxResponseTokens?: number;
@@ -57,6 +58,7 @@ interface AssistantCompactionResult {
 
 interface ToolResultClearConfig {
   clearableToolNames: Set<string> | null;
+  clearOlderThanTimestamp: number | null;
   keepRecentToolResults: number;
   replacementText: string;
 }
@@ -66,6 +68,11 @@ interface ToolResultClearResult {
   modifiedMessageIndexes: Set<number>;
   tokensSaved: number;
   toolResultsCleared: number;
+}
+
+interface ToolResultRewrite {
+  nextContent: unknown[];
+  tokensSaved: number;
 }
 
 function isTextPart(part: unknown): part is TextPart {
@@ -238,6 +245,7 @@ function applyToolResultClearing(
   messages: CheckpointMessage[],
   config: ToolResultClearConfig
 ): ToolResultClearResult {
+  const hasTimeTrigger = config.clearOlderThanTimestamp !== null;
   const toolResultRefs = collectToolResultRefs(
     messages,
     messages.length,
@@ -247,8 +255,7 @@ function applyToolResultClearing(
     0,
     toolResultRefs.length - config.keepRecentToolResults
   );
-
-  if (clearUntil === 0) {
+  if (clearUntil === 0 && !hasTimeTrigger) {
     return {
       messages,
       modifiedMessageIndexes: new Set<number>(),
@@ -262,36 +269,33 @@ function applyToolResultClearing(
   let tokensSaved = 0;
   let toolResultsCleared = 0;
 
-  for (let refIndex = 0; refIndex < clearUntil; refIndex++) {
+  for (let refIndex = 0; refIndex < toolResultRefs.length; refIndex++) {
     const ref = toolResultRefs[refIndex];
     const checkpointMessage = messages[ref.messageIndex];
-    const existingContent = rewrittenContentByMessage.get(ref.messageIndex);
-    const checkpointContent = checkpointMessage.message.content as unknown;
-    const baseContent =
-      existingContent ??
-      (Array.isArray(checkpointContent) ? checkpointContent : null);
-
-    if (baseContent === null) {
+    if (
+      !isToolResultRefEligibleForClearing({
+        checkpointMessage,
+        clearOlderThanTimestamp: config.clearOlderThanTimestamp,
+        clearUntil,
+        refIndex,
+      })
+    ) {
       continue;
     }
 
-    const nextContent = [...baseContent];
-    const part = nextContent[ref.partIndex];
-    if (!isToolResultPart(part)) {
+    const rewrite = rewriteToolResult({
+      checkpointMessage,
+      existingContent: rewrittenContentByMessage.get(ref.messageIndex),
+      partIndex: ref.partIndex,
+      replacementText: config.replacementText,
+      replacementTokens,
+    });
+    if (!rewrite) {
       continue;
     }
 
-    const originalTokens = estimateUnknownContentTokens(part.content);
-    if (originalTokens > replacementTokens) {
-      tokensSaved += originalTokens - replacementTokens;
-    }
-
-    nextContent[ref.partIndex] = {
-      ...part,
-      content: config.replacementText,
-    };
-
-    rewrittenContentByMessage.set(ref.messageIndex, nextContent);
+    tokensSaved += rewrite.tokensSaved;
+    rewrittenContentByMessage.set(ref.messageIndex, rewrite.nextContent);
     toolResultsCleared += 1;
   }
 
@@ -328,6 +332,78 @@ function applyToolResultClearing(
     modifiedMessageIndexes,
     tokensSaved,
     toolResultsCleared,
+  };
+}
+
+function isToolResultRefEligibleForClearing(params: {
+  checkpointMessage: CheckpointMessage | undefined;
+  clearOlderThanTimestamp: number | null;
+  clearUntil: number;
+  refIndex: number;
+}): params is {
+  checkpointMessage: CheckpointMessage;
+  clearOlderThanTimestamp: number | null;
+  clearUntil: number;
+  refIndex: number;
+} {
+  const { checkpointMessage, clearOlderThanTimestamp, clearUntil, refIndex } =
+    params;
+
+  if (!checkpointMessage) {
+    return false;
+  }
+
+  if (refIndex < clearUntil) {
+    return true;
+  }
+
+  return (
+    clearOlderThanTimestamp !== null &&
+    checkpointMessage.createdAt < clearOlderThanTimestamp
+  );
+}
+
+function rewriteToolResult(params: {
+  checkpointMessage: CheckpointMessage;
+  existingContent: unknown[] | undefined;
+  partIndex: number;
+  replacementText: string;
+  replacementTokens: number;
+}): ToolResultRewrite | null {
+  const {
+    checkpointMessage,
+    existingContent,
+    partIndex,
+    replacementText,
+    replacementTokens,
+  } = params;
+  const checkpointContent = checkpointMessage.message.content as unknown;
+  const baseContent =
+    existingContent ??
+    (Array.isArray(checkpointContent) ? checkpointContent : null);
+
+  if (baseContent === null) {
+    return null;
+  }
+
+  const nextContent = [...baseContent];
+  const part = nextContent[partIndex];
+  if (!isToolResultPart(part)) {
+    return null;
+  }
+
+  const originalTokens = estimateUnknownContentTokens(part.content);
+  nextContent[partIndex] = {
+    ...part,
+    content: replacementText,
+  };
+
+  return {
+    nextContent,
+    tokensSaved:
+      originalTokens > replacementTokens
+        ? originalTokens - replacementTokens
+        : 0,
   };
 }
 
@@ -556,12 +632,22 @@ export function microCompactMessages(
     assistantCompaction.modifiedMessageIndexes
   );
 
-  if (options.clearToolResults === true) {
+  const clearOlderThanMs = options.clearOlderThanMs;
+  const hasClearOlderThanMs =
+    typeof clearOlderThanMs === "number" && Number.isFinite(clearOlderThanMs);
+  const shouldClearToolResults =
+    options.clearToolResults === true || hasClearOlderThanMs;
+
+  if (shouldClearToolResults) {
     const clearableToolNames = Array.isArray(options.clearableToolNames)
       ? new Set(options.clearableToolNames)
       : null;
+    const clearOlderThanTimestamp = hasClearOlderThanMs
+      ? Date.now() - Math.max(0, clearOlderThanMs)
+      : null;
 
     const toolResultClearResult = applyToolResultClearing(resultMessages, {
+      clearOlderThanTimestamp,
       clearableToolNames,
       keepRecentToolResults: Math.max(
         0,

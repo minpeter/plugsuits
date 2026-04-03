@@ -73,6 +73,30 @@ describe("CompactionOrchestrator", () => {
       resolveSummary?.("Summary");
       await first;
     });
+
+    it("still allows manual compaction when DISABLE_AUTO_COMPACT=1", async () => {
+      const previousDisableAutoCompact = process.env.DISABLE_AUTO_COMPACT;
+      process.env.DISABLE_AUTO_COMPACT = "1";
+
+      try {
+        const history = createHistory();
+        history.addUserMessage("hello");
+        history.addModelMessages([{ role: "assistant", content: "world" }]);
+
+        const compactSpy = vi.spyOn(history, "compact");
+        const orchestrator = new CompactionOrchestrator(history);
+        const result = await orchestrator.manualCompact();
+
+        expect(result.success).toBe(true);
+        expect(compactSpy).toHaveBeenCalledWith({ auto: false });
+      } finally {
+        if (previousDisableAutoCompact === undefined) {
+          Reflect.deleteProperty(process.env, "DISABLE_AUTO_COMPACT");
+        } else {
+          process.env.DISABLE_AUTO_COMPACT = previousDisableAutoCompact;
+        }
+      }
+    });
   });
 
   describe("checkAndCompact()", () => {
@@ -98,6 +122,31 @@ describe("CompactionOrchestrator", () => {
       await orchestrator.checkAndCompact();
 
       expect(compactSpy).not.toHaveBeenCalled();
+    });
+
+    it("skips auto compaction when DISABLE_AUTO_COMPACT=1", async () => {
+      const previousDisableAutoCompact = process.env.DISABLE_AUTO_COMPACT;
+      process.env.DISABLE_AUTO_COMPACT = "1";
+
+      try {
+        const history = createHistory({ contextLimit: 80, maxTokens: 10 });
+        for (let i = 0; i < 20; i += 1) {
+          history.addUserMessage(`message ${i} long enough for threshold`);
+        }
+
+        const compactSpy = vi.spyOn(history, "compact");
+        const orchestrator = new CompactionOrchestrator(history);
+        const didCompact = await orchestrator.checkAndCompact();
+
+        expect(didCompact).toBe(false);
+        expect(compactSpy).not.toHaveBeenCalled();
+      } finally {
+        if (previousDisableAutoCompact === undefined) {
+          Reflect.deleteProperty(process.env, "DISABLE_AUTO_COMPACT");
+        } else {
+          process.env.DISABLE_AUTO_COMPACT = previousDisableAutoCompact;
+        }
+      }
     });
   });
 
@@ -170,6 +219,27 @@ describe("CompactionOrchestrator", () => {
       const applied = orchestrator.applyReady();
       expect(applied).toEqual({ applied: true, stale: true });
       expect(onComplete).toHaveBeenCalledOnce();
+    });
+
+    it("does not start speculative compaction when DISABLE_AUTO_COMPACT=1", () => {
+      const previousDisableAutoCompact = process.env.DISABLE_AUTO_COMPACT;
+      process.env.DISABLE_AUTO_COMPACT = "1";
+
+      try {
+        const history = createHistory({ maxTokens: 10 });
+        for (let i = 0; i < 20; i += 1) {
+          history.addUserMessage(`long message ${i}`);
+        }
+
+        const orchestrator = new CompactionOrchestrator(history);
+        expect(orchestrator.shouldStartSpeculative()).toBe(false);
+      } finally {
+        if (previousDisableAutoCompact === undefined) {
+          Reflect.deleteProperty(process.env, "DISABLE_AUTO_COMPACT");
+        } else {
+          process.env.DISABLE_AUTO_COMPACT = previousDisableAutoCompact;
+        }
+      }
     });
   });
 
@@ -341,9 +411,12 @@ describe("CompactionOrchestrator", () => {
 
       await orchestrator.blockAtHardLimit(40, "new-turn");
 
+      const [lastStage] = stages.slice(-1);
+      const [lastEvent] = events.slice(-1);
+
       expect(stages[0]).toBe("starting");
       expect(stages[1]).toBe("pruning");
-      expect(stages.at(-1)).toBe("completed");
+      expect(lastStage).toBe("completed");
       const startEvent = events.find((e) => e.stage === "starting");
       const endEvent = events.find((e) => e.stage === "completed");
       expect(startEvent?.reason).toBe("hard-limit");
@@ -351,7 +424,7 @@ describe("CompactionOrchestrator", () => {
       expect(endEvent?.reason).toBe("hard-limit");
       expect(endEvent?.tokensAfter).toBeTypeOf("number");
       expect(events[0]?.blocking).toBe(true);
-      expect(events.at(-1)?.blocking).toBe(false);
+      expect(lastEvent?.blocking).toBe(false);
     });
 
     it("fires BlockingCompactionEvent with reason 'overflow-recovery' from handleOverflow", async () => {
@@ -374,9 +447,11 @@ describe("CompactionOrchestrator", () => {
 
       await orchestrator.handleOverflow(new Error("context_length_exceeded"));
 
+      const [lastStage] = stages.slice(-1);
+
       expect(stages[0]).toBe("starting");
       expect(stages[1]).toBe("compacting");
-      expect(stages.at(-1)).toBe("completed");
+      expect(lastStage).toBe("completed");
     });
 
     it("guarantees start/end pairing even when overflow recovery throws", async () => {

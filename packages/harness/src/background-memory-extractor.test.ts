@@ -75,6 +75,53 @@ function createDeferred<T>(): {
   return { promise, resolve };
 }
 
+function getPromptText(callPrompt: unknown): string {
+  if (!Array.isArray(callPrompt)) {
+    return "";
+  }
+
+  return callPrompt
+    .map((message: any) => {
+      if (!message || typeof message !== "object") {
+        return "";
+      }
+
+      if (typeof message.content === "string") {
+        return message.content;
+      }
+
+      if (!Array.isArray(message.content)) {
+        return "";
+      }
+
+      return message.content
+        .map((part: any) =>
+          typeof part === "object" && part !== null && "text" in part
+            ? String(part.text)
+            : ""
+        )
+        .join(" ");
+    })
+    .join("\n");
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getSectionBody(
+  notes: string,
+  sectionName: string
+): string | undefined {
+  const escapedName = escapeRegExp(sectionName);
+  const sectionRegex = new RegExp(
+    `^#\\s+${escapedName}\\s*$\\n([\\s\\S]*?)(?=^#\\s+|$)`,
+    "m"
+  );
+  const match = notes.match(sectionRegex);
+  return match ? match[1].trim() : undefined;
+}
+
 describe("BackgroundMemoryExtractor", () => {
   it("returns undefined structured state before first extraction", async () => {
     const extractor = new BackgroundMemoryExtractor({
@@ -237,5 +284,149 @@ describe("BackgroundMemoryExtractor", () => {
     expect(await store.read()).toBe(expectedMemory);
     expect(await extractor.getMemoryContent()).toBe(expectedMemory);
     expect(extractor.getStructuredState()).toBe(expectedMemory);
+  });
+
+  it("supports full replacement when incremental mode is disabled", async () => {
+    const expectedMemory = `${CHAT_MEMORY_PRESET.template}\n\n- full replacement when incremental is off`;
+    const model = createMockModel(`<memory>${expectedMemory}</memory>`);
+    const store = new InMemoryStore();
+    const extractor = new BackgroundMemoryExtractor({
+      incremental: false,
+      model,
+      store,
+      preset: "chat",
+      thresholds: {
+        minTokenGrowth: 1,
+        minTurns: 1,
+      },
+    });
+
+    const messages = makeCheckpointMessages({
+      role: "user",
+      content: "Please keep this remembered.",
+    });
+
+    await extractor.onTurnComplete(messages, {
+      inputTokens: 1,
+      outputTokens: 0,
+    });
+
+    expect(await store.read()).toBe(expectedMemory);
+  });
+
+  it("incremental mode updates only targeted sections and preserves unchanged sections", async () => {
+    const model = createMockModel(
+      '<update section="Current Topic">- Implementing incremental notes updates.</update>'
+    );
+    const store = new InMemoryStore();
+    const extractor = new BackgroundMemoryExtractor({
+      model,
+      store,
+      preset: "chat",
+      thresholds: {
+        minTokenGrowth: 1,
+        minTurns: 1,
+      },
+    });
+
+    const before = await extractor.getMemoryContent();
+    const userProfileBefore = getSectionBody(before, "User Profile");
+    const importantDetailsBefore = getSectionBody(before, "Important Details");
+
+    await extractor.onTurnComplete(
+      makeCheckpointMessages({
+        role: "user",
+        content: "Let's focus on implementing incremental memory updates.",
+      }),
+      {
+        inputTokens: 1,
+        outputTokens: 0,
+      }
+    );
+
+    const updated = await store.read();
+    expect(getSectionBody(updated, "Current Topic")).toBe(
+      "- Implementing incremental notes updates."
+    );
+    expect(getSectionBody(updated, "User Profile")).toBe(userProfileBefore);
+    expect(getSectionBody(updated, "Important Details")).toBe(
+      importantDetailsBefore
+    );
+  });
+
+  it("falls back to full replacement when incremental response has no update tags", async () => {
+    const fallbackMemory = `${CHAT_MEMORY_PRESET.template}\n\n- fallback full replacement`;
+    const model = createMockModel(fallbackMemory);
+    const store = new InMemoryStore();
+    const extractor = new BackgroundMemoryExtractor({
+      model,
+      store,
+      preset: "chat",
+      thresholds: {
+        minTokenGrowth: 1,
+        minTurns: 1,
+      },
+    });
+
+    await extractor.onTurnComplete(
+      makeCheckpointMessages({ role: "user", content: "Track this update" }),
+      {
+        inputTokens: 1,
+        outputTokens: 0,
+      }
+    );
+
+    expect(await store.read()).toBe(fallbackMemory);
+  });
+
+  it("sends only messages since last extraction for incremental updates", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: (_options: LanguageModelV3CallOptions) => {
+        callCount += 1;
+        const responseText =
+          callCount === 1
+            ? '<update section="Current Topic">- First update</update>'
+            : '<update section="Current Topic">- Second update</update>';
+        return Promise.resolve(createGenerateResult(responseText));
+      },
+    });
+    const extractor = new BackgroundMemoryExtractor({
+      model,
+      store: new InMemoryStore(),
+      preset: "chat",
+      thresholds: {
+        minTokenGrowth: 1,
+        minTurns: 1,
+      },
+    });
+
+    const firstMessages = makeCheckpointMessages({
+      role: "user",
+      content: "First memory fact",
+    });
+    await extractor.onTurnComplete(firstMessages, {
+      inputTokens: 1,
+      outputTokens: 0,
+    });
+
+    const secondMessages = makeCheckpointMessages(
+      { role: "user", content: "First memory fact" },
+      { role: "assistant", content: "Acknowledged" },
+      { role: "user", content: "Second memory fact" }
+    );
+    await extractor.onTurnComplete(secondMessages, {
+      inputTokens: 1,
+      outputTokens: 0,
+    });
+
+    expect(model.doGenerateCalls).toHaveLength(2);
+
+    const firstPromptText = getPromptText(model.doGenerateCalls[0].prompt);
+    const secondPromptText = getPromptText(model.doGenerateCalls[1].prompt);
+
+    expect(firstPromptText).toContain("First memory fact");
+    expect(secondPromptText).toContain("Second memory fact");
+    expect(secondPromptText).not.toContain("First memory fact");
   });
 });

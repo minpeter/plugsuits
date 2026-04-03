@@ -1268,15 +1268,20 @@ export class CheckpointHistory {
     }
 
     if (forceAggressive) {
-      return adjustSplitIndexForToolPairs(
+      const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
         activeMessages,
         activeMessages.length - 1
       );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        splitIndex
+      );
+
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
     }
 
     const defaultSplitIndex = calculateCompactionSplitIndex({
-      adjustSplitIndex: (index) =>
-        adjustSplitIndexForToolPairs(activeMessages, index),
+      adjustSplitIndex: (index) => index,
       aggressive: false,
       estimateMessageTokens: (message: CheckpointMessage) =>
         estimateTokens(extractMessageText(message.message)),
@@ -1284,7 +1289,16 @@ export class CheckpointHistory {
       messages: activeMessages,
     });
     if (defaultSplitIndex !== null) {
-      return defaultSplitIndex;
+      const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+        activeMessages,
+        defaultSplitIndex
+      );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        splitIndex
+      );
+
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
     }
 
     const aggressiveSplitIndex = calculateCompactionSplitIndex({
@@ -1300,7 +1314,65 @@ export class CheckpointHistory {
       return null;
     }
 
-    return adjustSplitIndexForToolPairs(activeMessages, aggressiveSplitIndex);
+    const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+      activeMessages,
+      aggressiveSplitIndex
+    );
+    const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+      activeMessages,
+      splitIndex
+    );
+
+    return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
+  }
+
+  private adjustSplitIndexToApiRoundBoundary(
+    activeMessages: CheckpointMessage[],
+    rawSplitIndex: number
+  ): number {
+    const messageCount = activeMessages.length;
+    if (
+      messageCount === 0 ||
+      rawSplitIndex <= 0 ||
+      rawSplitIndex > messageCount
+    ) {
+      return rawSplitIndex;
+    }
+
+    const maxShiftDistance = messageCount * 0.2;
+    let nearestBoundaryIndex: number | null = null;
+    let nearestBoundaryDistance = Number.POSITIVE_INFINITY;
+
+    for (let i = 1; i < messageCount; i += 1) {
+      const previousMessage = activeMessages[i - 1];
+      const currentMessage = activeMessages[i];
+
+      if (!(previousMessage && currentMessage)) {
+        continue;
+      }
+
+      if (
+        previousMessage.message.role !== "assistant" ||
+        currentMessage.message.role !== "user"
+      ) {
+        continue;
+      }
+
+      const distance = Math.abs(rawSplitIndex - i);
+      if (distance < nearestBoundaryDistance) {
+        nearestBoundaryDistance = distance;
+        nearestBoundaryIndex = i;
+      }
+    }
+
+    if (
+      nearestBoundaryIndex === null ||
+      !(nearestBoundaryDistance < maxShiftDistance)
+    ) {
+      return rawSplitIndex;
+    }
+
+    return nearestBoundaryIndex;
   }
 
   private resolveKeepPrefixSplitIndex(
@@ -1312,7 +1384,16 @@ export class CheckpointHistory {
     }
 
     if (forceAggressive) {
-      return adjustSplitIndexForToolPairs(activeMessages, 1);
+      const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+        activeMessages,
+        1
+      );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        splitIndex
+      );
+
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
     }
 
     const keepPrefixTokens = this.compactionConfig.keepRecentTokens ?? 2000;
@@ -1342,10 +1423,23 @@ export class CheckpointHistory {
     }
 
     if (splitIndex <= 0) {
-      return adjustSplitIndexForToolPairs(activeMessages, 1);
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        1
+      );
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
     }
 
-    return adjustSplitIndexForToolPairs(activeMessages, splitIndex);
+    const adjustedToBoundary = this.adjustSplitIndexToApiRoundBoundary(
+      activeMessages,
+      splitIndex
+    );
+    const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+      activeMessages,
+      adjustedToBoundary
+    );
+
+    return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
   }
 
   private async buildCompactionSummaryText(params: {

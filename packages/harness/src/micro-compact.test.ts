@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckpointMessage } from "./compaction-types";
 import { microCompactMessages } from "./micro-compact";
 import { estimateTokens, extractMessageText } from "./token-utils";
@@ -93,6 +93,10 @@ function estimateCheckpointTokens(messages: CheckpointMessage[]): number {
 describe("microCompactMessages", () => {
   beforeEach(() => {
     checkpointId = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("no-op when all messages are recent", () => {
@@ -267,6 +271,99 @@ describe("microCompactMessages", () => {
     expect(part?.content).toBe(oldToolResultText);
     expect(result.toolResultsCleared).toBe(0);
     expect(result.messagesModified).toBe(0);
+  });
+
+  it("clearOlderThanMs clears stale tool results without clearToolResults", () => {
+    vi.useFakeTimers();
+    const now = 1_800_000_000_000;
+    vi.setSystemTime(now);
+
+    const staleResult = makeTokenSizedText(500);
+    const recentResult = makeTokenSizedText(500);
+    const staleMessage: CheckpointMessage = {
+      ...makeUserToolResultMessage([
+        {
+          type: "tool_result",
+          tool_use_id: "tool_1",
+          name: "read_file",
+          content: staleResult,
+        },
+      ]),
+      createdAt: now - 10_000,
+    };
+    const recentMessage: CheckpointMessage = {
+      ...makeUserToolResultMessage([
+        {
+          type: "tool_result",
+          tool_use_id: "tool_2",
+          name: "read_file",
+          content: recentResult,
+        },
+      ]),
+      createdAt: now - 500,
+    };
+
+    const result = microCompactMessages([staleMessage, recentMessage], {
+      clearOlderThanMs: 1000,
+      keepRecentToolResults: 2,
+      protectRecentTokens: 0,
+    });
+
+    expect(getLegacyToolResultPart(result.messages[0].message)?.content).toBe(
+      "[tool result cleared]"
+    );
+    expect(getLegacyToolResultPart(result.messages[1].message)?.content).toBe(
+      recentResult
+    );
+    expect(result.toolResultsCleared).toBe(1);
+    expect(result.messagesModified).toBe(1);
+  });
+
+  it("clearOlderThanMs adds to keepRecentToolResults-based clearing", () => {
+    vi.useFakeTimers();
+    const now = 1_800_000_000_000;
+    vi.setSystemTime(now);
+
+    const firstResult = makeTokenSizedText(500);
+    const secondResult = makeTokenSizedText(500);
+    const firstMessage: CheckpointMessage = {
+      ...makeUserToolResultMessage([
+        {
+          type: "tool_result",
+          tool_use_id: "tool_1",
+          name: "read_file",
+          content: firstResult,
+        },
+      ]),
+      createdAt: now - 15_000,
+    };
+    const secondMessage: CheckpointMessage = {
+      ...makeUserToolResultMessage([
+        {
+          type: "tool_result",
+          tool_use_id: "tool_2",
+          name: "read_file",
+          content: secondResult,
+        },
+      ]),
+      createdAt: now - 12_000,
+    };
+
+    const result = microCompactMessages([firstMessage, secondMessage], {
+      clearToolResults: true,
+      clearOlderThanMs: 1000,
+      keepRecentToolResults: 1,
+      protectRecentTokens: 0,
+    });
+
+    expect(getLegacyToolResultPart(result.messages[0].message)?.content).toBe(
+      "[tool result cleared]"
+    );
+    expect(getLegacyToolResultPart(result.messages[1].message)?.content).toBe(
+      "[tool result cleared]"
+    );
+    expect(result.toolResultsCleared).toBe(2);
+    expect(result.messagesModified).toBe(2);
   });
 
   it("clearToolResults=true clears old tool results", () => {

@@ -7,7 +7,6 @@ import {
   type Command,
   type CommandContext,
   CompactionCircuitBreaker,
-  CompactionOrchestrator,
   type CompactionResult,
   estimateTokens,
   PostCompactRestorer,
@@ -44,7 +43,11 @@ import {
   type SharedArgs,
   sharedArgsDef,
 } from "../cli-defs";
-import { getCommands, registerCommand } from "../commands";
+import {
+  getCommands,
+  registerCommand,
+  registerSkillLoadListener,
+} from "../commands";
 import { createClearCommand } from "../commands/clear";
 import { createCompactCommand } from "../commands/compact";
 import {
@@ -215,15 +218,23 @@ if (!sessionManagerScope.__ceaSessionManager) {
 }
 const sessionManager = sessionManagerScope.__ceaSessionManager;
 const sessionStoreBaseDir = join(process.cwd(), ".plugsuits", "sessions");
+const resolveSessionMemoryStorePath = (sessionId: string): string => {
+  return join(sessionStoreBaseDir, sessionId, "session-memory.md");
+};
 const messageHistory = createSessionScopedCheckpointHistory(
   sessionStoreBaseDir,
   "session-bootstrap"
 );
 const compactionCircuitBreaker = new CompactionCircuitBreaker();
-const compactionOrchestrator = new CompactionOrchestrator(messageHistory, {
-  circuitBreaker: compactionCircuitBreaker,
-});
 const postCompactRestorer = new PostCompactRestorer();
+const unregisterSkillLoadListener = registerSkillLoadListener((skill) => {
+  postCompactRestorer.trackItem({
+    content: skill.content,
+    label: skill.name,
+    priority: 8,
+    type: "skill",
+  });
+});
 const trackedReadToolResultIds = new Set<string>();
 
 const toRecord = (value: unknown): Record<string, unknown> | null => {
@@ -374,7 +385,7 @@ registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
 registerCommand(createTranslateCommand());
-registerCommand(createCompactCommand(() => compactionOrchestrator));
+registerCommand(createCompactCommand());
 
 const createTranslationPreprocessor = () => {
   return async (
@@ -486,6 +497,14 @@ const updateCompactionForCurrentModel = async (): Promise<void> => {
   messageHistory.setSystemPromptTokens(estimateTokens(instructions));
 };
 
+const applyCurrentSessionToRuntime = (): void => {
+  const sessionId = sessionManager.getId();
+  messageHistory.setSession(sessionId);
+  agentManager.setSessionMemoryStorePath(
+    resolveSessionMemoryStorePath(sessionId)
+  );
+};
+
 const wrapCommand = (
   command: Command,
   execute: (
@@ -542,6 +561,7 @@ const requestSignalShutdown = (code: number): void => {
 };
 
 process.once("exit", () => {
+  unregisterSkillLoadListener();
   cleanup();
 });
 
@@ -596,7 +616,7 @@ const mainCommand = defineCommand({
     await initializeTools();
     setSpinnerOutputEnabled(false);
     sessionManager.initialize();
-    messageHistory.setSession(sessionManager.getId());
+    applyCurrentSessionToRuntime();
 
     const config = resolveSharedConfig(args as SharedArgs);
     if (config.provider) {
@@ -1240,7 +1260,7 @@ const mainCommand = defineCommand({
         onCommandAction: async (action) => {
           if (action.type === "new-session") {
             sessionManager.initialize();
-            messageHistory.setSession(sessionManager.getId());
+            applyCurrentSessionToRuntime();
             compactionCircuitBreaker.resetForNewSession();
             postCompactRestorer.clear();
             trackedReadToolResultIds.clear();

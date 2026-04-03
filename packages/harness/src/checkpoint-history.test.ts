@@ -1855,3 +1855,69 @@ describe("stale actualUsage invalidation after message changes", () => {
     expect(h.getContextUsage().source).toBe("estimated");
   });
 });
+
+describe("API round split boundary adjustment", () => {
+  it("adjusts to nearest assistant→user boundary when shift is within 20%", () => {
+    const history = new CheckpointHistory();
+
+    for (let i = 0; i < 5; i += 1) {
+      history.addUserMessage(`user-${i} ${"x".repeat(120)}`);
+      history.addModelMessages([
+        { role: "assistant", content: `assistant-${i} ${"y".repeat(120)}` },
+      ]);
+    }
+
+    const adjustedSplitIndex = (
+      history as unknown as {
+        adjustSplitIndexToApiRoundBoundary: (
+          messages: ReturnType<CheckpointHistory["getAll"]>,
+          rawSplitIndex: number
+        ) => number;
+      }
+    ).adjustSplitIndexToApiRoundBoundary(history.getAll(), 5);
+
+    expect(adjustedSplitIndex).toBe(4);
+  });
+
+  it("does not adjust when the nearest boundary is beyond the 20% distance cap", () => {
+    const history = new CheckpointHistory();
+
+    history.addUserMessage(`u0 ${"x".repeat(80)}`);
+    history.addModelMessages([
+      { role: "assistant", content: `a1 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a2 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a3 ${"y".repeat(80)}` },
+    ]);
+    history.addUserMessage(`u1 ${"x".repeat(80)}`);
+    history.addModelMessages([
+      { role: "assistant", content: `a4 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a5 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a6 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a7 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a8 ${"y".repeat(80)}` },
+    ]);
+
+    const adjustedSplitIndex = (
+      history as unknown as {
+        adjustSplitIndexToApiRoundBoundary: (
+          messages: ReturnType<CheckpointHistory["getAll"]>,
+          rawSplitIndex: number
+        ) => number;
+      }
+    ).adjustSplitIndexToApiRoundBoundary(history.getAll(), 1);
+
+    expect(adjustedSplitIndex).toBe(1);
+  });
+});

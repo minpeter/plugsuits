@@ -453,6 +453,10 @@ export class CompactionOrchestrator {
   }
 
   async checkAndCompact(): Promise<boolean> {
+    if (process.env.DISABLE_AUTO_COMPACT === "1") {
+      return false;
+    }
+
     const history = this.requireHistory();
 
     if (this.circuitBreaker?.isOpen()) {
@@ -540,6 +544,10 @@ export class CompactionOrchestrator {
   }
 
   shouldStartSpeculative(history?: CompactionHistoryLike): boolean {
+    if (process.env.DISABLE_AUTO_COMPACT === "1") {
+      return false;
+    }
+
     const resolvedHistory = this.resolveHistory(history);
     if (!resolvedHistory || this.compactionInProgress) {
       this.debugLog(

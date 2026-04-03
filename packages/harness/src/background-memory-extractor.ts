@@ -6,9 +6,14 @@ import {
   type MemoryPreset,
 } from "./memory-presets";
 import type { MemoryStore } from "./memory-store";
-import { estimateMessageTokens, estimateTokens } from "./token-utils";
+import {
+  estimateMessageTokens,
+  estimateTokens,
+  extractMessageText,
+} from "./token-utils";
 
 export interface BackgroundMemoryExtractorConfig {
+  incremental?: boolean;
   maxExtractionTokens?: number;
   model: LanguageModel;
   preset: "chat" | "code" | MemoryPreset;
@@ -28,7 +33,23 @@ const DEFAULT_MESSAGE_TOKEN_BUDGET = 8000;
 const CHAT_MESSAGE_TOKEN_BUDGET = 4000;
 const CODE_MESSAGE_TOKEN_BUDGET = 16_000;
 const MEMORY_TAG_REGEX = /<memory>([\s\S]*?)<\/memory>/i;
+const UPDATE_TAG_REGEX =
+  /<update\s+section\s*=\s*(?:"([^"]+)"|'([^']+)')\s*>([\s\S]*?)<\/update>/gi;
 const CURRENT_NOTES_CLOSE_TAG_REGEX = /<\/current_notes>/gi;
+const RECENT_CONVERSATION_CLOSE_TAG_REGEX = /<\/recent_conversation>/gi;
+const MEMORY_SECTION_HEADING_REGEX = /^#\s+(.+?)\s*$/gm;
+const SECTION_NAME_WHITESPACE_REGEX = /\s+/g;
+
+interface SectionUpdate {
+  content: string;
+  section: string;
+}
+
+interface MemorySectionRange {
+  contentEnd: number;
+  contentStart: number;
+  name: string;
+}
 
 interface ResolvedPresetConfig {
   defaults: {
@@ -44,7 +65,9 @@ export class BackgroundMemoryExtractor {
   private readonly config: BackgroundMemoryExtractorConfig;
   private readonly defaults: ResolvedPresetConfig["defaults"];
   private extractionInProgress = false;
+  private readonly incremental: boolean;
   private readonly initialization: Promise<void>;
+  private lastExtractionMessageIndex = 0;
   private readonly preset: MemoryPreset;
   private tokensSinceLastExtraction = 0;
   private turnsSinceLastExtraction = 0;
@@ -57,6 +80,7 @@ export class BackgroundMemoryExtractor {
     const resolved = resolvePresetConfig(config.preset);
     this.preset = resolved.preset;
     this.defaults = resolved.defaults;
+    this.incremental = config.incremental ?? true;
     this.cachedState = undefined;
     this.initialization = this.initializeStore();
   }
@@ -119,38 +143,65 @@ export class BackgroundMemoryExtractor {
     const existing = await this.config.store.read();
     const currentNotes =
       existing.trim().length > 0 ? existing : this.preset.template;
-    const prompt = this.buildExtractionPrompt(currentNotes);
+    const baseMessages = messages.map((message) => message.message);
+    const extractionMessages = this.incremental
+      ? this.buildIncrementalExtractionMessages(baseMessages, currentNotes)
+      : this.buildExtractionMessages(
+          baseMessages,
+          this.buildExtractionPrompt(currentNotes)
+        );
 
     const result = await generateText({
       model: this.config.model,
-      messages: this.buildExtractionMessages(messages, prompt),
+      messages: extractionMessages,
       maxOutputTokens: this.resolveMaxExtractionTokens(),
       temperature: 0,
     });
 
-    const extracted = this.parseMemoryFromResponse(result.text);
+    const extracted = this.resolveExtractedMemory(result.text, currentNotes);
     if (extracted) {
       await this.config.store.write(extracted);
       this.cachedState = extracted;
       this.hasExtractedAtLeastOnce = true;
+      this.lastExtractionMessageIndex = messages.length;
     }
 
     this.resetCounters();
   }
 
   private buildExtractionMessages(
-    messages: CheckpointMessage[],
+    messages: ModelMessage[],
     prompt: string
   ): ModelMessage[] {
-    const baseMessages = messages.map((message) => message.message);
     const contextBudget = Math.max(
       0,
       this.defaults.messageTokenBudget - estimateTokens(prompt)
     );
-    const recentMessages = selectRecentMessages(baseMessages, contextBudget);
+    const recentMessages = selectRecentMessages(messages, contextBudget);
 
     return [
       ...recentMessages,
+      {
+        role: "user",
+        content: prompt,
+      },
+    ];
+  }
+
+  private buildIncrementalExtractionMessages(
+    messages: ModelMessage[],
+    currentNotes: string
+  ): ModelMessage[] {
+    const messagesSinceLastExtraction = selectMessagesSinceLastExtraction(
+      messages,
+      this.lastExtractionMessageIndex
+    );
+    const prompt = this.buildIncrementalExtractionPrompt(
+      currentNotes,
+      messagesSinceLastExtraction
+    );
+
+    return [
       {
         role: "user",
         content: prompt,
@@ -168,6 +219,100 @@ export class BackgroundMemoryExtractor {
       "{{currentNotes}}",
       escapedNotes
     );
+  }
+
+  private buildIncrementalExtractionPrompt(
+    currentNotes: string,
+    recentMessages: ModelMessage[]
+  ): string {
+    const escapedNotes = currentNotes.replace(
+      CURRENT_NOTES_CLOSE_TAG_REGEX,
+      "[/current_notes]"
+    );
+
+    const promptTemplate = [
+      "You are a memory extraction agent. Update session notes incrementally from recent conversation only.",
+      "",
+      "Current session notes:",
+      "<current_notes>",
+      escapedNotes,
+      "</current_notes>",
+      "",
+      "Recent conversation (since last update):",
+      "<recent_conversation>",
+      "{{recentConversation}}",
+      "</recent_conversation>",
+      "",
+      "Update ONLY the sections that have changed.",
+      "For each section you update, wrap it exactly as:",
+      '<update section="Section Name">new content</update>',
+      "",
+      "RULES:",
+      "- Do NOT include unchanged sections.",
+      "- The section name must match an existing '# Section Name' heading.",
+      "- Output only <update ...> blocks.",
+      "",
+      "Backward compatibility: if you cannot produce targeted updates, return the complete document in <memory>...</memory> tags.",
+    ].join("\n");
+
+    const promptWithoutConversation = promptTemplate.replace(
+      "{{recentConversation}}",
+      ""
+    );
+    const conversationBudget = Math.max(
+      0,
+      this.defaults.messageTokenBudget -
+        estimateTokens(promptWithoutConversation)
+    );
+    const limitedRecentMessages = selectRecentMessages(
+      recentMessages,
+      conversationBudget
+    );
+    const renderedRecentConversation = renderConversationForPrompt(
+      limitedRecentMessages
+    ).replace(RECENT_CONVERSATION_CLOSE_TAG_REGEX, "[/recent_conversation]");
+
+    return promptTemplate.replace(
+      "{{recentConversation}}",
+      renderedRecentConversation
+    );
+  }
+
+  private resolveExtractedMemory(
+    text: string,
+    currentNotes: string
+  ): string | undefined {
+    if (this.incremental) {
+      const updates = this.parseSectionUpdates(text);
+      if (updates.length > 0) {
+        const merged = mergeSectionUpdates(currentNotes, updates);
+        return merged.trim().length > 0 ? merged : undefined;
+      }
+    }
+
+    return this.parseMemoryFromResponse(text);
+  }
+
+  private parseSectionUpdates(text: string): SectionUpdate[] {
+    const updates: SectionUpdate[] = [];
+    const updateTagRegex = new RegExp(
+      UPDATE_TAG_REGEX.source,
+      UPDATE_TAG_REGEX.flags
+    );
+
+    for (const match of text.matchAll(updateTagRegex)) {
+      const section = (match[1] ?? match[2] ?? "").trim();
+      if (section.length === 0) {
+        continue;
+      }
+
+      updates.push({
+        section,
+        content: match[3].trim(),
+      });
+    }
+
+    return updates;
   }
 
   private parseMemoryFromResponse(text: string): string | undefined {
@@ -275,6 +420,129 @@ function selectRecentMessages(
   }
 
   return result.length > 0 ? result : [messages.at(-1) as ModelMessage];
+}
+
+function selectMessagesSinceLastExtraction(
+  messages: ModelMessage[],
+  lastExtractionMessageIndex: number
+): ModelMessage[] {
+  if (messages.length === 0) {
+    return [];
+  }
+
+  const normalizedIndex = normalizeNonNegativeInteger(
+    lastExtractionMessageIndex,
+    0
+  );
+  const startIndex = normalizedIndex <= messages.length ? normalizedIndex : 0;
+
+  return messages.slice(startIndex);
+}
+
+function renderConversationForPrompt(messages: ModelMessage[]): string {
+  if (messages.length === 0) {
+    return "(No new conversation since last update.)";
+  }
+
+  return messages
+    .map((message, index) => {
+      const text = extractMessageText(message).trim();
+      const content = text.length > 0 ? text : "(no textual content)";
+      return `[${index + 1}] ${message.role.toUpperCase()}: ${content}`;
+    })
+    .join("\n");
+}
+
+function mergeSectionUpdates(
+  currentNotes: string,
+  updates: SectionUpdate[]
+): string {
+  const sections = parseMemorySections(currentNotes);
+  if (sections.length === 0) {
+    return currentNotes;
+  }
+
+  const updatesBySection = new Map<string, string>();
+  for (const update of updates) {
+    updatesBySection.set(
+      normalizeSectionName(update.section),
+      update.content.trim()
+    );
+  }
+
+  let merged = currentNotes;
+  for (let index = sections.length - 1; index >= 0; index -= 1) {
+    const section = sections[index];
+    const updateContent = updatesBySection.get(
+      normalizeSectionName(section.name)
+    );
+
+    if (updateContent === undefined) {
+      continue;
+    }
+
+    const hasNextSection = index < sections.length - 1;
+    const replacement = formatSectionContent(updateContent, hasNextSection);
+    merged =
+      merged.slice(0, section.contentStart) +
+      replacement +
+      merged.slice(section.contentEnd);
+  }
+
+  return merged;
+}
+
+function parseMemorySections(content: string): MemorySectionRange[] {
+  const sectionHeadingRegex = new RegExp(
+    MEMORY_SECTION_HEADING_REGEX.source,
+    MEMORY_SECTION_HEADING_REGEX.flags
+  );
+  const matches = Array.from(content.matchAll(sectionHeadingRegex));
+
+  return matches.map((match, index) => {
+    const headingIndex = match.index ?? 0;
+    const headingEnd = headingIndex + match[0].length;
+    const contentStart = skipSingleLineBreak(content, headingEnd);
+    const nextHeadingIndex = matches[index + 1]?.index ?? content.length;
+
+    return {
+      name: match[1].trim(),
+      contentStart,
+      contentEnd: nextHeadingIndex,
+    };
+  });
+}
+
+function skipSingleLineBreak(text: string, index: number): number {
+  if (text.startsWith("\r\n", index)) {
+    return index + 2;
+  }
+
+  if (text[index] === "\n") {
+    return index + 1;
+  }
+
+  return index;
+}
+
+function formatSectionContent(
+  content: string,
+  hasNextSection: boolean
+): string {
+  const trimmed = content.trim();
+
+  if (!hasNextSection) {
+    return trimmed;
+  }
+
+  return trimmed.length > 0 ? `${trimmed}\n\n` : "\n\n";
+}
+
+function normalizeSectionName(sectionName: string): string {
+  return sectionName
+    .trim()
+    .replace(SECTION_NAME_WHITESPACE_REGEX, " ")
+    .toLowerCase();
 }
 
 function resolvePresetConfig(

@@ -1537,6 +1537,58 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     });
   };
 
+  const handleNewSessionAction = async (
+    commandResult: CommandResult
+  ): Promise<void> => {
+    if (!commandResult.action) {
+      return;
+    }
+
+    compactionOrchestrator.discardAll();
+    config.messageHistory.clear();
+    chatContainer.clear();
+    addNewSessionMessage(chatContainer);
+    await config.onCommandAction?.(commandResult.action);
+    await measureUsageIfAvailable([]);
+    updateHeader();
+
+    if (commandResult.message) {
+      addSystemMessage(chatContainer, commandResult.message);
+    }
+    tui.requestRender();
+  };
+
+  const handleCompactAction = async (
+    commandResult: CommandResult
+  ): Promise<void> => {
+    if (!commandResult.action) {
+      return;
+    }
+
+    showLoader("Compacting...");
+    try {
+      const result = await compactionOrchestrator.manualCompact();
+      if (result.success) {
+        await measureUsageAfterCompaction();
+        startSpeculativeCompaction();
+        if (commandResult.message) {
+          addSystemMessage(chatContainer, commandResult.message);
+        }
+      } else {
+        addSystemMessage(
+          chatContainer,
+          `Compaction failed: ${result.reason ?? "unknown reason"}`
+        );
+      }
+
+      await config.onCommandAction?.(commandResult.action);
+      updateHeader();
+      tui.requestRender();
+    } finally {
+      clearStatus();
+    }
+  };
+
   const handleCommandResult = async (
     commandResult: CommandResult | null
   ): Promise<void> => {
@@ -1549,18 +1601,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     if (commandResult.action.type === "new-session") {
-      compactionOrchestrator.discardAll();
-      config.messageHistory.clear();
-      chatContainer.clear();
-      addNewSessionMessage(chatContainer);
-      await config.onCommandAction?.(commandResult.action);
-      await measureUsageIfAvailable([]);
-      updateHeader();
+      await handleNewSessionAction(commandResult);
+      return;
+    }
 
-      if (commandResult.message) {
-        addSystemMessage(chatContainer, commandResult.message);
-      }
-      tui.requestRender();
+    if (commandResult.action.type === "compact") {
+      await handleCompactAction(commandResult);
       return;
     }
 
@@ -1577,22 +1623,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       return true;
     }
 
-    const parsedForLoader = parseCommand(commandInput);
-    const isCompactCommand = parsedForLoader?.name === "compact";
-    if (isCompactCommand) {
-      showLoader("Compacting...");
-    }
-
     let commandResult: CommandResult | null | undefined;
-    try {
-      commandResult =
-        (await executeLocalCommand(commandInput)) ??
-        (await executeCommand(commandInput));
-    } finally {
-      if (isCompactCommand) {
-        clearStatus();
-      }
-    }
+    commandResult =
+      (await executeLocalCommand(commandInput)) ??
+      (await executeCommand(commandInput));
 
     if (isSkillCommandResult(commandResult)) {
       addUserMessage(chatContainer, markdownTheme, trimmed);
