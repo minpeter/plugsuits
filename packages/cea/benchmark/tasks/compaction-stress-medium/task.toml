@@ -2,44 +2,24 @@ schema_version = "1.1"
 
 [task]
 name = "compaction-stress-medium"
-instruction = """You are working in a tight 6000 token context window. Complete ALL steps:
+description = "Stress medium-context Node.js workflow recall under constrained memory"
+authors = [{ name = "minpeter", email = "minpeter@plugsuits.dev" }]
+keywords = ["compaction", "medium", "nodejs", "context-pressure"]
 
-STEP 1: Create a simple Node.js calculator module at /work/calc.js:
-```
-function add(a, b) { return a + b; }
-function subtract(a, b) { return a - b; }
-function multiply(a, b) { return a * b; }
-module.exports = { add, subtract, multiply };
-```
+[metadata]
+difficulty = "medium"
+category = "compaction-benchmark"
+context_limit_override = 6000
 
-STEP 2: Create /work/calc.test.js:
-```
-const calc = require('./calc');
-console.assert(calc.add(2, 3) === 5, 'add failed');
-console.assert(calc.subtract(10, 4) === 6, 'subtract failed');
-console.assert(calc.multiply(3, 4) === 12, 'multiply failed');
-console.log('ALL TESTS PASSED');
-```
+[verifier]
+timeout_sec = 300.0
 
-STEP 3: Run the test: use shell_execute to run `node /work/calc.test.js`
+[agent]
+timeout_sec = 600.0
 
-STEP 4: Create /work/index.js:
-```
-const calc = require('./calc');
-const result = calc.add(100, 200);
-console.log('Result:', result);
-```
-
-STEP 5: Run /work/index.js with shell_execute: `node /work/index.js`
-
-STEP 6: Create /work/summary.txt with EXACTLY this content (recall from memory what you built):
-Line 1: the function name that adds two numbers (exact name from calc.js)
-Line 2: what calc.add(100, 200) returns (just the number)
-Line 3: the output message format from index.js (e.g., "Result: 300")"""
-
-[task.environment]
-image = "node:20-slim"
-
-[task.evaluation]
-type = "script"
-script = "test.sh"
+[environment]
+build_timeout_sec = 300.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 4096
+env = { CONTEXT_LIMIT_OVERRIDE = "${CONTEXT_LIMIT_OVERRIDE}" }
