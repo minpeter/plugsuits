@@ -107,7 +107,14 @@ ${TODO_WRITE_CONTEXT}
 - **Preserve path format** given in the task:
   - Task says "/app/out.html" → use "/app/out.html" (keep absolute)
   - Task says "file.txt" → use "file.txt" (keep relative)
+  - Task says "work/output.txt" → use "work/output.txt" (keep the prefix)
 - **Never change** between absolute and relative paths unless explicitly requested
+- **Never drop path prefixes**: if the task specifies "work/answers.txt", do NOT shorten to "answers.txt"
+- **Generated scripts must use absolute paths** when referencing files:
+  - When writing a script (Python, Bash, etc.) that opens or reads files, resolve paths to absolute using the current working directory
+  - BAD: \`open('work/data/file.txt')\` — breaks when script is run from a different directory
+  - GOOD: \`open('/absolute/path/work/data/file.txt')\` — works regardless of CWD
+  - If unsure of the absolute path, use \`shell_execute("pwd")\` first to determine the working directory, then construct absolute paths
 
 ### 5. Safety and Correctness
 - **Read before write**: Always verify file contents before modifying
