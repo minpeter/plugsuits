@@ -38,11 +38,11 @@ class CodeEditingAgent(BaseInstalledAgent):
         context.n_cache_tokens = m.get("total_cached_tokens") or 0
 
     def create_run_agent_commands(self, instruction: str) -> list[ExecInput]:
-        prompt, path = shlex.quote(instruction), str(self.logs_dir / "trajectory.json")
+        prompt = shlex.quote(instruction)
         env = {
             "FRIENDLI_TOKEN": os.getenv("FRIENDLI_TOKEN", ""),
             "PATH": "/usr/local/bin:/usr/bin:/bin",
-            "ATIF_OUTPUT_PATH": path,
+            "ATIF_OUTPUT_PATH": "/logs/agent/trajectory.json",
         }
         env = {k: v for k, v in env.items() if v}
         model_arg = f"-m {shlex.quote(self.model_name)}" if self.model_name else ""

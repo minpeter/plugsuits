@@ -7,8 +7,8 @@ FAIL=0
 REWARD_FILE="/logs/verifier/reward.txt"
 mkdir -p /logs/verifier
 
-if [ ! -f /work/audit_report.txt ]; then
-    echo "MISSING: /work/audit_report.txt"
+if [ ! -f /agent/work/audit_report.txt ]; then
+    echo "MISSING: /agent/work/audit_report.txt"
     echo "$REWARD" > "$REWARD_FILE"
     exit 0
 fi
@@ -16,7 +16,7 @@ fi
 check() {
     local line_num=$1 expected=$2 label=$3
     local actual
-    actual=$(sed -n "${line_num}p" /work/audit_report.txt | tr -d '[:space:]')
+    actual=$(sed -n "${line_num}p" /agent/work/audit_report.txt | tr -d '[:space:]')
     if [ "$actual" = "$expected" ]; then
         echo "  PASS [$label]: $actual"
         PASS=$((PASS + 1))

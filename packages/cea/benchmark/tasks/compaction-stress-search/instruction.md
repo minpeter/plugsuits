@@ -2,13 +2,14 @@ You are auditing a microservice codebase for configuration bugs and security iss
 The project has 15 source files spread across multiple directories.
 Your context window is limited to 32000 tokens — you WILL need multiple rounds of reading.
 
-IMPORTANT: Use tools (read_file, grep, shell_execute) for EVERY step. Do NOT guess file contents.
+IMPORTANT: Use tools (grep, shell_execute) for EVERY step. Do NOT guess file contents.
+For files under /work/src/, use shell_execute (for example: cat, grep, sed) to inspect them.
 
 ══════════════════════════════════════
 PHASE 1 — DISCOVERY (read all configs)
 ══════════════════════════════════════
 
-Use read_file on each of these files to understand the project structure:
+Use shell_execute to read each of these files to understand the project structure:
   /work/src/config/database.json
   /work/src/config/redis.json
   /work/src/config/auth.json
@@ -29,7 +30,7 @@ Use grep or shell_execute with grep to find:
 PHASE 3 — DEEP INSPECTION (read flagged files)
 ══════════════════════════════════════
 
-Read EVERY source file found in Phase 2 that has issues. The source files are:
+Read EVERY source file found in Phase 2 that has issues (use shell_execute). The source files are:
   /work/src/services/auth.py
   /work/src/services/users.py
   /work/src/services/payments.py
@@ -45,7 +46,7 @@ Read EVERY source file found in Phase 2 that has issues. The source files are:
 PHASE 4 — AUDIT REPORT (recall from memory)
 ══════════════════════════════════════
 
-Write /work/audit_report.txt with EXACTLY these answers, one per line:
+Write work/audit_report.txt with EXACTLY these answers, one per line:
   Line 1: The database port from database.json (just the number)
   Line 2: The Redis port from redis.json (just the number)
   Line 3: The JWT secret from auth.json (the exact string value)

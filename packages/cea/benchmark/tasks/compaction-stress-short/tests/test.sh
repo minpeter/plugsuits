@@ -9,7 +9,7 @@ REWARD_FILE="/logs/verifier/reward.txt"
 mkdir -p /logs/verifier
 
 # Check all 5 files exist
-for f in /work/config.json /work/README.md /work/main.py /work/test.py /work/deploy.sh; do
+for f in /agent/work/config.json /agent/work/README.md /agent/work/main.py /agent/work/test.py /agent/work/deploy.sh; do
     if [ -f "$f" ]; then
         PASS=$((PASS + 1))
     else
@@ -19,16 +19,16 @@ for f in /work/config.json /work/README.md /work/main.py /work/test.py /work/dep
 done
 
 # Check answers.txt exists
-if [ ! -f /work/answers.txt ]; then
-    echo "MISSING: /work/answers.txt"
+if [ ! -f /agent/work/answers.txt ]; then
+    echo "MISSING: /agent/work/answers.txt"
     echo "$REWARD" > "$REWARD_FILE"
     exit 0
 fi
 
 # Read answers
-PORT=$(sed -n '1p' /work/answers.txt | tr -d '[:space:]')
-SERVICE=$(sed -n '2p' /work/answers.txt | tr -d '[:space:]')
-MAX_CONN=$(sed -n '3p' /work/answers.txt | tr -d '[:space:]')
+PORT=$(sed -n '1p' /agent/work/answers.txt | tr -d '[:space:]')
+SERVICE=$(sed -n '2p' /agent/work/answers.txt | tr -d '[:space:]')
+MAX_CONN=$(sed -n '3p' /agent/work/answers.txt | tr -d '[:space:]')
 
 # Validate answers
 [ "$PORT" = "8080" ] && PASS=$((PASS + 1)) || { echo "WRONG PORT: got '$PORT', expected '8080'"; FAIL=$((FAIL + 1)); }
