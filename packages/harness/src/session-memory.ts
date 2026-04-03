@@ -42,7 +42,7 @@ const USER_MSG_PATTERNS: Array<{
   extract: (match: RegExpMatchArray) => { key: string; value: string } | null;
 }> = [
   {
-    pattern: /\bmy name is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+    pattern: /\bmy name is\s+([A-Z][a-z]+)\b/i,
     extract: (m) => ({ key: "name", value: m[1] }),
   },
   {
@@ -52,9 +52,9 @@ const USER_MSG_PATTERNS: Array<{
   },
   {
     pattern:
-      /\bI (?:have|got) (?:a |an )?([\w\s]+?)\s+(?:named?|called)\s+(\w+)/i,
+      /\bI (?:have|got|adopted|just adopted) (?:a |an )?([\w\s]+?)\s+(?:named?|called)\s+(\w+)/i,
     extract: (m) => ({
-      key: m[2].toLowerCase(),
+      key: `pet ${m[2].toLowerCase()}`,
       value: `${m[2]} (${m[1].trim()})`,
     }),
   },
@@ -121,6 +121,11 @@ const USER_MSG_PATTERNS: Array<{
       }
       return { key, value: m[2] };
     },
+  },
+  {
+    pattern:
+      /\bmy\s+(sister|brother|partner|wife|husband|friend|mother|father|daughter|son)\s+([A-Z]\w+)/i,
+    extract: (m) => ({ key: m[1].toLowerCase(), value: m[2] }),
   },
   {
     pattern: /\bI(?:'m| am)\s+(\d+)\s+years?\s+old/i,
@@ -201,6 +206,12 @@ const RELATIONSHIP_KEYWORDS = [
   "son",
   "mentor",
   "colleague",
+  "dog",
+  "cat",
+  "pet",
+  "retriever",
+  "puppy",
+  "kitten",
 ];
 
 const CONTEXT_KEYWORDS = [
