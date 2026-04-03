@@ -284,68 +284,90 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           userCompactionCallbacks?.onStillExceeded?.();
         },
       };
-  const metricsCompactionCallbacks: Partial<CompactionOrchestratorCallbacks> =
-    isMetricsEnabled
-      ? {
-          onCompactionStart: () => {
-            emitMetric?.({ event: "compaction_start", turn: turnNumber });
-          },
-          onCompactionComplete: (result) => {
-            emitMetric?.({
-              event: "compaction_complete",
-              turn: turnNumber,
-              success: result.success,
-              tokensBefore: result.tokensBefore,
-              tokensAfter: result.tokensAfter,
-              strategy: (result as unknown as Record<string, unknown>).strategy,
-            });
-          },
-          onCompactionError: (error: unknown) => {
-            emitMetric?.({
-              event: "compaction_error",
-              turn: turnNumber,
-              error: String(error),
-            });
-          },
-          onBlockingChange: (event) => {
-            if (event.blocking) {
-              blockingStartTime = Date.now();
-              emitMetric?.({
-                event: "blocking_start",
-                turn: turnNumber,
-                reason: event.reason,
-                tokensBefore: event.tokensBefore,
-              });
-              return;
-            }
+  const metricsCompactionCallbacks: Partial<CompactionOrchestratorCallbacks> = {
+    onCompactionStart: () => {
+      emitMetric?.({ event: "compaction_start", turn: turnNumber });
+      emitEvent({
+        type: "compaction",
+        timestamp: new Date().toISOString(),
+        event: "start",
+        tokensBefore: config.messageHistory.getContextUsage().used,
+      });
+    },
+    onCompactionComplete: (result) => {
+      emitMetric?.({
+        event: "compaction_complete",
+        turn: turnNumber,
+        success: result.success,
+        tokensBefore: result.tokensBefore,
+        tokensAfter: result.tokensAfter,
+        strategy: (result as unknown as Record<string, unknown>).strategy,
+      });
+      emitEvent({
+        type: "compaction",
+        timestamp: new Date().toISOString(),
+        event: "complete",
+        tokensBefore: result.tokensBefore ?? 0,
+        tokensAfter: result.tokensAfter,
+        strategy: (result as unknown as Record<string, unknown>).strategy as
+          | string
+          | undefined,
+      });
+    },
+    onCompactionError: (error: unknown) => {
+      emitMetric?.({
+        event: "compaction_error",
+        turn: turnNumber,
+        error: String(error),
+      });
+    },
+    onBlockingChange: (event) => {
+      let durationMs: number | undefined;
+      if (!event.blocking && blockingStartTime != null) {
+        durationMs = Date.now() - blockingStartTime;
+      }
 
-            const durationMs =
-              blockingStartTime == null ? null : Date.now() - blockingStartTime;
-            blockingStartTime = null;
-            emitMetric?.({
-              event: "blocking_end",
-              turn: turnNumber,
-              durationMs,
-              reason: event.reason,
-              tokensBefore: event.tokensBefore,
-              tokensAfter: event.tokensAfter,
-            });
-          },
-          onJobStatus: (
-            id: string,
-            message: string,
-            state: "clear" | "running"
-          ) => {
-            emitMetric?.({
-              event: "job_status",
-              turn: turnNumber,
-              id,
-              message,
-              state,
-            });
-          },
-        }
-      : {};
+      if (event.blocking) {
+        blockingStartTime = Date.now();
+        emitMetric?.({
+          event: "blocking_start",
+          turn: turnNumber,
+          reason: event.reason,
+          tokensBefore: event.tokensBefore,
+        });
+      } else {
+        emitMetric?.({
+          event: "blocking_end",
+          turn: turnNumber,
+          durationMs: durationMs ?? null,
+          reason: event.reason,
+          tokensBefore: event.tokensBefore,
+          tokensAfter: event.tokensAfter,
+        });
+        blockingStartTime = null;
+      }
+
+      emitEvent({
+        type: "compaction",
+        timestamp: new Date().toISOString(),
+        event: "blocking_change",
+        tokensBefore: event.tokensBefore ?? 0,
+        tokensAfter: event.tokensAfter,
+        blocking: event.blocking,
+        reason: event.reason,
+        durationMs,
+      });
+    },
+    onJobStatus: (id: string, message: string, state: "clear" | "running") => {
+      emitMetric?.({
+        event: "job_status",
+        turn: turnNumber,
+        id,
+        message,
+        state,
+      });
+    },
+  };
   const compactionOrchestrator = new CompactionOrchestrator(
     config.messageHistory,
     {
