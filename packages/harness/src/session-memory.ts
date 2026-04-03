@@ -31,6 +31,134 @@ const BOLD_BULLET_FACT_REGEX = /^\s*-\s+\*\*(.+?)\*\*:\s*(.+?)\s*$/;
 const BULLET_FACT_REGEX = /^\s*-\s+([^:]+):\s*(.+?)\s*$/;
 const CATEGORY_SPLIT_REGEX = /[\s_-]+/;
 const LINE_SPLIT_REGEX = /\r?\n/;
+const SENTENCE_SPLIT_REGEX = /[.!?\n]+/;
+const ROLE_FILTER_REGEX =
+  /^(?:\d+|very|really|so|not|also|still|just|now|here|there)$/i;
+const KEY_FILTER_REGEX =
+  /^(?:name|job|goal|plan|idea|question|answer|problem|issue|point|take|guess)$/i;
+
+const USER_MSG_PATTERNS: Array<{
+  pattern: RegExp;
+  extract: (match: RegExpMatchArray) => { key: string; value: string } | null;
+}> = [
+  {
+    pattern: /\bmy name is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+    extract: (m) => ({ key: "name", value: m[1] }),
+  },
+  {
+    pattern:
+      /\bI(?:'m| am)\s+([A-Z][a-z]+)\b(?!\s+(?:going|trying|looking|thinking|working|using|learning|planning|turning))/,
+    extract: (m) => ({ key: "name", value: m[1] }),
+  },
+  {
+    pattern:
+      /\bI (?:have|got) (?:a |an )?([\w\s]+?)\s+(?:named?|called)\s+(\w+)/i,
+    extract: (m) => ({
+      key: m[2].toLowerCase(),
+      value: `${m[2]} (${m[1].trim()})`,
+    }),
+  },
+  {
+    pattern: /\bI (?:work|am working) (?:at|for)\s+(.+?)(?:\s+as\s+(.+))?$/i,
+    extract: (m) =>
+      m[2]
+        ? { key: "job", value: `${m[2].trim()} at ${m[1].trim()}` }
+        : { key: "workplace", value: m[1].trim() },
+  },
+  {
+    pattern: /\bI (?:work|am working) as (?:a |an )?(.+?)(?:\s+at\s+(.+))?$/i,
+    extract: (m) =>
+      m[2]
+        ? { key: "job", value: `${m[1].trim()} at ${m[2].trim()}` }
+        : { key: "job", value: m[1].trim() },
+  },
+  {
+    pattern: /\bI(?:'m| am) (?:a |an )([\w\s]+?)(?:\s+(?:at|in|for)\s+(.+))?$/i,
+    extract: (m) => {
+      const role = m[1].trim();
+      if (ROLE_FILTER_REGEX.test(role)) {
+        return null;
+      }
+      return m[2]
+        ? { key: "job", value: `${role} at ${m[2].trim()}` }
+        : { key: "job", value: role };
+    },
+  },
+  {
+    pattern: /\bI live in\s+(.+)/i,
+    extract: (m) => ({ key: "location", value: m[1].trim() }),
+  },
+  {
+    pattern: /\bI(?:'m| am) (?:from|in|based in)\s+([A-Z][\w\s,]+)/i,
+    extract: (m) => ({ key: "location", value: m[1].trim() }),
+  },
+  {
+    pattern: /\bmy (?:favorite|favourite)\s+([\w\s]+?)\s+is\s+(.+)/i,
+    extract: (m) => ({ key: `favorite ${m[1].trim()}`, value: m[2].trim() }),
+  },
+  {
+    pattern:
+      /\bI (?:love|really like|enjoy)\s+(?:cooking\s+)?(\w[\w\s]*?)(?:\s+food)?$/i,
+    extract: (m) => ({ key: "interest", value: m[1].trim() }),
+  },
+  {
+    pattern: /\bI (?:love|really like|enjoy)\s+(\w[\w\s]+)/i,
+    extract: (m) => ({ key: "interest", value: m[1].trim() }),
+  },
+  {
+    pattern: /\bmy (\w+(?:'s)?)\s+(?:name is|is named|called)\s+(\w+)/i,
+    extract: (m) => ({
+      key: m[1].toLowerCase().replace("'s", ""),
+      value: m[2],
+    }),
+  },
+  {
+    pattern: /\bmy (\w+)\s+is\s+([A-Z][\w]+(?:\s+[A-Z][\w]+)?)\b/,
+    extract: (m) => {
+      const key = m[1].toLowerCase();
+      if (KEY_FILTER_REGEX.test(key)) {
+        return null;
+      }
+      return { key, value: m[2] };
+    },
+  },
+  {
+    pattern: /\bI(?:'m| am)\s+(\d+)\s+years?\s+old/i,
+    extract: (m) => ({ key: "age", value: m[1] }),
+  },
+  {
+    pattern: /\bI(?:'m| am) turning\s+(\d+)/i,
+    extract: (m) => ({ key: "age", value: m[1] }),
+  },
+  {
+    pattern: /\bmy birthday is\s+(.+)/i,
+    extract: (m) => ({ key: "birthday", value: m[1].trim() }),
+  },
+  {
+    pattern: /\bI grew up in\s+(.+)/i,
+    extract: (m) => ({ key: "hometown", value: m[1].trim() }),
+  },
+];
+
+function extractFactsFromSentence(
+  sentence: string
+): Array<{ key: string; value: string }> {
+  const results: Array<{ key: string; value: string }> = [];
+
+  for (const { pattern, extract } of USER_MSG_PATTERNS) {
+    const match = sentence.match(pattern);
+    if (!match) {
+      continue;
+    }
+
+    const fact = extract(match);
+    if (fact?.key && fact.value) {
+      results.push(fact);
+    }
+  }
+
+  return results;
+}
 
 const IDENTITY_KEYWORDS = [
   "name",
@@ -225,6 +353,25 @@ export class SessionMemoryTracker {
     return estimateTokens(headerOnly) <= this.maxStateTokens
       ? headerOnly
       : undefined;
+  }
+
+  extractFactsFromUserMessage(text: string): number {
+    let extracted = 0;
+    const sentences = text
+      .split(SENTENCE_SPLIT_REGEX)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    for (const sentence of sentences) {
+      const facts = extractFactsFromSentence(sentence);
+      for (const fact of facts) {
+        const category = this.inferCategoryFromKey(fact.key);
+        this.setFact(category, fact.key, fact.value);
+        extracted++;
+      }
+    }
+
+    return extracted;
   }
 
   extractFactsFromSummary(summary: string): void {

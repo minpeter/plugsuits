@@ -695,6 +695,7 @@ async function runBenchmark(opts: {
     const contextBefore = history.getEstimatedTokens();
 
     history.addUserMessage(turn.message);
+    memoryTracker.extractFactsFromUserMessage(turn.message);
 
     const userTokens = estimateTokens(turn.message);
 

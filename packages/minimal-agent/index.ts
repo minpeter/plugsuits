@@ -176,6 +176,16 @@ const main = defineCommand({
       instructions: DEFAULT_SYSTEM_PROMPT,
     });
 
+    const handleTurnComplete = (
+      messages: Array<{ message: { role: string; content: unknown } }>
+    ): void => {
+      for (const { message } of messages) {
+        if (message.role === "user" && typeof message.content === "string") {
+          sessionMemoryTracker.extractFactsFromUserMessage(message.content);
+        }
+      }
+    };
+
     const handleCompactionComplete = (result: CompactionResult): void => {
       if (!(result.success && result.summaryMessageId)) {
         return;
@@ -207,6 +217,7 @@ const main = defineCommand({
         compactionCallbacks: {
           onCompactionComplete: handleCompactionComplete,
         },
+        onTurnComplete: handleTurnComplete,
       });
       return;
     }
@@ -229,6 +240,7 @@ const main = defineCommand({
       compactionCallbacks: {
         onCompactionComplete: handleCompactionComplete,
       },
+      onTurnComplete: handleTurnComplete,
       header: {
         title: "Minimal Agent",
         get subtitle() {
