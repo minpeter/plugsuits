@@ -1,10 +1,12 @@
 import { writeFileSync } from "node:fs";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import {
+  BackgroundMemoryExtractor,
   CheckpointHistory,
   CompactionOrchestrator,
   createModelSummarizer,
   estimateTokens,
+  InMemoryStore,
   SessionMemoryTracker,
 } from "@ai-sdk-tool/harness";
 import { createFriendli } from "@friendliai/ai-provider";
@@ -779,6 +781,7 @@ function printResults(
 
 async function runBenchmark(opts: {
   baseline?: boolean;
+  bme?: boolean;
   contextLimit: number;
   model: LanguageModel;
   modelId: string;
@@ -797,6 +800,15 @@ async function runBenchmark(opts: {
     ...(opts.baseline ? {} : { prompt: CHATBOT_COMPACTION_PROMPT }),
   });
   const memoryTracker = new SessionMemoryTracker();
+  const bmeExtractor = opts.bme
+    ? new BackgroundMemoryExtractor({
+        model,
+        store: new InMemoryStore(),
+        preset: "chat",
+        thresholds: { minTokenGrowth: 1000, minTurns: 5 },
+        maxExtractionTokens: 1000,
+      })
+    : null;
 
   const history = new CheckpointHistory({
     compaction: {
@@ -808,7 +820,9 @@ async function runBenchmark(opts: {
       thresholdRatio,
       speculativeStartRatio: speculativeRatio,
       summarizeFn,
-      getStructuredState: memoryTracker.getStructuredState.bind(memoryTracker),
+      getStructuredState: bmeExtractor
+        ? bmeExtractor.getStructuredState.bind(bmeExtractor)
+        : memoryTracker.getStructuredState.bind(memoryTracker),
     },
   });
   history.setContextLimit(contextLimit);
@@ -887,6 +901,12 @@ async function runBenchmark(opts: {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
     });
+
+    if (bmeExtractor) {
+      bmeExtractor
+        .onTurnComplete(history.getAll(), result.usage)
+        .catch(() => undefined);
+    }
 
     orchestrator.startSpeculative();
     if (speculativeStarted && !compactionEvent) {
@@ -998,6 +1018,11 @@ const main = defineCommand({
       description:
         "Use default compaction prompt instead of chatbot-optimized prompt",
     },
+    bme: {
+      type: "boolean",
+      description:
+        "Use BackgroundMemoryExtractor instead of SessionMemoryTracker",
+    },
   },
   async run({ args }) {
     const contextLimit = Number.parseInt(args.contextLimit || "4096", 10);
@@ -1030,6 +1055,7 @@ const main = defineCommand({
 
     const result = await runBenchmark({
       baseline: args.baseline === true,
+      bme: args.bme === true,
       contextLimit,
       model,
       modelId,
