@@ -1,5 +1,14 @@
 export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
+export type {
+  ApiContextManagementOptions,
+  ContextManagementConfig,
+  ContextManagementEdit,
+} from "./api-context-management";
+export {
+  buildContextManagementConfig,
+  isContextManagementSupported,
+} from "./api-context-management";
 export type { BackgroundMemoryExtractorConfig } from "./background-memory-extractor";
 export { BackgroundMemoryExtractor } from "./background-memory-extractor";
 export type {
@@ -27,6 +36,7 @@ export {
   resolveRegisteredCommandName,
 } from "./commands";
 export type {
+  CircuitBreakerConfig,
   CompactionCircuitBreakerOptions,
   CompactionCircuitBreakerState,
 } from "./compaction-circuit-breaker";
@@ -78,6 +88,16 @@ export {
   DEFAULT_COMPACTION_USER_PROMPT,
 } from "./compaction-prompts";
 export type * from "./compaction-types";
+export type { ContextTokenStats } from "./context-analysis";
+export { analyzeContextTokens } from "./context-analysis";
+export type {
+  CollapsedGroup,
+  CollapseOptions,
+  CollapseResult,
+} from "./context-collapse";
+export { collapseConsecutiveOps } from "./context-collapse";
+export type { ContextSuggestion } from "./context-suggestions";
+export { generateContextSuggestions } from "./context-suggestions";
 export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
 export { runAgentLoop } from "./loop";
@@ -103,6 +123,11 @@ export {
 } from "./overflow-detection";
 export type { AgentPaths, AgentPathsOptions } from "./paths";
 export { createAgentPaths } from "./paths";
+export type {
+  PostCompactRestorationConfig,
+  RestorationItem,
+} from "./post-compact-restoration";
+export { PostCompactRestorer } from "./post-compact-restoration";
 export { SessionManager } from "./session";
 export type { MemoryFact, SessionMemoryConfig } from "./session-memory";
 export { SessionMemoryTracker } from "./session-memory";
@@ -122,6 +147,7 @@ export {
   normalizeFinishReason,
   shouldContinueManualToolLoop,
 } from "./tool-loop-control";
+export { adjustSplitIndexForToolPairs } from "./tool-pair-validation";
 export type {
   ProgressivePruneResult,
   PruneResult,

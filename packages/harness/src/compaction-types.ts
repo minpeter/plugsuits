@@ -41,6 +41,15 @@ export interface SessionMetadata {
  */
 export interface CompactionConfig {
   /**
+   * Direction for choosing which side of conversation to preserve.
+   * 대화에서 어느 쪽을 보존할지 결정하는 방향 설정입니다.
+   * "keep-recent"은 기존 동작(뒤쪽 최신 메시지 보존),
+   * "keep-prefix"는 앞쪽 오래된 메시지 보존 + 뒤쪽 최근 메시지 요약입니다.
+   * @default "keep-recent"
+   */
+  compactionDirection?: "keep-recent" | "keep-prefix";
+
+  /**
    * Maximum number of tokens allowed in the model's context window.
    * 모델의 컨텍스트 창에 허용되는 최대 토큰 수입니다.
    * Setting this to 0 or undefined means unlimited context.
@@ -184,6 +193,7 @@ export type ContinuationVariant = "manual" | "auto-with-replay" | "tool-loop";
 // --- Compaction Results ---
 
 export interface CompactionResult {
+  compactionMethod?: "llm" | "session-memory";
   continuationVariant?: ContinuationVariant;
   reason?: string; // why compaction failed, if success=false
   success: boolean;

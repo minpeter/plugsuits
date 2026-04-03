@@ -25,9 +25,11 @@ import {
   estimateTokens,
   extractMessageText,
 } from "./token-utils";
+import { adjustSplitIndexForToolPairs } from "./tool-pair-validation";
 import { progressivePrune, pruneToolOutputs } from "./tool-pruning";
 
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
+  compactionDirection: "keep-recent",
   contextLimit: 0,
   enabled: false,
   getStructuredState: undefined,
@@ -63,11 +65,17 @@ const COMPACTION_CONTINUATION_TEXTS = {
     "The context was compacted due to overflow. I'll resume the task from where we left off.",
 } as const;
 
+const COMPACTION_CONTINUATION_TEXT_SET: ReadonlySet<string> = new Set(
+  Object.values(COMPACTION_CONTINUATION_TEXTS)
+);
+
 export function getContinuationText(
   variant: keyof typeof COMPACTION_CONTINUATION_TEXTS
 ): string {
   return COMPACTION_CONTINUATION_TEXTS[variant];
 }
+
+type CompactionDirection = "keep-recent" | "keep-prefix";
 
 type NormalizedCompactionConfig = Omit<
   Required<CompactionConfig>,
@@ -646,6 +654,7 @@ export class CheckpointHistory {
 
     const autoCompact = options?.auto === true;
     const hasExplicitAutoFlag = typeof options?.auto === "boolean";
+    const compactionDirection = this.resolveCompactionDirection();
     const replayMessage = autoCompact
       ? findReplayableUserMessage(activeMessages)
       : null;
@@ -654,10 +663,11 @@ export class CheckpointHistory {
       ? activeMessages.length
       : this.resolveCompactionSplitIndex(
           activeMessages,
-          options?.aggressive === true
+          options?.aggressive === true,
+          compactionDirection
         );
 
-    if (splitIndex === null || splitIndex <= 0) {
+    if (!this.isValidCompactionSplitIndex(splitIndex)) {
       return {
         success: false,
         tokensBefore,
@@ -666,7 +676,11 @@ export class CheckpointHistory {
       };
     }
 
-    const toSummarizeCandidates = activeMessages.slice(0, splitIndex);
+    const toSummarizeCandidates = this.selectMessagesToSummarize(
+      activeMessages,
+      splitIndex,
+      compactionDirection
+    );
     const previousSummaryMessage =
       summaryIndex >= 0 ? this.messages[summaryIndex] : undefined;
     const previousSummary =
@@ -695,27 +709,38 @@ export class CheckpointHistory {
       };
     }
 
-    const summarizeFn = this.compactionConfig.summarizeFn;
-    if (!summarizeFn) {
-      return {
-        success: false,
-        tokensBefore,
-        tokensAfter: tokensBefore,
-        reason: "no summarizeFn",
-      };
+    const messageRevisionBeforeSummarize = this.messageRevision;
+    let summaryText: string;
+    let compactionMethod: CompactionResult["compactionMethod"];
+    const sessionMemorySummary = this.buildSessionMemoryCompactionSummary();
+
+    if (sessionMemorySummary) {
+      summaryText = sessionMemorySummary;
+      compactionMethod = "session-memory";
+    } else {
+      const summarizeFn = this.compactionConfig.summarizeFn;
+      if (!summarizeFn) {
+        return {
+          success: false,
+          tokensBefore,
+          tokensAfter: tokensBefore,
+          reason: "no summarizeFn",
+        };
+      }
+
+      summaryText = await this.buildCompactionSummaryText({
+        activeMessages,
+        compactionDirection,
+        previousSummary,
+        splitIndex,
+        summarizeFn,
+        toSummarizeForSummary: toSummarizeForCompaction,
+      });
+      compactionMethod = "llm";
+      this.logCompactionDebug("compact summary method=llm");
     }
 
-    const messageRevisionBeforeSummarize = this.messageRevision;
-
-    const summaryText = await this.buildCompactionSummaryText({
-      activeMessages,
-      previousSummary,
-      splitIndex,
-      summarizeFn,
-      toSummarizeForSummary: toSummarizeForCompaction,
-    });
-
-    if (!summaryText || summaryText.trim().length === 0) {
+    if (this.isEmptyCompactionSummary(summaryText)) {
       return {
         success: false,
         tokensBefore,
@@ -762,9 +787,11 @@ export class CheckpointHistory {
     const insertIndex = activeStartIndex + splitIndex;
     this.messages.splice(insertIndex, 0, summaryMessage);
     this.messages.splice(insertIndex + 1, 0, continuationMessage);
-    if (replayMessageCopy) {
-      this.messages.push(replayMessageCopy);
-    }
+    this.insertReplayMessage(
+      replayMessageCopy,
+      compactionDirection,
+      insertIndex + 2
+    );
 
     this.summaryMessageId = summaryMessage.id;
     this.actualUsage = null;
@@ -780,11 +807,97 @@ export class CheckpointHistory {
     const tokensAfter = this.getEstimatedTokens();
     return {
       success: true,
+      compactionMethod,
       continuationVariant,
       summaryMessageId: summaryMessage.id,
       tokensBefore,
       tokensAfter,
     };
+  }
+
+  private appendReplayMessage(
+    replayMessageCopy: CheckpointMessage | null
+  ): void {
+    if (replayMessageCopy) {
+      this.messages.push(replayMessageCopy);
+    }
+  }
+
+  private insertReplayMessage(
+    replayMessageCopy: CheckpointMessage | null,
+    direction: CompactionDirection,
+    insertIndex: number
+  ): void {
+    if (!replayMessageCopy) {
+      return;
+    }
+
+    if (direction === "keep-prefix") {
+      this.messages.splice(insertIndex, 0, replayMessageCopy);
+      return;
+    }
+
+    this.appendReplayMessage(replayMessageCopy);
+  }
+
+  private selectMessagesToSummarize(
+    activeMessages: CheckpointMessage[],
+    splitIndex: number,
+    direction: CompactionDirection
+  ): CheckpointMessage[] {
+    if (direction === "keep-prefix") {
+      return activeMessages.slice(splitIndex);
+    }
+
+    return activeMessages.slice(0, splitIndex);
+  }
+
+  private isValidCompactionSplitIndex(
+    splitIndex: number | null
+  ): splitIndex is number {
+    return splitIndex !== null && splitIndex > 0;
+  }
+
+  private isEmptyCompactionSummary(summaryText: string): boolean {
+    return summaryText.trim().length === 0;
+  }
+
+  private buildSessionMemoryCompactionSummary(): string | undefined {
+    const structuredState = this.compactionConfig
+      .getStructuredState?.()
+      ?.trim();
+    if (!structuredState) {
+      this.logCompactionDebug(
+        "compact summary fallback=llm reason=structured-state-empty"
+      );
+      return undefined;
+    }
+
+    const estimatedStateTokens = estimateTokens(structuredState);
+    const contextLimit = this.getContextLimit();
+    const sessionMemoryThreshold = contextLimit * 0.3;
+
+    if (estimatedStateTokens >= sessionMemoryThreshold) {
+      this.logCompactionDebug(
+        `compact summary fallback=llm reason=structured-state-too-large structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit}`
+      );
+      return undefined;
+    }
+
+    this.logCompactionDebug(
+      `compact summary method=session-memory structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit}`
+    );
+
+    return `[Session Memory Summary]\n\n${structuredState}`;
+  }
+
+  private logCompactionDebug(message: string): void {
+    if (
+      process.env.COMPACTION_DEBUG === "1" ||
+      process.env.COMPACTION_DEBUG === "true"
+    ) {
+      console.error(`[compaction-debug] ${message}`);
+    }
   }
 
   private prePruneMessagesForSummary(
@@ -1047,7 +1160,42 @@ export class CheckpointHistory {
       return this.messages;
     }
 
+    if (this.resolveCompactionDirection() === "keep-prefix") {
+      let endExclusive = summaryIndex + 1;
+      const continuationCandidate = this.messages[endExclusive];
+      if (this.isCompactionContinuationMessage(continuationCandidate)) {
+        endExclusive += 1;
+      }
+
+      const replayCandidate = this.messages[endExclusive];
+      if (replayCandidate && isReplayableTextOnlyUserMessage(replayCandidate)) {
+        endExclusive += 1;
+      }
+
+      return this.messages.slice(0, endExclusive);
+    }
+
     return this.messages.slice(summaryIndex);
+  }
+
+  private isCompactionContinuationMessage(
+    message: CheckpointMessage | undefined
+  ): boolean {
+    if (
+      !message ||
+      message.message.role !== "assistant" ||
+      typeof message.message.content !== "string"
+    ) {
+      return false;
+    }
+
+    return COMPACTION_CONTINUATION_TEXT_SET.has(message.message.content);
+  }
+
+  private resolveCompactionDirection(): CompactionDirection {
+    return this.compactionConfig.compactionDirection === "keep-prefix"
+      ? "keep-prefix"
+      : "keep-recent";
   }
 
   private getCurrentUsageTokens(): number {
@@ -1086,14 +1234,23 @@ export class CheckpointHistory {
 
   private resolveCompactionSplitIndex(
     activeMessages: CheckpointMessage[],
-    forceAggressive: boolean
+    forceAggressive: boolean,
+    direction: CompactionDirection
   ): number | null {
+    if (direction === "keep-prefix") {
+      return this.resolveKeepPrefixSplitIndex(activeMessages, forceAggressive);
+    }
+
     if (forceAggressive) {
-      return activeMessages.length - 1;
+      return adjustSplitIndexForToolPairs(
+        activeMessages,
+        activeMessages.length - 1
+      );
     }
 
     const defaultSplitIndex = calculateCompactionSplitIndex({
-      adjustSplitIndex: (index) => index,
+      adjustSplitIndex: (index) =>
+        adjustSplitIndexForToolPairs(activeMessages, index),
       aggressive: false,
       estimateMessageTokens: (message: CheckpointMessage) =>
         estimateTokens(extractMessageText(message.message)),
@@ -1104,7 +1261,7 @@ export class CheckpointHistory {
       return defaultSplitIndex;
     }
 
-    return calculateCompactionSplitIndex({
+    const aggressiveSplitIndex = calculateCompactionSplitIndex({
       adjustSplitIndex: (index) => index,
       aggressive: true,
       estimateMessageTokens: (message: CheckpointMessage) =>
@@ -1112,10 +1269,62 @@ export class CheckpointHistory {
       keepRecentTokens: this.compactionConfig.keepRecentTokens ?? 2000,
       messages: activeMessages,
     });
+
+    if (aggressiveSplitIndex === null) {
+      return null;
+    }
+
+    return adjustSplitIndexForToolPairs(activeMessages, aggressiveSplitIndex);
+  }
+
+  private resolveKeepPrefixSplitIndex(
+    activeMessages: CheckpointMessage[],
+    forceAggressive: boolean
+  ): number | null {
+    if (activeMessages.length <= 1) {
+      return null;
+    }
+
+    if (forceAggressive) {
+      return 1;
+    }
+
+    const keepPrefixTokens = this.compactionConfig.keepRecentTokens ?? 2000;
+    let keptTokens = 0;
+    let splitIndex = activeMessages.length;
+
+    for (let i = 0; i < activeMessages.length; i += 1) {
+      const message = activeMessages[i];
+      if (!message) {
+        continue;
+      }
+
+      const messageTokens = estimateTokens(extractMessageText(message.message));
+      if (keptTokens + messageTokens > keepPrefixTokens) {
+        splitIndex = i;
+        break;
+      }
+
+      keptTokens += messageTokens;
+      if (i === activeMessages.length - 1) {
+        splitIndex = activeMessages.length;
+      }
+    }
+
+    if (splitIndex >= activeMessages.length) {
+      return null;
+    }
+
+    if (splitIndex <= 0) {
+      return 1;
+    }
+
+    return splitIndex;
   }
 
   private async buildCompactionSummaryText(params: {
     activeMessages: CheckpointMessage[];
+    compactionDirection: CompactionDirection;
     previousSummary?: string;
     splitIndex: number;
     summarizeFn: (
@@ -1126,11 +1335,19 @@ export class CheckpointHistory {
   }): Promise<string> {
     const {
       activeMessages,
+      compactionDirection,
       previousSummary,
       splitIndex,
       summarizeFn,
       toSummarizeForSummary,
     } = params;
+
+    if (compactionDirection === "keep-prefix") {
+      return summarizeFn(
+        toSummarizeForSummary.map((message) => message.message),
+        previousSummary
+      );
+    }
 
     const splitTurnStart = this.findSplitTurnStartIndex({
       messagesToSummarize: toSummarizeForSummary,
@@ -1373,24 +1590,19 @@ export class CheckpointHistory {
       actualUsage: this.actualUsage,
     };
 
-    let messagesToSummarize: CheckpointMessage[];
-    let messagesToKeep: CheckpointMessage[];
+    const compactionDirection = this.resolveCompactionDirection();
     const replayMessage = findReplayableUserMessage(activeMessages);
 
-    if (aggressive) {
-      messagesToSummarize = activeMessages;
-      messagesToKeep = [];
-    } else {
-      const splitIndex = this.resolveCompactionSplitIndex(
-        activeMessages,
-        false
-      );
-      if (splitIndex === null || splitIndex <= 0) {
-        return null;
-      }
-      messagesToSummarize = activeMessages.slice(0, splitIndex);
-      messagesToKeep = activeMessages.slice(splitIndex);
+    const overflowSplit = this.resolveOverflowCompactionSegments(
+      activeMessages,
+      aggressive,
+      compactionDirection
+    );
+    if (!overflowSplit) {
+      return null;
     }
+
+    const { messagesToKeep, messagesToSummarize } = overflowSplit;
 
     if (messagesToSummarize.length === 0) {
       return null;
@@ -1485,6 +1697,44 @@ export class CheckpointHistory {
       strategy: aggressive ? "aggressive-compact" : "compact",
       tokensBefore,
       tokensAfter,
+    };
+  }
+
+  private resolveOverflowCompactionSegments(
+    activeMessages: CheckpointMessage[],
+    aggressive: boolean,
+    direction: CompactionDirection
+  ): {
+    messagesToKeep: CheckpointMessage[];
+    messagesToSummarize: CheckpointMessage[];
+  } | null {
+    if (aggressive) {
+      return {
+        messagesToSummarize: activeMessages,
+        messagesToKeep: [],
+      };
+    }
+
+    const splitIndex = this.resolveCompactionSplitIndex(
+      activeMessages,
+      false,
+      direction
+    );
+
+    if (splitIndex === null || splitIndex <= 0) {
+      return null;
+    }
+
+    if (direction === "keep-prefix") {
+      return {
+        messagesToSummarize: activeMessages.slice(splitIndex),
+        messagesToKeep: activeMessages.slice(0, splitIndex),
+      };
+    }
+
+    return {
+      messagesToSummarize: activeMessages.slice(0, splitIndex),
+      messagesToKeep: activeMessages.slice(splitIndex),
     };
   }
 

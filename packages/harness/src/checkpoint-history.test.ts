@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelMessage } from "ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CheckpointHistory,
   isContextOverflowError,
@@ -126,6 +126,115 @@ describe("CheckpointHistory", () => {
 
       const all = h.getAll();
       expect(all.length).toBeGreaterThan(1);
+    });
+
+    it("uses session memory summary path when structured state is present and small", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary fallback");
+      const structuredState =
+        "## Session Memory\n- Continue checkpoint-history compaction work";
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 1000,
+          summarizeFn,
+          getStructuredState: () => structuredState,
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+
+      const result = await h.compact({ auto: true });
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("session-memory");
+      expect(summarizeFn).not.toHaveBeenCalled();
+
+      const summaryMessage = h
+        .getAll()
+        .find((message) => message.id === result.summaryMessageId);
+      expect(summaryMessage?.message.content).toBe(
+        `[Session Memory Summary]\n\n${structuredState}`
+      );
+    });
+
+    it("supports keep-prefix direction by preserving leading messages", async () => {
+      let summarizedMessages: ModelMessage[] = [];
+      const summarizeFn = vi.fn((messages: ModelMessage[]) => {
+        summarizedMessages = messages;
+        return Promise.resolve("prefix-summary");
+      });
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          compactionDirection: "keep-prefix",
+          keepRecentTokens: 15,
+          summarizeFn,
+        },
+      });
+
+      h.addUserMessage("alpha alpha alpha");
+      h.addModelMessages([{ role: "assistant", content: "beta beta beta" }]);
+      h.addUserMessage("gamma gamma gamma");
+      h.addModelMessages([{ role: "assistant", content: "delta delta delta" }]);
+
+      const result = await h.compact();
+      expect(result.success).toBe(true);
+
+      const summarizedRoles = summarizedMessages.map(
+        (message: ModelMessage) => message.role
+      );
+      expect(summarizedRoles).toContain("assistant");
+
+      const llmMessages = h.getMessagesForLLM();
+      expect(llmMessages[0]?.role).toBe("user");
+      expect(llmMessages[0]?.content).toBe("alpha alpha alpha");
+      expect(
+        llmMessages.some(
+          (message) =>
+            message.role === "user" && message.content === "prefix-summary"
+        )
+      ).toBe(true);
+    });
+
+    it("falls back to LLM summary path when structured state is undefined", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary");
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 1000,
+          summarizeFn,
+          getStructuredState: () => undefined,
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+
+      const result = await h.compact({ auto: true });
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("llm");
+      expect(summarizeFn).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to LLM summary path when structured state is oversized", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary for oversized state");
+      const oversizedState = "x".repeat(2000);
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 1000,
+          summarizeFn,
+          getStructuredState: () => oversizedState,
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+
+      const result = await h.compact({ auto: true });
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("llm");
+      expect(summarizeFn).toHaveBeenCalledOnce();
     });
 
     it("getAll() returns ALL messages including pre-checkpoint after compact", async () => {

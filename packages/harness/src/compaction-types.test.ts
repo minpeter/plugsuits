@@ -249,6 +249,7 @@ describe("compaction-types", () => {
 
     it("should accept all fields together", () => {
       const config: CompactionConfig = {
+        compactionDirection: "keep-prefix",
         contextLimit: 128_000,
         enabled: true,
         getStructuredState: () => "state",
@@ -266,6 +267,15 @@ describe("compaction-types", () => {
       expect(config.reserveTokens).toBe(2000);
       expect(config.speculativeStartRatio).toBe(0.5);
       expect(config.thresholdRatio).toBe(0.5);
+      expect(config.compactionDirection).toBe("keep-prefix");
+    });
+
+    it("should accept keep-recent compactionDirection", () => {
+      const config: CompactionConfig = {
+        compactionDirection: "keep-recent",
+      };
+
+      expect(config.compactionDirection).toBe("keep-recent");
     });
 
     it("should allow zero values for numeric fields", () => {
@@ -428,6 +438,17 @@ describe("compaction-types", () => {
         summaryMessageId: "summary-123",
       };
       expect(result.summaryMessageId).toBe("summary-123");
+    });
+
+    it("should allow optional compactionMethod", () => {
+      const result: CompactionResult = {
+        success: true,
+        tokensAfter: 1000,
+        tokensBefore: 5000,
+        compactionMethod: "session-memory",
+      };
+
+      expect(result.compactionMethod).toBe("session-memory");
     });
 
     it("should calculate token delta correctly", () => {

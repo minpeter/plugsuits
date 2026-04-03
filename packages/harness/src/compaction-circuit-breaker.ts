@@ -1,7 +1,9 @@
-export interface CompactionCircuitBreakerOptions {
+export interface CircuitBreakerConfig {
   cooldownMs?: number;
   maxConsecutiveFailures?: number;
 }
+
+export type CompactionCircuitBreakerOptions = CircuitBreakerConfig;
 
 export interface CompactionCircuitBreakerState {
   failures: number;
@@ -20,7 +22,7 @@ export class CompactionCircuitBreaker {
   private readonly maxConsecutiveFailures: number;
   private reason: string | null = null;
 
-  constructor(options: CompactionCircuitBreakerOptions = {}) {
+  constructor(options: CircuitBreakerConfig = {}) {
     this.maxConsecutiveFailures =
       typeof options.maxConsecutiveFailures === "number" &&
       Number.isFinite(options.maxConsecutiveFailures) &&
@@ -51,6 +53,10 @@ export class CompactionCircuitBreaker {
       return false;
     }
 
+    if (this.cooldownMs === 0) {
+      return true;
+    }
+
     if (this.lastFailureAt === null) {
       return false;
     }
@@ -75,5 +81,9 @@ export class CompactionCircuitBreaker {
     this.failures = 0;
     this.lastFailureAt = null;
     this.reason = null;
+  }
+
+  resetForNewSession(): void {
+    this.reset();
   }
 }

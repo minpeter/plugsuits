@@ -99,4 +99,30 @@ describe("CompactionCircuitBreaker", () => {
     expect(breaker.isOpen()).toBe(false);
     expect(breaker.isClosed()).toBe(true);
   });
+
+  it("stays open until reset when cooldown is disabled", () => {
+    vi.useFakeTimers();
+
+    try {
+      vi.setSystemTime(10_000);
+
+      const sessionScopedBreaker = new CompactionCircuitBreaker({
+        cooldownMs: 0,
+        maxConsecutiveFailures: 2,
+      });
+
+      sessionScopedBreaker.recordFailure("first");
+      sessionScopedBreaker.recordFailure("second");
+      expect(sessionScopedBreaker.isOpen()).toBe(true);
+
+      vi.advanceTimersByTime(60_000);
+      expect(sessionScopedBreaker.isOpen()).toBe(true);
+
+      sessionScopedBreaker.resetForNewSession();
+      expect(sessionScopedBreaker.isOpen()).toBe(false);
+      expect(sessionScopedBreaker.isClosed()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
