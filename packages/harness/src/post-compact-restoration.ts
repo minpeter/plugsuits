@@ -1,4 +1,5 @@
-import { estimateTokens } from "./token-utils";
+import type { CheckpointMessage } from "./compaction-types";
+import { estimateTokens, extractMessageText } from "./token-utils";
 
 export interface RestorationItem {
   content: string;
@@ -45,10 +46,28 @@ export class PostCompactRestorer {
     this.items.delete(label);
   }
 
+  filterAgainstKeptMessages(keptMessages: CheckpointMessage[]): void {
+    const keptLabels = new Set<string>();
+
+    for (const checkpointMessage of keptMessages) {
+      const text = extractMessageText(checkpointMessage.message);
+
+      for (const label of this.items.keys()) {
+        if (text.includes(label)) {
+          keptLabels.add(label);
+        }
+      }
+    }
+
+    for (const label of keptLabels) {
+      this.items.delete(label);
+    }
+  }
+
   getRestorationItems(): RestorationItem[] {
     const resolved = this.resolveConfig();
     const candidates = [...this.items.values()]
-      .filter((item) => item.tokens <= resolved.maxItemTokens)
+      .map((item) => truncateRestorationItem(item, resolved.maxItemTokens))
       .sort((a, b) => {
         if (a.priority !== b.priority) {
           return b.priority - a.priority;
@@ -83,14 +102,31 @@ export class PostCompactRestorer {
       return undefined;
     }
 
-    const sections = items.map(
-      (item) => `### ${item.type}: ${item.label}\n${item.content}`
-    );
+    const parts: string[] = [
+      "[Restored context after compaction — files and skills from before compaction]",
+      "",
+    ];
 
-    return [
-      "[Restored Context — recently accessed files and skills]",
-      ...sections,
-    ].join("\n\n");
+    for (const item of items) {
+      parts.push(`<restored-${item.type} label="${item.label}">`);
+      parts.push(item.content);
+      parts.push(`</restored-${item.type}>`);
+      parts.push("");
+    }
+
+    return parts.join("\n");
+  }
+
+  buildRestorationMessages():
+    | Array<{ content: string; role: "user" }>
+    | undefined {
+    const message = this.buildRestorationMessage();
+
+    if (!message) {
+      return undefined;
+    }
+
+    return [{ role: "user", content: message }];
   }
 
   clear(): void {
@@ -138,6 +174,56 @@ export class PostCompactRestorer {
       ),
     };
   }
+}
+
+function truncateRestorationItem(
+  item: RestorationItem,
+  maxItemTokens: number
+): RestorationItem {
+  if (item.tokens <= maxItemTokens) {
+    return item;
+  }
+
+  const truncationNotice = "[... truncated]";
+  const targetTokens = Math.max(0, Math.floor(maxItemTokens * 0.8));
+  const truncatedBody = truncateToTokenLimit(item.content, targetTokens);
+  const withNotice =
+    truncatedBody.length > 0
+      ? `${truncatedBody}\n${truncationNotice}`
+      : truncationNotice;
+
+  return {
+    ...item,
+    content: withNotice,
+    tokens: estimateTokens(withNotice),
+  };
+}
+
+function truncateToTokenLimit(text: string, tokenLimit: number): string {
+  if (tokenLimit <= 0 || text.length === 0) {
+    return "";
+  }
+
+  if (estimateTokens(text) <= tokenLimit) {
+    return text;
+  }
+
+  let low = 0;
+  let high = text.length;
+
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = text.slice(0, mid);
+
+    if (estimateTokens(candidate) <= tokenLimit) {
+      low = mid;
+      continue;
+    }
+
+    high = mid - 1;
+  }
+
+  return text.slice(0, low).trimEnd();
 }
 
 function normalizeNonNegativeInteger(

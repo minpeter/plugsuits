@@ -130,6 +130,7 @@ describe("BackgroundMemoryExtractor", () => {
       preset: "chat",
     });
 
+    expect(extractor.getLastExtractionMessageIndex()).toBe(0);
     expect(extractor.getStructuredState()).toBeUndefined();
     expect(await extractor.getMemoryContent()).toBe(
       CHAT_MEMORY_PRESET.template
@@ -284,6 +285,7 @@ describe("BackgroundMemoryExtractor", () => {
     expect(await store.read()).toBe(expectedMemory);
     expect(await extractor.getMemoryContent()).toBe(expectedMemory);
     expect(extractor.getStructuredState()).toBe(expectedMemory);
+    expect(extractor.getLastExtractionMessageIndex()).toBe(messages.length);
   });
 
   it("supports full replacement when incremental mode is disabled", async () => {

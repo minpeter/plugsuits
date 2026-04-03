@@ -132,25 +132,43 @@ pnpm run lint        # Lint — auto-fix
 pnpm run build       # Build (harness → cea)
 ```
 
-## Debugging
+## Environment Variables
 
-### Compaction debugging
+All environment variable flags are validated via [`@t3-oss/env-core`](https://env.t3.gg) and centralized in `env.ts` files per package (`packages/harness/src/env.ts`, `packages/cea/src/env.ts`).
 
-The context compaction system can be debugged by setting environment variables:
+### Context & Compaction
 
 ```bash
+# Override the context limit to simulate a smaller context window
+CONTEXT_LIMIT_OVERRIDE=30000 pnpm dev
+
 # Enable compaction debug logging (stderr)
 COMPACTION_DEBUG=1 pnpm dev
 
-# Override the context limit to simulate a smaller context window
+# Both together
 COMPACTION_DEBUG=1 CONTEXT_LIMIT_OVERRIDE=32768 pnpm -F plugsuits dev -- -m zai-org/GLM-5
+
+# Disable automatic compaction (manual still works)
+DISABLE_AUTO_COMPACT=1 pnpm dev
 ```
 
-`COMPACTION_DEBUG=1` enables:
-- `[compaction-debug]` logs on stderr showing `needsCompaction`, `speculative?`, and `checkAndCompact` decisions each turn
-- `CONTEXT_LIMIT_OVERRIDE` support — forces the context limit to the given value regardless of the model's actual limit, useful for triggering compaction with fewer messages
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `CONTEXT_LIMIT_OVERRIDE` | number | — | Force the context limit regardless of the model's actual limit |
+| `COMPACTION_DEBUG` | boolean | `false` | `[compaction-debug]` logs on stderr each turn |
+| `DISABLE_AUTO_COMPACT` | boolean | `false` | Disable automatic compaction |
+| `DEBUG_TOKENS` | boolean | `false` | Log token usage per turn |
 
-Both the TUI footer and the compaction engine will reflect the overridden limit. `CONTEXT_LIMIT_OVERRIDE` has no effect without `COMPACTION_DEBUG=1`.
+### CEA-specific
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FRIENDLI_TOKEN` | string | — | FriendliAI API key |
+| `ANTHROPIC_API_KEY` | string | — | Anthropic API key |
+| `DEBUG_SHOW_RAW_TOOL_IO` | boolean | `false` | Show unformatted tool I/O |
+| `BENCHMARK_SEED` | number | — | Deterministic sampling seed |
+| `BENCHMARK_TEMPERATURE` | number | — | Override model temperature |
+| `DISABLE_BME` | boolean | `false` | Disable background memory extraction |
 
 ## Built With
 

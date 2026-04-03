@@ -36,6 +36,35 @@ export interface SessionMetadata {
 // --- Configuration ---
 
 /**
+ * Session-memory compaction keep-window options.
+ * 세션 메모리 요약을 사용할 때 최근 원문 메시지를 함께 보존하기 위한 설정입니다.
+ */
+export interface SessionMemoryCompactionConfig {
+  /**
+   * Maximum token budget for the unsummarized keep window.
+   * 원문 보존 구간에 허용되는 최대 토큰 예산입니다.
+   * @default contextLimit * 0.4
+   * @minimum 0
+   */
+  maxKeepTokens?: number;
+
+  /**
+   * Minimum number of textual messages to keep unsummarized.
+   * 요약하지 않고 원문으로 유지할 최소 텍스트 메시지 수입니다.
+   * @default 3
+   * @minimum 0
+   */
+  minKeepMessages?: number;
+  /**
+   * Minimum number of tokens to keep unsummarized.
+   * 요약하지 않고 원문으로 유지할 최소 토큰 수입니다.
+   * @default 2000
+   * @minimum 0
+   */
+  minKeepTokens?: number;
+}
+
+/**
  * Configuration options for message compaction.
  * 압축(compaction) 설정 옵션.
  */
@@ -67,6 +96,15 @@ export interface CompactionConfig {
    * @default false
    */
   enabled?: boolean;
+
+  /**
+   * Optional callback that returns the absolute message index covered by
+   * session-memory extraction.
+   *
+   * Messages strictly before this index are considered covered by memory notes,
+   * while newer messages can be kept verbatim during session-memory compaction.
+   */
+  getLastExtractionMessageIndex?: () => number | undefined;
   /**
    * Optional callback that returns structured state to inject into the compaction summary.
    * Crush pattern: inject TODOs, file ops, and other runtime state before summarization.
@@ -108,6 +146,11 @@ export interface CompactionConfig {
    * @minimum 0
    */
   reserveTokens?: number;
+
+  /**
+   * Keep-window policy used when compaction summary is produced from session memory.
+   */
+  sessionMemoryCompaction?: SessionMemoryCompactionConfig;
 
   /**
    * Ratio at which to start speculative/safe compaction early.

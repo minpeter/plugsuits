@@ -91,6 +91,7 @@ export type { ContextSuggestion } from "./context-suggestions";
 export { generateContextSuggestions } from "./context-suggestions";
 export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
+export { env as harnessEnv } from "./env";
 export { runAgentLoop } from "./loop";
 export { CHAT_MEMORY_PRESET, CODE_MEMORY_PRESET } from "./memory-presets";
 export type { MemoryStore } from "./memory-store";

@@ -1,4 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+
+const mockEnv = vi.hoisted(() => ({
+  COMPACTION_DEBUG: false,
+  CONTEXT_LIMIT_OVERRIDE: undefined as number | undefined,
+  DISABLE_AUTO_COMPACT: false,
+  DEBUG_TOKENS: false,
+}));
+vi.mock("./env", () => ({ env: mockEnv }));
+
 import { CheckpointHistory } from "./checkpoint-history";
 import { CompactionOrchestrator } from "./compaction-orchestrator";
 
@@ -75,8 +84,12 @@ describe("CompactionOrchestrator", () => {
     });
 
     it("still allows manual compaction when DISABLE_AUTO_COMPACT=1", async () => {
-      const previousDisableAutoCompact = process.env.DISABLE_AUTO_COMPACT;
-      process.env.DISABLE_AUTO_COMPACT = "1";
+      const original = mockEnv.DISABLE_AUTO_COMPACT;
+      Object.defineProperty(mockEnv, "DISABLE_AUTO_COMPACT", {
+        value: true,
+        writable: true,
+        configurable: true,
+      });
 
       try {
         const history = createHistory();
@@ -90,11 +103,11 @@ describe("CompactionOrchestrator", () => {
         expect(result.success).toBe(true);
         expect(compactSpy).toHaveBeenCalledWith({ auto: false });
       } finally {
-        if (previousDisableAutoCompact === undefined) {
-          Reflect.deleteProperty(process.env, "DISABLE_AUTO_COMPACT");
-        } else {
-          process.env.DISABLE_AUTO_COMPACT = previousDisableAutoCompact;
-        }
+        Object.defineProperty(mockEnv, "DISABLE_AUTO_COMPACT", {
+          value: original,
+          writable: true,
+          configurable: true,
+        });
       }
     });
   });
@@ -125,8 +138,12 @@ describe("CompactionOrchestrator", () => {
     });
 
     it("skips auto compaction when DISABLE_AUTO_COMPACT=1", async () => {
-      const previousDisableAutoCompact = process.env.DISABLE_AUTO_COMPACT;
-      process.env.DISABLE_AUTO_COMPACT = "1";
+      const original = mockEnv.DISABLE_AUTO_COMPACT;
+      Object.defineProperty(mockEnv, "DISABLE_AUTO_COMPACT", {
+        value: true,
+        writable: true,
+        configurable: true,
+      });
 
       try {
         const history = createHistory({ contextLimit: 80, maxTokens: 10 });
@@ -141,11 +158,11 @@ describe("CompactionOrchestrator", () => {
         expect(didCompact).toBe(false);
         expect(compactSpy).not.toHaveBeenCalled();
       } finally {
-        if (previousDisableAutoCompact === undefined) {
-          Reflect.deleteProperty(process.env, "DISABLE_AUTO_COMPACT");
-        } else {
-          process.env.DISABLE_AUTO_COMPACT = previousDisableAutoCompact;
-        }
+        Object.defineProperty(mockEnv, "DISABLE_AUTO_COMPACT", {
+          value: original,
+          writable: true,
+          configurable: true,
+        });
       }
     });
   });
@@ -222,8 +239,12 @@ describe("CompactionOrchestrator", () => {
     });
 
     it("does not start speculative compaction when DISABLE_AUTO_COMPACT=1", () => {
-      const previousDisableAutoCompact = process.env.DISABLE_AUTO_COMPACT;
-      process.env.DISABLE_AUTO_COMPACT = "1";
+      const original = mockEnv.DISABLE_AUTO_COMPACT;
+      Object.defineProperty(mockEnv, "DISABLE_AUTO_COMPACT", {
+        value: true,
+        writable: true,
+        configurable: true,
+      });
 
       try {
         const history = createHistory({ maxTokens: 10 });
@@ -234,11 +255,11 @@ describe("CompactionOrchestrator", () => {
         const orchestrator = new CompactionOrchestrator(history);
         expect(orchestrator.shouldStartSpeculative()).toBe(false);
       } finally {
-        if (previousDisableAutoCompact === undefined) {
-          Reflect.deleteProperty(process.env, "DISABLE_AUTO_COMPACT");
-        } else {
-          process.env.DISABLE_AUTO_COMPACT = previousDisableAutoCompact;
-        }
+        Object.defineProperty(mockEnv, "DISABLE_AUTO_COMPACT", {
+          value: original,
+          writable: true,
+          configurable: true,
+        });
       }
     });
   });

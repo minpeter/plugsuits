@@ -9,6 +9,7 @@ import type {
 } from "@ai-sdk-tool/harness";
 import {
   CompactionOrchestrator,
+  harnessEnv,
   isContextOverflowError,
   shouldContinueManualToolLoop,
 } from "@ai-sdk-tool/harness";
@@ -180,9 +181,7 @@ export interface HeadlessRunnerConfig {
 
 export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const emitEvent = config.emitEvent ?? defaultEmitEvent;
-  const isMetricsEnabled =
-    process.env.COMPACTION_DEBUG === "1" ||
-    process.env.COMPACTION_DEBUG === "true";
+  const isMetricsEnabled = harnessEnv.COMPACTION_DEBUG;
   let turnNumber = 0;
   let blockingStartTime: number | null = null;
   const emitMetric = isMetricsEnabled
@@ -415,7 +414,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     }
 
     updateHistoryUsage(config.messageHistory, usage);
-    if (process.env.DEBUG_TOKENS) {
+    if (harnessEnv.DEBUG_TOKENS) {
       const input =
         usage.inputTokens ??
         (usage as Record<string, unknown>).promptTokens ??

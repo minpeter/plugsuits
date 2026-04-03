@@ -1,8 +1,24 @@
+import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import type { CheckpointMessage } from "./compaction-types";
 import { PostCompactRestorer } from "./post-compact-restoration";
+import { estimateTokens } from "./token-utils";
 
 function makeContent(tokens: number): string {
   return "a".repeat(tokens * 4);
+}
+
+let checkpointId = 0;
+
+function makeCheckpointMessage(message: ModelMessage): CheckpointMessage {
+  checkpointId += 1;
+
+  return {
+    createdAt: checkpointId,
+    id: `msg-${checkpointId}`,
+    isSummary: false,
+    message,
+  };
 }
 
 describe("PostCompactRestorer", () => {
@@ -11,6 +27,7 @@ describe("PostCompactRestorer", () => {
 
     expect(restorer.getRestorationItems()).toEqual([]);
     expect(restorer.buildRestorationMessage()).toBeUndefined();
+    expect(restorer.buildRestorationMessages()).toBeUndefined();
   });
 
   it("restores a single item within budget", () => {
@@ -65,28 +82,28 @@ describe("PostCompactRestorer", () => {
     ]);
   });
 
-  it("filters out items that exceed maxItemTokens", () => {
+  it("truncates items that exceed maxItemTokens", () => {
     const restorer = new PostCompactRestorer({
-      maxItemTokens: 4,
-      maxTotalTokens: 20,
+      maxItemTokens: 20,
+      maxTotalTokens: 100,
     });
 
+    const oversizedContent = makeContent(100);
+
     restorer.trackItem({
-      content: makeContent(5),
+      content: oversizedContent,
       label: "oversized",
       priority: 100,
       type: "file",
     });
-    restorer.trackItem({
-      content: makeContent(3),
-      label: "small-enough",
-      priority: 1,
-      type: "skill",
-    });
 
-    expect(restorer.getRestorationItems().map((item) => item.label)).toEqual([
-      "small-enough",
-    ]);
+    const [item] = restorer.getRestorationItems();
+
+    expect(item).toBeDefined();
+    expect(item?.label).toBe("oversized");
+    expect(item?.content).toContain("[... truncated]");
+    expect(item?.content.startsWith("a".repeat(64))).toBe(true);
+    expect(item?.tokens).toBeLessThan(estimateTokens(oversizedContent));
   });
 
   it("evicts the lowest priority item when maxItems is exceeded", () => {
@@ -121,7 +138,38 @@ describe("PostCompactRestorer", () => {
     ]);
   });
 
-  it("formats restoration message as markdown sections", () => {
+  it("filters tracked items already present in kept messages", () => {
+    const restorer = new PostCompactRestorer({
+      maxItemTokens: 100,
+      maxTotalTokens: 100,
+    });
+
+    restorer.trackItem({
+      content: "export const value = 1",
+      label: "src/index.ts",
+      priority: 10,
+      type: "file",
+    });
+    restorer.trackItem({
+      content: "Use git log and git diff before commit",
+      label: "git-master",
+      priority: 5,
+      type: "skill",
+    });
+
+    restorer.filterAgainstKeptMessages([
+      makeCheckpointMessage({
+        role: "assistant",
+        content: "Already loaded from src/index.ts",
+      }),
+    ]);
+
+    expect(restorer.getRestorationItems().map((item) => item.label)).toEqual([
+      "git-master",
+    ]);
+  });
+
+  it("formats restoration message as structured XML-like sections", () => {
     const restorer = new PostCompactRestorer();
 
     restorer.trackItem({
@@ -137,14 +185,36 @@ describe("PostCompactRestorer", () => {
       type: "skill",
     });
 
-    expect(restorer.buildRestorationMessage()).toBe(
-      `[Restored Context — recently accessed files and skills]
+    const message = restorer.buildRestorationMessage();
 
-### file: src/index.ts
-export const value = 1
-
-### skill: git-master
-Use git log and git diff before commit`
+    expect(message).toContain(
+      "[Restored context after compaction — files and skills from before compaction]"
     );
+    expect(message).toContain('<restored-file label="src/index.ts">');
+    expect(message).toContain("export const value = 1");
+    expect(message).toContain("</restored-file>");
+    expect(message).toContain('<restored-skill label="git-master">');
+    expect(message).toContain("Use git log and git diff before commit");
+    expect(message).toContain("</restored-skill>");
+  });
+
+  it("buildRestorationMessages returns a user message array", () => {
+    const restorer = new PostCompactRestorer();
+
+    restorer.trackItem({
+      content: "export const value = 1",
+      label: "src/index.ts",
+      priority: 10,
+      type: "file",
+    });
+
+    const message = restorer.buildRestorationMessage();
+
+    expect(restorer.buildRestorationMessages()).toEqual([
+      {
+        role: "user",
+        content: message,
+      },
+    ]);
   });
 });

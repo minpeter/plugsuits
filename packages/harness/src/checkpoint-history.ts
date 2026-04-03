@@ -20,6 +20,7 @@ import type {
 } from "./compaction-types";
 import { collapseConsecutiveOps } from "./context-collapse";
 import { createContinuationMessage } from "./continuation";
+import { env } from "./env";
 import { microCompactMessages } from "./micro-compact";
 import type { SessionStore } from "./session-store";
 import {
@@ -35,11 +36,13 @@ const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
   contextLimit: 0,
   contextCollapse: true,
   enabled: false,
+  getLastExtractionMessageIndex: undefined,
   getStructuredState: undefined,
   microCompact: undefined,
   maxTokens: 8000,
   keepRecentTokens: 2000,
   reserveTokens: 2000,
+  sessionMemoryCompaction: undefined,
   speculativeStartRatio: undefined,
   thresholdRatio: 0.5,
   summarizeFn: undefined,
@@ -83,14 +86,18 @@ type CompactionDirection = "keep-recent" | "keep-prefix";
 type NormalizedCompactionConfig = Omit<
   Required<CompactionConfig>,
   | "getStructuredState"
+  | "getLastExtractionMessageIndex"
   | "microCompact"
+  | "sessionMemoryCompaction"
   | "speculativeStartRatio"
   | "summarizeFn"
 > &
   Pick<
     CompactionConfig,
     | "getStructuredState"
+    | "getLastExtractionMessageIndex"
     | "microCompact"
+    | "sessionMemoryCompaction"
     | "speculativeStartRatio"
     | "summarizeFn"
   >;
@@ -255,6 +262,27 @@ function findReplayableUserMessage(
   return null;
 }
 
+function hasTextContent(message: CheckpointMessage): boolean {
+  const content = message.message.content;
+
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+
+  if (!Array.isArray(content)) {
+    return false;
+  }
+
+  return content.some(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      part.type === "text" &&
+      typeof part.text === "string" &&
+      part.text.trim().length > 0
+  );
+}
+
 export class CheckpointHistory {
   private messages: CheckpointMessage[] = [];
   private summaryMessageId: string | null = null;
@@ -378,10 +406,7 @@ export class CheckpointHistory {
     const inputTokens = usage.inputTokens ?? usage.promptTokens;
 
     if (inputTokens === undefined || inputTokens === null) {
-      if (
-        process.env.COMPACTION_DEBUG === "1" ||
-        process.env.COMPACTION_DEBUG === "true"
-      ) {
+      if (env.COMPACTION_DEBUG) {
         console.error(
           `[compaction-debug] updateActualUsage: no inputTokens/promptTokens in usage data, skipping (received keys: ${Object.keys(usage).join(", ")})`
         );
@@ -559,10 +584,7 @@ export class CheckpointHistory {
 
     const result = currentUsage >= speculativeThreshold;
 
-    if (
-      process.env.COMPACTION_DEBUG === "1" ||
-      process.env.COMPACTION_DEBUG === "true"
-    ) {
+    if (env.COMPACTION_DEBUG) {
       console.error(
         `[compaction-debug] speculative? usage=${currentUsage} specThreshold=${Math.floor(speculativeThreshold)} blockThreshold=${Math.floor(blockingThreshold)} → ${result}`
       );
@@ -679,48 +701,46 @@ export class CheckpointHistory {
       };
     }
 
-    const toSummarizeCandidates = this.selectMessagesToSummarize(
-      activeMessages,
-      splitIndex,
-      compactionDirection
-    );
-    const previousSummaryMessage =
-      summaryIndex >= 0 ? this.messages[summaryIndex] : undefined;
-    const previousSummary =
-      previousSummaryMessage?.isSummary &&
-      typeof previousSummaryMessage.message.content === "string"
-        ? previousSummaryMessage.message.content
-        : undefined;
-
-    const toSummarize =
-      previousSummary && toSummarizeCandidates[0]?.isSummary
-        ? toSummarizeCandidates.slice(1)
-        : toSummarizeCandidates;
-
-    const toSummarizeForSummary = this.prePruneMessagesForSummary(toSummarize);
-
-    const toSummarizeForCompaction = this.applyMicroCompactionForSummary(
-      toSummarizeForSummary
-    );
-
-    if (toSummarizeForCompaction.length === 0) {
-      return {
-        success: false,
-        tokensBefore,
-        tokensAfter: tokensBefore,
-        reason: "no messages to summarize",
-      };
-    }
+    const previousSummary = this.resolvePreviousSummary(summaryIndex);
 
     const messageRevisionBeforeSummarize = this.messageRevision;
     let summaryText: string;
     let compactionMethod: CompactionResult["compactionMethod"];
-    const sessionMemorySummary = this.buildSessionMemoryCompactionSummary();
+    let summaryInsertSplitIndex = splitIndex;
+    const sessionMemorySummary = this.buildSessionMemoryCompactionSummary(
+      activeMessages,
+      activeStartIndex
+    );
 
     if (sessionMemorySummary) {
-      summaryText = sessionMemorySummary;
+      summaryText = sessionMemorySummary.summary;
+      summaryInsertSplitIndex = sessionMemorySummary.keepFromIndex;
       compactionMethod = "session-memory";
     } else {
+      const toSummarizeCandidates = this.selectMessagesToSummarize(
+        activeMessages,
+        splitIndex,
+        compactionDirection
+      );
+      const toSummarize =
+        previousSummary && toSummarizeCandidates[0]?.isSummary
+          ? toSummarizeCandidates.slice(1)
+          : toSummarizeCandidates;
+      const toSummarizeForSummary =
+        this.prePruneMessagesForSummary(toSummarize);
+      const toSummarizeForCompaction = this.applyMicroCompactionForSummary(
+        toSummarizeForSummary
+      );
+
+      if (toSummarizeForCompaction.length === 0) {
+        return {
+          success: false,
+          tokensBefore,
+          tokensAfter: tokensBefore,
+          reason: "no messages to summarize",
+        };
+      }
+
       const summarizeFn = this.compactionConfig.summarizeFn;
       if (!summarizeFn) {
         return {
@@ -787,7 +807,7 @@ export class CheckpointHistory {
       effectiveReplayMessage
     );
 
-    const insertIndex = activeStartIndex + splitIndex;
+    const insertIndex = activeStartIndex + summaryInsertSplitIndex;
     this.messages.splice(insertIndex, 0, summaryMessage);
     this.messages.splice(insertIndex + 1, 0, continuationMessage);
     this.insertReplayMessage(
@@ -865,7 +885,26 @@ export class CheckpointHistory {
     return summaryText.trim().length === 0;
   }
 
-  private buildSessionMemoryCompactionSummary(): string | undefined {
+  private resolvePreviousSummary(summaryIndex: number): string | undefined {
+    if (summaryIndex < 0) {
+      return undefined;
+    }
+
+    const previousSummaryMessage = this.messages[summaryIndex];
+    if (
+      previousSummaryMessage?.isSummary &&
+      typeof previousSummaryMessage.message.content === "string"
+    ) {
+      return previousSummaryMessage.message.content;
+    }
+
+    return undefined;
+  }
+
+  private buildSessionMemoryCompactionSummary(
+    messages: CheckpointMessage[],
+    activeStartIndex: number
+  ): { keepFromIndex: number; summary: string } | undefined {
     const structuredState = this.compactionConfig
       .getStructuredState?.()
       ?.trim();
@@ -887,18 +926,125 @@ export class CheckpointHistory {
       return undefined;
     }
 
-    this.logCompactionDebug(
-      `compact summary method=session-memory structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit}`
+    const sessionMemoryCompactionConfig =
+      this.compactionConfig.sessionMemoryCompaction ?? {};
+    const minKeepTokens = Math.max(
+      0,
+      Math.floor(sessionMemoryCompactionConfig.minKeepTokens ?? 2000)
+    );
+    const minKeepMessages = Math.max(
+      0,
+      Math.floor(sessionMemoryCompactionConfig.minKeepMessages ?? 3)
+    );
+    const maxKeepTokens = Math.max(
+      0,
+      Math.floor(
+        sessionMemoryCompactionConfig.maxKeepTokens ?? contextLimit * 0.4
+      )
     );
 
-    return `[Session Memory Summary]\n\n${structuredState}`;
+    const keepWindow = this.resolveSessionMemoryKeepWindow(messages, {
+      maxKeepTokens,
+      minKeepMessages,
+      minKeepTokens,
+    });
+    let keepFromIndex = keepWindow.keepFromIndex;
+
+    const coveredUntilIndex = this.resolveSessionMemoryCoveredIndex(
+      activeStartIndex,
+      messages.length
+    );
+    if (coveredUntilIndex !== undefined) {
+      keepFromIndex = Math.min(keepFromIndex, coveredUntilIndex);
+    }
+
+    const adjustedKeepFromIndex = adjustSplitIndexForToolPairs(
+      messages,
+      keepFromIndex
+    );
+    if (adjustedKeepFromIndex <= 0 && coveredUntilIndex !== undefined) {
+      this.logCompactionDebug(
+        `compact summary fallback=llm reason=session-memory-keep-window-empty keepFromIndex=${adjustedKeepFromIndex} coveredUntilIndex=${coveredUntilIndex ?? "none"}`
+      );
+      return undefined;
+    }
+
+    this.logCompactionDebug(
+      `compact summary method=session-memory structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit} keepFromIndex=${adjustedKeepFromIndex} keptTokens=${keepWindow.keptTokens} keptTextMessages=${keepWindow.keptTextMessages} coveredUntilIndex=${coveredUntilIndex ?? "none"}`
+    );
+
+    return {
+      summary: `[Session Memory Summary]\n\n${structuredState}`,
+      keepFromIndex: adjustedKeepFromIndex,
+    };
+  }
+
+  private resolveSessionMemoryCoveredIndex(
+    activeStartIndex: number,
+    activeMessageCount: number
+  ): number | undefined {
+    const absoluteCoveredIndex =
+      this.compactionConfig.getLastExtractionMessageIndex?.();
+    if (
+      absoluteCoveredIndex === undefined ||
+      !Number.isFinite(absoluteCoveredIndex)
+    ) {
+      return undefined;
+    }
+
+    const normalizedAbsoluteIndex = Math.max(
+      0,
+      Math.floor(absoluteCoveredIndex)
+    );
+    const relativeCoveredIndex = normalizedAbsoluteIndex - activeStartIndex;
+
+    return Math.max(0, Math.min(activeMessageCount, relativeCoveredIndex));
+  }
+
+  private resolveSessionMemoryKeepWindow(
+    messages: CheckpointMessage[],
+    options: {
+      maxKeepTokens: number;
+      minKeepMessages: number;
+      minKeepTokens: number;
+    }
+  ): { keepFromIndex: number; keptTextMessages: number; keptTokens: number } {
+    const { maxKeepTokens, minKeepMessages, minKeepTokens } = options;
+    let keepFromIndex = messages.length;
+    let keptTokens = 0;
+    let keptTextMessages = 0;
+
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (!message) {
+        continue;
+      }
+
+      const messageTokens = estimateMessageTokens(message.message);
+      if (keptTokens + messageTokens > maxKeepTokens) {
+        break;
+      }
+
+      keepFromIndex = i;
+      keptTokens += messageTokens;
+      if (hasTextContent(message)) {
+        keptTextMessages += 1;
+      }
+
+      if (keptTokens >= minKeepTokens && keptTextMessages >= minKeepMessages) {
+        break;
+      }
+    }
+
+    return {
+      keepFromIndex,
+      keptTokens,
+      keptTextMessages,
+    };
   }
 
   private logCompactionDebug(message: string): void {
-    if (
-      process.env.COMPACTION_DEBUG === "1" ||
-      process.env.COMPACTION_DEBUG === "true"
-    ) {
+    if (env.COMPACTION_DEBUG) {
       console.error(`[compaction-debug] ${message}`);
     }
   }
@@ -957,10 +1103,7 @@ export class CheckpointHistory {
         : undefined
     );
 
-    if (
-      process.env.COMPACTION_DEBUG === "1" ||
-      process.env.COMPACTION_DEBUG === "true"
-    ) {
+    if (env.COMPACTION_DEBUG) {
       console.error(
         `[compaction-debug] microCompact: modified=${result.messagesModified}, tokensSaved=${result.tokensSaved}`
       );

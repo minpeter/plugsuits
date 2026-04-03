@@ -7,6 +7,7 @@ import {
   shouldStartSpeculativeCompaction,
 } from "./compaction-policy";
 import type { CompactionResult, PreparedCompaction } from "./compaction-types";
+import { env } from "./env";
 import { estimateTokens } from "./token-utils";
 
 export interface SpeculativeCompactionJob {
@@ -403,10 +404,7 @@ export class CompactionOrchestrator {
   }
 
   private debugLog(message: string): void {
-    if (
-      process.env.COMPACTION_DEBUG === "1" ||
-      process.env.COMPACTION_DEBUG === "true"
-    ) {
+    if (env.COMPACTION_DEBUG) {
       console.error(`[compaction-debug] ${message}`);
     }
   }
@@ -453,7 +451,7 @@ export class CompactionOrchestrator {
   }
 
   async checkAndCompact(): Promise<boolean> {
-    if (process.env.DISABLE_AUTO_COMPACT === "1") {
+    if (env.DISABLE_AUTO_COMPACT) {
       return false;
     }
 
@@ -544,7 +542,7 @@ export class CompactionOrchestrator {
   }
 
   shouldStartSpeculative(history?: CompactionHistoryLike): boolean {
-    if (process.env.DISABLE_AUTO_COMPACT === "1") {
+    if (env.DISABLE_AUTO_COMPACT) {
       return false;
     }
 

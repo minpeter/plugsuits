@@ -157,6 +157,104 @@ describe("CheckpointHistory", () => {
       );
     });
 
+    it("keeps uncovered recent messages with session memory summary and preserves tool pairs", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary fallback");
+      const structuredState = "## Session Memory\n- Keep uncovered messages";
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 4000,
+          summarizeFn,
+          getStructuredState: () => structuredState,
+          getLastExtractionMessageIndex: () => 3,
+          sessionMemoryCompaction: {
+            minKeepTokens: 1,
+            minKeepMessages: 1,
+            maxKeepTokens: 100,
+          },
+        },
+      });
+
+      h.addUserMessage("covered user request");
+      h.addModelMessages([
+        { role: "assistant", content: "covered assistant response" },
+      ]);
+      h.addModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_recent",
+              toolName: "read_file",
+              input: { path: "src/file.ts" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_recent",
+              toolName: "read_file",
+              output: { type: "text", value: "file content" },
+            },
+          ],
+        },
+      ]);
+      h.addUserMessage("uncovered latest user request");
+
+      const result = await h.compact({ auto: false });
+
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("session-memory");
+      expect(summarizeFn).not.toHaveBeenCalled();
+
+      const llmMessages = h.getMessagesForLLM();
+      expect(llmMessages[0]).toEqual({
+        role: "user",
+        content: `[Session Memory Summary]\n\n${structuredState}`,
+      });
+
+      const llmTextContents = llmMessages
+        .filter((message) => typeof message.content === "string")
+        .map((message) => message.content);
+
+      expect(llmTextContents).not.toContain("covered user request");
+      expect(llmTextContents).not.toContain("covered assistant response");
+      expect(llmTextContents).toContain("uncovered latest user request");
+
+      const toolCallMessage = llmMessages.find(
+        (message) =>
+          message.role === "assistant" &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              typeof part === "object" &&
+              part !== null &&
+              part.type === "tool-call" &&
+              part.toolCallId === "call_recent"
+          )
+      );
+
+      const toolResultMessage = llmMessages.find(
+        (message) =>
+          message.role === "tool" &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              typeof part === "object" &&
+              part !== null &&
+              part.type === "tool-result" &&
+              part.toolCallId === "call_recent"
+          )
+      );
+
+      expect(toolCallMessage).toBeDefined();
+      expect(toolResultMessage).toBeDefined();
+    });
+
     it("supports keep-prefix direction by preserving leading messages", async () => {
       let summarizedMessages: ModelMessage[] = [];
       const summarizeFn = vi.fn((messages: ModelMessage[]) => {

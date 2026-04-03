@@ -136,16 +136,9 @@ const normalizeUsageMeasurement = (usage: unknown): UsageMeasurement | null => {
 };
 
 const getBenchmarkSamplingOverrides = (): BenchmarkSamplingOverrides => {
-  const seed = process.env.BENCHMARK_SEED
-    ? Number.parseInt(process.env.BENCHMARK_SEED, 10)
-    : undefined;
-  const temperature = process.env.BENCHMARK_TEMPERATURE
-    ? Number.parseFloat(process.env.BENCHMARK_TEMPERATURE)
-    : undefined;
-
   return {
-    seed: Number.isFinite(seed) ? seed : undefined,
-    temperature: Number.isFinite(temperature) ? temperature : undefined,
+    seed: env.BENCHMARK_SEED,
+    temperature: env.BENCHMARK_TEMPERATURE,
   };
 };
 
@@ -603,22 +596,8 @@ export class AgentManager {
     return { model: wrappedModel, providerOptions: options, maxOutputTokens };
   }
 
-  /**
-   * Parse CONTEXT_LIMIT_OVERRIDE when COMPACTION_DEBUG is active.
-   * Returns the override value if valid, or null if not applicable.
-   */
   private getContextLimitOverride(): number | null {
-    if (
-      (process.env.COMPACTION_DEBUG === "1" ||
-        process.env.COMPACTION_DEBUG === "true") &&
-      process.env.CONTEXT_LIMIT_OVERRIDE
-    ) {
-      const override = Number.parseInt(process.env.CONTEXT_LIMIT_OVERRIDE, 10);
-      if (Number.isFinite(override) && override > 0) {
-        return override;
-      }
-    }
-    return null;
+    return env.CONTEXT_LIMIT_OVERRIDE ?? null;
   }
 
   /**
@@ -676,7 +655,7 @@ export class AgentManager {
     const { summarizeFn, getStructuredState: fileTrackingState } =
       buildFileTrackingSummarizeFn(baseModelSummarizer);
 
-    const bmeDisabled = process.env.DISABLE_BME === "1";
+    const bmeDisabled = env.DISABLE_BME;
     const memoryExtractor = bmeDisabled
       ? null
       : new BackgroundMemoryExtractor({
@@ -700,6 +679,14 @@ export class AgentManager {
         parts.push(fileState);
       }
       return parts.join("\n\n");
+    };
+
+    const getLastExtractionMessageIndex = (): number | undefined => {
+      if (!memoryExtractor?.getStructuredState()) {
+        return undefined;
+      }
+
+      return memoryExtractor.getLastExtractionMessageIndex();
     };
 
     // Compute context-adaptive threshold ratio
@@ -736,6 +723,7 @@ export class AgentManager {
         effectiveReserveTokens
       ),
       summarizeFn,
+      getLastExtractionMessageIndex,
       getStructuredState,
       ...overrides,
     };

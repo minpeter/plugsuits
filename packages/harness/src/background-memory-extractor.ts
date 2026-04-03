@@ -117,6 +117,10 @@ export class BackgroundMemoryExtractor {
     return content && content.length > 0 ? this.cachedState : undefined;
   }
 
+  getLastExtractionMessageIndex(): number {
+    return this.lastExtractionMessageIndex;
+  }
+
   async getMemoryContent(): Promise<string> {
     await this.initialization;
 

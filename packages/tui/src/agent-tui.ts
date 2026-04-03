@@ -13,6 +13,7 @@ import {
   executeCommand,
   generateContextSuggestions,
   getContextPressureLevel,
+  harnessEnv,
   isCommand,
   isContextOverflowError,
   isSkillCommandResult,
@@ -1266,7 +1267,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       | null
       | undefined
   ): void => {
-    if (!(usage && process.env.DEBUG_TOKENS)) {
+    if (!(usage && harnessEnv.DEBUG_TOKENS)) {
       return;
     }
 

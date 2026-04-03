@@ -1,5 +1,6 @@
 import { generateText, type ModelMessage } from "ai";
 import type { CheckpointMessage, StructuredState } from "./compaction-types";
+import { env } from "./env";
 import { estimateTokens, extractMessageText } from "./token-utils";
 
 type GenerateTextModel = Parameters<typeof generateText>[0]["model"];
@@ -218,7 +219,7 @@ function logSummarizerUsage(
   sentMessages: number,
   totalMessages: number
 ): void {
-  if (!(usage && process.env.DEBUG_TOKENS)) {
+  if (!(usage && env.DEBUG_TOKENS)) {
     return;
   }
 

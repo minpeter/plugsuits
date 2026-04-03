@@ -8,6 +8,7 @@ import {
   visibleWidth,
 } from "@mariozechner/pi-tui";
 import { parsePartialJson, type TextStreamPart, type ToolSet } from "ai";
+import { env } from "../env";
 
 type StreamPart = TextStreamPart<ToolSet>;
 
@@ -114,22 +115,8 @@ const HASHLINE_TAG_PIPE_ONLY_PATTERN =
   /^(.*\d+#[ZPMQVRWSNKTXJBYH]{2})\s*\|\s*$/;
 const HASHLINE_COMPACT_LINE_PATTERN = /^\s*\d+#[ZPMQVRWSNKTXJBYH]{2}\|.*$/;
 
-const isTruthyEnvFlag = (value: string | undefined): boolean => {
-  if (!value) {
-    return false;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  );
-};
-
 const isRawToolIoEnabledByEnv = (): boolean => {
-  return isTruthyEnvFlag(process.env.DEBUG_SHOW_RAW_TOOL_IO);
+  return env.DEBUG_SHOW_RAW_TOOL_IO;
 };
 
 interface ReadFileParsedOutput {

@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@ai-sdk/provider": "^3.0.8",
+    "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",
     "glob": "^13.0.6",
     "yaml": "^2.8.2"
