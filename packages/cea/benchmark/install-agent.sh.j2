@@ -16,7 +16,7 @@ corepack enable
 corepack prepare pnpm@10.32.1 --activate
 
 AGENT_REPO="${AGENT_REPO:-https://github.com/minpeter/plugsuits.git}"
-AGENT_BRANCH="${AGENT_BRANCH:-feat/minimal-agent-speculative-compaction}"
+AGENT_BRANCH="${AGENT_BRANCH:-main}"
 
 git clone --depth 1 --single-branch -b "$AGENT_BRANCH" "$AGENT_REPO" /agent
 cd /agent

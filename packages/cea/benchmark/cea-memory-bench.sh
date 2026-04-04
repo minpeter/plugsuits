@@ -58,8 +58,8 @@ last_text = ''
 for line in lines:
     try:
         ev = json.loads(line)
-        if ev.get('type') == 'assistant' and ev.get('content'):
-            last_text = ev['content']
+        if ev.get('type') == 'step' and ev.get('source') == 'agent' and ev.get('message'):
+            last_text = ev['message']
     except: pass
 print(last_text)
 " 2>/dev/null || echo "")
