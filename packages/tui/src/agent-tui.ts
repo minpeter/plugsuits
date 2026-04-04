@@ -649,9 +649,17 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     return getContextPressureLevel(usage.used, budget);
   };
 
+  const contextSuggestionsEnabled =
+    process.env.CONTEXT_SUGGESTIONS === "1" ||
+    process.env.CONTEXT_SUGGESTIONS === "true";
+
   const refreshContextSuggestions = (
     pressure: "critical" | "elevated" | "normal" | "warning" | null
   ): void => {
+    if (!contextSuggestionsEnabled) {
+      return;
+    }
+
     const usage = config.messageHistory.getContextUsage();
     if (!(usage && usage.limit > 0)) {
       contextSuggestionEntries = [];
