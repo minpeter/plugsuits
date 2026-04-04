@@ -1162,11 +1162,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
     let messagesForLLM = config.messageHistory.getMessagesForLLM();
     const didProbe = await measureUsageIfAvailable(messagesForLLM);
+    await compactBeforeNextTurnIfNeeded();
     if (didProbe) {
-      await compactBeforeNextTurnIfNeeded();
       await blockAtHardContextLimit(1, phase);
-      messagesForLLM = config.messageHistory.getMessagesForLLM();
     }
+    messagesForLLM = config.messageHistory.getMessagesForLLM();
 
     startSpeculativeCompaction();
     return messagesForLLM;
