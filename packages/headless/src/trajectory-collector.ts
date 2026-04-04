@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type {
   CompactionEvent,
   MetadataEvent,
@@ -121,6 +122,7 @@ export class TrajectoryCollector {
 
   writeTo(outputPath: string): void {
     const trajectory = this.finalize();
+    mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, JSON.stringify(trajectory, null, 2), "utf-8");
   }
 

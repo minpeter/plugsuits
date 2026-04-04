@@ -565,7 +565,7 @@ const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
     return undefined;
   }
 
-  return process.env.ATIF_OUTPUT_PATH ?? "/logs/agent/trajectory.json";
+  return process.env.ATIF_OUTPUT_PATH ?? "trajectory.json";
 };
 
 process.once("exit", () => {
