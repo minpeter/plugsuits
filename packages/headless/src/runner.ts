@@ -460,34 +460,38 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     config.messageHistory,
     {
       circuitBreaker: config.circuitBreaker,
-      ...baseCompactionCallbacks,
-      ...metricsCompactionCallbacks,
-      onBlockingChange: (event) => {
-        metricsCompactionCallbacks.onBlockingChange?.(event);
-        userCompactionCallbacks?.onBlockingChange?.(event);
-      },
-      onCompactionComplete: (result) => {
-        metricsCompactionCallbacks.onCompactionComplete?.(result);
-        userCompactionCallbacks?.onCompactionComplete?.(result);
-      },
-      onCompactionError: (error) => {
-        metricsCompactionCallbacks.onCompactionError?.(error);
-        userCompactionCallbacks?.onCompactionError?.(error);
-      },
-      onCompactionStart: () => {
-        metricsCompactionCallbacks.onCompactionStart?.();
-        userCompactionCallbacks?.onCompactionStart?.();
-      },
-      onJobStatus: (id, message, state) => {
-        metricsCompactionCallbacks.onJobStatus?.(id, message, state);
-        userCompactionCallbacks?.onJobStatus?.(id, message, state);
-      },
-      onSpeculativeReady: () => {
-        const result = compactionOrchestrator.applyReady(config.messageHistory);
-        if (result.applied) {
-          measureUsageAfterCompaction().catch(Boolean);
-        }
-        userCompactionCallbacks?.onSpeculativeReady?.();
+      callbacks: {
+        ...baseCompactionCallbacks,
+        ...metricsCompactionCallbacks,
+        onBlockingChange: (event) => {
+          metricsCompactionCallbacks.onBlockingChange?.(event);
+          userCompactionCallbacks?.onBlockingChange?.(event);
+        },
+        onCompactionComplete: (result) => {
+          metricsCompactionCallbacks.onCompactionComplete?.(result);
+          userCompactionCallbacks?.onCompactionComplete?.(result);
+        },
+        onCompactionError: (error) => {
+          metricsCompactionCallbacks.onCompactionError?.(error);
+          userCompactionCallbacks?.onCompactionError?.(error);
+        },
+        onCompactionStart: () => {
+          metricsCompactionCallbacks.onCompactionStart?.();
+          userCompactionCallbacks?.onCompactionStart?.();
+        },
+        onJobStatus: (id, message, state) => {
+          metricsCompactionCallbacks.onJobStatus?.(id, message, state);
+          userCompactionCallbacks?.onJobStatus?.(id, message, state);
+        },
+        onSpeculativeReady: () => {
+          const result = compactionOrchestrator.applyReady(
+            config.messageHistory
+          );
+          if (result.applied) {
+            measureUsageAfterCompaction().catch(Boolean);
+          }
+          userCompactionCallbacks?.onSpeculativeReady?.();
+        },
       },
     }
   );

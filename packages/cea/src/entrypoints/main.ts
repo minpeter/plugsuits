@@ -370,7 +370,9 @@ const handleCompactionComplete = (result: CompactionResult): void => {
     );
   }
 
-  postCompactRestorer.filterAgainstKeptMessages(messageHistory.getAll());
+  postCompactRestorer.filterAgainstKeptMessages(
+    messageHistory.getActiveMessages()
+  );
 
   const restorationMessage = postCompactRestorer.buildRestorationMessage();
   if (!restorationMessage) {

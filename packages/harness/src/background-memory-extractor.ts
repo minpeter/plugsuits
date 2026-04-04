@@ -370,6 +370,9 @@ export class BackgroundMemoryExtractor {
     }
 
     this.cachedState = current;
+    if (current !== this.preset.template) {
+      this.hasExtractedAtLeastOnce = true;
+    }
   }
 
   private resetCounters(): void {

@@ -1302,7 +1302,7 @@ export class CheckpointHistory {
     await this.sessionStore.updateCheckpoint(this.sessionId, summaryMessage.id);
   }
 
-  private getActiveMessages(): CheckpointMessage[] {
+  getActiveMessages(): CheckpointMessage[] {
     if (!this.summaryMessageId) {
       return this.messages;
     }
