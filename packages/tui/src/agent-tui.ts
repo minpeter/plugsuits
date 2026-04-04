@@ -788,8 +788,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           const { baseMessageCount, jobId, newMessageCount, tokenDelta } =
             appliedDetail;
           const saved = Math.abs(tokenDelta);
-          const usage = config.messageHistory.getContextUsage();
-          const after = usage ? `${usage.used}` : "?";
+          const estimated = config.messageHistory.getEstimatedTokens();
+          const after = estimated > 0 ? `${estimated}` : "?";
           const summarizedCount = baseMessageCount - newMessageCount;
           const detailText = buildCompactionDetail(
             saved,
