@@ -511,6 +511,7 @@ export function buildFileTrackingSummarizeFn(
 
 export class AgentManager {
   _memoryExtractor?: BackgroundMemoryExtractor | null;
+  private _memoryExtractorStorePath: string | null = null;
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
   private provider: ProviderType = "friendli";
@@ -545,6 +546,8 @@ export class AgentManager {
     this.toolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
     this.translationEnabled = true;
     this.sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
+    this._memoryExtractor = null;
+    this._memoryExtractorStorePath = null;
     this.applyBestReasoningModeForCurrentModel();
   }
 
@@ -656,14 +659,25 @@ export class AgentManager {
       buildFileTrackingSummarizeFn(baseModelSummarizer);
 
     const bmeDisabled = env.DISABLE_BME;
-    const memoryExtractor = bmeDisabled
-      ? null
-      : new BackgroundMemoryExtractor({
-          model: this.getProviderModel(this.modelId, this.provider),
-          store: new FileMemoryStore(this.sessionMemoryStorePath),
-          preset: "code",
-        });
-    this._memoryExtractor = memoryExtractor;
+    if (bmeDisabled) {
+      this._memoryExtractor = null;
+      this._memoryExtractorStorePath = null;
+    } else if (
+      this._memoryExtractor &&
+      this._memoryExtractorStorePath === this.sessionMemoryStorePath
+    ) {
+      this._memoryExtractor.updateModel(
+        this.getProviderModel(this.modelId, this.provider)
+      );
+    } else {
+      this._memoryExtractor = new BackgroundMemoryExtractor({
+        model: this.getProviderModel(this.modelId, this.provider),
+        store: new FileMemoryStore(this.sessionMemoryStorePath),
+        preset: "code",
+      });
+      this._memoryExtractorStorePath = this.sessionMemoryStorePath;
+    }
+    const memoryExtractor = this._memoryExtractor;
 
     const getStructuredState = (): string | undefined => {
       const fileState = fileTrackingState();

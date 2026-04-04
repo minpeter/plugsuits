@@ -364,7 +364,8 @@ const handleCompactionComplete = (result: CompactionResult): void => {
 
   const usage = messageHistory.getContextUsage();
   if (usage && usage.limit > 0) {
-    const budgetForRestoration = Math.floor(usage.remaining * 0.5);
+    const budgetRatio = usage.source === "estimated" ? 0.3 : 0.5;
+    const budgetForRestoration = Math.floor(usage.remaining * budgetRatio);
     postCompactRestorer.setMaxTotalTokens(
       Math.max(0, Math.min(budgetForRestoration, 50_000))
     );
