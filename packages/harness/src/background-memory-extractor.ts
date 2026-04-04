@@ -92,7 +92,17 @@ export class BackgroundMemoryExtractor {
     await this.initialization;
 
     this.turnsSinceLastExtraction += 1;
-    this.tokensSinceLastExtraction += this.resolveUsageTokens(usage);
+    const usageTokens = this.resolveUsageTokens(usage);
+    if (usageTokens > 0) {
+      this.tokensSinceLastExtraction += usageTokens;
+    } else {
+      const lastMessage = messages.at(-1);
+      if (lastMessage) {
+        this.tokensSinceLastExtraction += estimateMessageTokens(
+          lastMessage.message
+        );
+      }
+    }
 
     if (!this.shouldExtract() || this.extractionInProgress) {
       return;
@@ -119,6 +129,10 @@ export class BackgroundMemoryExtractor {
 
   getLastExtractionMessageIndex(): number {
     return this.lastExtractionMessageIndex;
+  }
+
+  updateModel(model: LanguageModel): void {
+    this.config.model = model;
   }
 
   async getMemoryContent(): Promise<string> {
