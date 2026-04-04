@@ -74,9 +74,7 @@ interface BenchmarkSamplingOverrides {
 export type AgentStreamOptions = Pick<
   HarnessAgentStreamOptions,
   "abortSignal" | "maxOutputTokens"
-> & {
-  remainingContextTokens?: number;
-};
+>;
 export type AgentStreamResult = HarnessAgentStreamResult;
 
 export type ProviderType = "friendli" | "anthropic";
@@ -912,13 +910,6 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       maxStepsPerTurn: 1,
       experimental_repairToolCall: repairToolCall,
     });
-
-    if (options.remainingContextTokens != null) {
-      const { setContextBudgetForTools } = await import(
-        "./tools/utils/tool-output-truncation"
-      );
-      setContextBudgetForTools(options.remainingContextTokens);
-    }
 
     return agent.stream({
       messages: preparedMessages,

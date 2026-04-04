@@ -426,16 +426,9 @@ const createTranslationPreprocessor = () => {
 const buildAgentStreamWithTodoContinuation = (): RunnableAgent => {
   return {
     stream: async (opts) => {
-      const contextUsage = messageHistory.getContextUsage();
-      const remainingContextTokens =
-        contextUsage && contextUsage.limit > 0
-          ? Math.max(0, contextUsage.remaining)
-          : undefined;
-
       const stream = await agentManager.stream(opts.messages, {
         abortSignal: opts.abortSignal,
         maxOutputTokens: opts.maxOutputTokens,
-        remainingContextTokens,
       });
 
       const continuationDecision = (async (): Promise<{
@@ -686,14 +679,10 @@ const mainCommand = defineCommand({
       try {
         await runHeadless({
           agent: {
-            stream: (opts) => {
-              const cu = messageHistory.getContextUsage();
-              return agentManager.stream(opts.messages, {
+            stream: (opts) =>
+              agentManager.stream(opts.messages, {
                 maxOutputTokens: opts.maxOutputTokens,
-                remainingContextTokens:
-                  cu && cu.limit > 0 ? Math.max(0, cu.remaining) : undefined,
-              });
-            },
+              }),
           },
           circuitBreaker: compactionCircuitBreaker,
           measureUsage: (messages) => agentManager.measureUsage(messages),

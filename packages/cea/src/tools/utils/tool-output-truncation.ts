@@ -3,39 +3,10 @@ import {
   truncateOutput,
 } from "./execute/output-handler";
 
-const DEFAULT_TOOL_LIMITS: Record<
-  string,
-  { maxBytes: number; maxLines: number }
-> = {
+const TOOL_LIMITS: Record<string, { maxBytes: number; maxLines: number }> = {
   grep_files: { maxBytes: 32 * 1024, maxLines: 500 },
   read_file: { maxBytes: 32 * 1024, maxLines: 800 },
 };
-
-let contextBudgetBytes: number | null = null;
-
-export function setContextBudgetForTools(remainingTokens: number): void {
-  contextBudgetBytes = Math.max(1024, Math.floor((remainingTokens * 4) / 2));
-}
-
-export function clearContextBudgetForTools(): void {
-  contextBudgetBytes = null;
-}
-
-function getEffectiveLimits(
-  toolName: string
-): { maxBytes: number; maxLines: number } | undefined {
-  const base = DEFAULT_TOOL_LIMITS[toolName];
-  if (!base) {
-    return undefined;
-  }
-  if (contextBudgetBytes === null) {
-    return base;
-  }
-  return {
-    maxBytes: Math.min(base.maxBytes, contextBudgetBytes),
-    maxLines: base.maxLines,
-  };
-}
 const READ_FILE_PATH_PATTERN = /^path: (.+)$/m;
 const READ_FILE_RANGE_PATTERN = /^range: (.+)$/m;
 const READ_FILE_LINES_PATTERN = /^lines: (.+)$/m;
@@ -47,7 +18,7 @@ export async function truncateToolOutput(
   toolName: string,
   text: string
 ): Promise<TruncationResult> {
-  const limits = getEffectiveLimits(toolName);
+  const limits = TOOL_LIMITS[toolName];
   if (!limits) {
     return {
       text,
