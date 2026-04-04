@@ -61,7 +61,13 @@ export class CompactionCircuitBreaker {
       return false;
     }
 
-    return Date.now() - this.lastFailureAt < this.cooldownMs;
+    const cooldownExpired = Date.now() - this.lastFailureAt >= this.cooldownMs;
+    if (cooldownExpired) {
+      this.reset();
+      return false;
+    }
+
+    return true;
   }
 
   isClosed(): boolean {

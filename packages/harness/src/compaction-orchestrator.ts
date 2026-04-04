@@ -310,6 +310,21 @@ const DEFAULT_FAILURE_RESULT: CompactionResult = {
   reason: "unknown compaction error",
 };
 
+const BENIGN_COMPACTION_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  "compaction disabled",
+  "compaction not applied",
+  "no messages",
+  "no messages to summarize",
+  "no summarizeFn",
+]);
+
+function isBenignCompactionFailure(result: CompactionResult): boolean {
+  if (!result.reason) {
+    return false;
+  }
+  return BENIGN_COMPACTION_FAILURE_REASONS.has(result.reason);
+}
+
 function isHistoryLike(value: unknown): value is CompactionHistoryLike {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -1020,6 +1035,10 @@ export class CompactionOrchestrator {
       const result = toCompactionResult(await history.compact(options));
       if (result.success) {
         this.circuitBreaker?.recordSuccess();
+      } else if (!isBenignCompactionFailure(result)) {
+        this.circuitBreaker?.recordFailure(
+          result.reason ?? "compaction returned success: false"
+        );
       }
       this.emitCompactionResult(result, { phase: "new-turn" });
       return result;
