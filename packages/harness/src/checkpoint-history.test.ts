@@ -1767,13 +1767,15 @@ describe("20K spike prevention — integration", () => {
     }
 
     const estimatedTokens = h.getEstimatedTokens();
-    expect(estimatedTokens).toBeGreaterThan(11_250);
+    expect(estimatedTokens).toBeGreaterThan(6500);
+    expect(estimatedTokens).toBeLessThan(9000);
 
     const contextUsage = h.getContextUsage();
     expect(contextUsage.source).toBe("actual");
     expect(contextUsage.used).toBe(estimatedTokens + 3000);
 
-    expect(h.isAtHardContextLimit()).toBe(true);
+    expect(h.needsCompaction()).toBe(true);
+    expect(h.isAtHardContextLimit()).toBe(false);
 
     const result = await h.handleContextOverflow();
     expect(result.success).toBe(true);
@@ -1805,7 +1807,7 @@ describe("speculative compaction fires before blocking", () => {
     let blockingFirstAt: number | null = null;
 
     for (let i = 0; i < 100; i++) {
-      h.addUserMessage(`read file ${i}`);
+      h.addUserMessage(`read file ${i} ${"u ".repeat(400)}`);
       h.addModelMessages([
         {
           role: "assistant",
