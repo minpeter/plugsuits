@@ -1382,6 +1382,26 @@ export class CheckpointHistory {
     return this.messages.slice(summaryIndex);
   }
 
+  private getActiveStartIndex(): number {
+    if (!this.summaryMessageId) {
+      return 0;
+    }
+
+    const summaryIndex = this.messages.findIndex(
+      (message) => message.id === this.summaryMessageId
+    );
+
+    if (summaryIndex === -1) {
+      return 0;
+    }
+
+    if (this.resolveCompactionDirection() === "keep-prefix") {
+      return 0;
+    }
+
+    return summaryIndex;
+  }
+
   private isCompactionContinuationMessage(
     message: CheckpointMessage | undefined
   ): boolean {
@@ -1456,7 +1476,10 @@ export class CheckpointHistory {
       tokens: number;
     }> = [];
 
-    for (let mi = 0; mi < this.messages.length; mi++) {
+    // Only iterate over active messages so we don't waste truncation budget
+    // on pre-summary messages that don't contribute to active context tokens.
+    const startIndex = this.getActiveStartIndex();
+    for (let mi = startIndex; mi < this.messages.length; mi++) {
       const content = this.messages[mi].message.content;
       if (!Array.isArray(content)) {
         continue;

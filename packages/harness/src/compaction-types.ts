@@ -241,12 +241,10 @@ export type ContinuationVariant = "manual" | "auto-with-replay" | "tool-loop";
  * Acceptance evaluation for a completed compaction attempt.
  * 완료된 compaction 시도에 대한 수락 평가 결과입니다.
  *
- * A compaction is only accepted when all three gates pass:
- * 1. `fitsBudget` — post-compaction tokens fit within recovery budget
- * 2. `belowTriggerThreshold` — post-compaction tokens fall below the
- *    auto-compact trigger so the next turn does not immediately recompact
- * 3. `savingsRatio >= minSavingsRatio` — enough tokens were saved to make
- *    progress; rejects pathological summaries that barely reduce size
+ * Currently only `fitsBudget` is enforced as a hard gate for acceptance.
+ * `belowTriggerThreshold` and `meetsMinSavings` are tracked for
+ * observability but do not cause rejection — the per-turn cap in the
+ * orchestrator prevents degenerate retry loops instead.
  */
 export interface CompactionEffectiveness {
   belowTriggerThreshold: boolean;

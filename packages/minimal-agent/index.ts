@@ -182,7 +182,8 @@ const main = defineCommand({
     const handleTurnComplete = (
       messages: Array<{ message: { role: string; content: unknown } }>
     ): void => {
-      for (const { message } of messages.slice(lastProcessedMessageCount)) {
+      const startFrom = Math.min(lastProcessedMessageCount, messages.length);
+      for (const { message } of messages.slice(startFrom)) {
         if (message.role === "user" && typeof message.content === "string") {
           sessionMemoryTracker.extractFactsFromUserMessage(message.content);
         }
