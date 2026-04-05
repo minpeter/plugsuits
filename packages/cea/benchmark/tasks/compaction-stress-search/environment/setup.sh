@@ -76,7 +76,7 @@ cat > /work/src/config/auth.json << 'SEED'
 {
   "auth": {
     "jwt": {
-      "secret": "super-secret-jwt-key-2024-prod",
+      "secret": "BENCHMARK_FIXTURE_FAKE_JWT_SECRET_DO_NOT_USE",
       "algorithm": "HS256",
       "access_token_ttl": 900,
       "refresh_token_ttl": 604800,
@@ -194,7 +194,7 @@ import time
 from typing import Any, Optional
 
 # FIXME: Move JWT_SECRET to environment variable — hardcoded secrets are a security risk
-JWT_SECRET = "super-secret-jwt-key-2024-prod"
+JWT_SECRET = "BENCHMARK_FIXTURE_FAKE_JWT_SECRET_DO_NOT_USE"
 JWT_ALGORITHM = "HS256"
 TOKEN_TTL = 900  # 15 minutes
 
@@ -270,7 +270,7 @@ from typing import Any, Optional
 
 # FIXME: This hardcoded password is used for the default admin account in development
 # It should NEVER appear in production code
-ADMIN_DEFAULT_PASSWORD = "admin123!@#"
+ADMIN_DEFAULT_PASSWORD = "BENCHMARK_FIXTURE_FAKE_PASSWORD_DO_NOT_USE"
 
 # TODO: Add email verification flow before activating new accounts
 REQUIRE_EMAIL_VERIFICATION = False
