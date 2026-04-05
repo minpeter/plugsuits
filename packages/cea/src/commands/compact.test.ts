@@ -9,7 +9,7 @@ describe("compact command", () => {
     }).execute({ args: [] });
     expect(result.success).toBe(true);
     expect(compact).toHaveBeenCalledOnce();
-    expect(result.message).toBe("Compaction triggered.");
+    expect(result.message).toBe("Compaction completed.");
   });
 
   it("keeps summarize alias for backward compatibility", () => {
