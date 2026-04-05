@@ -494,12 +494,26 @@ const buildAgentStreamWithTodoContinuation = (): RunnableAgent => {
         } as StreamResponse;
       })();
 
+      const finishReason = continuationDecision.then(
+        (decision) => decision.finishReason
+      );
+
+      // Rejection from `stream.finishReason` (e.g. NoOutputGeneratedError)
+      // fans out into three independent promise chains — continuationDecision,
+      // response, finishReason — but callers may only await a subset of them
+      // (Promise.all short-circuits on the first rejection). Without these
+      // guards the unawaited branches become floating unhandled rejections
+      // that kill the process. The same rejection is still surfaced to the
+      // caller through the `response`/`finishReason` promises they await.
+      const swallow = () => undefined;
+      continuationDecision.catch(swallow);
+      response.catch(swallow);
+      finishReason.catch(swallow);
+
       return {
         ...stream,
         response,
-        finishReason: continuationDecision.then(
-          (decision) => decision.finishReason
-        ),
+        finishReason,
       };
     },
   };
