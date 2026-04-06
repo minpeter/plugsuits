@@ -231,10 +231,7 @@ const getModelContextLength = (modelId: string): number => {
   return model?.contextLength ?? DEFAULT_CONTEXT_LENGTH;
 };
 
-const getCompactionReserveTokens = (
-  modelId: string,
-  _provider: ProviderType
-): number => {
+const getCompactionReserveTokens = (modelId: string): number => {
   return getEffectiveMaxOutputTokens(modelId);
 };
 
@@ -534,10 +531,7 @@ export class AgentManager {
     overrides?: Partial<CompactionConfig>
   ): CompactionConfig {
     const contextLength = getModelContextLength(this.modelId);
-    const compactionReserveTokens = getCompactionReserveTokens(
-      this.modelId,
-      this.provider
-    );
+    const compactionReserveTokens = getCompactionReserveTokens(this.modelId);
 
     const contextOverride = this.getContextLimitOverride();
     const effectiveContextLength = contextOverride ?? contextLength;

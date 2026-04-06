@@ -91,7 +91,7 @@ plugsuits의 컴팩션 시스템을 frontier 코딩 에이전트(Crush, Goose, K
 
 | Agent | 32k | 40k | 출력 크기 | 연동 방식 |
 |-------|:---:|:---:|:---------:|----------|
-| **plugsuits** | ✅ | ✅ | 50KB | native provider |
+| **plugsuits** | ✅ | ✅ | 50KB | openai-compat |
 | **pi-mono** | ✅ | ✅ | 1.3KB | openai-compat (baseUrl inject) |
 | **crush** | ✅ | ✅ | 2.3KB | .crush.json openai-compat |
 | gemini-cli | ⏭ | ⏭ | — | (no Google API key) |
