@@ -9,6 +9,7 @@ import {
   CompactionCircuitBreaker,
   type CompactionResult,
   estimateTokens,
+  MCPManager,
   PostCompactRestorer,
   parseCommand,
   type RunnableAgent,
@@ -230,6 +231,7 @@ const unregisterSkillLoadListener = registerSkillLoadListener((skill) => {
     type: "skill",
   });
 });
+let mcpManager: MCPManager | undefined;
 const trackedReadToolResultIds = new Set<string>();
 
 const toRecord = (value: unknown): Record<string, unknown> | null => {
@@ -574,6 +576,7 @@ const createCliCommands = (): Command[] => {
 };
 
 const exitWithCleanup = (code: number): never => {
+  mcpManager?.close().catch(() => undefined);
   cleanup(true);
   process.exit(code);
 };
@@ -596,6 +599,7 @@ const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
 };
 
 process.once("exit", () => {
+  mcpManager?.close().catch(() => undefined);
   unregisterSkillLoadListener();
   cleanup();
 });
@@ -655,6 +659,19 @@ const mainCommand = defineCommand({
   async run({ args }) {
     validateProviderConfig();
     await initializeTools();
+    mcpManager = new MCPManager({
+      onError: (server, error) => {
+        console.warn(`[MCP] Server "${server}" failed:`, error);
+      },
+    });
+    await mcpManager.init();
+    const mcpTools = mcpManager.tools();
+    if (Object.keys(mcpTools).length > 0) {
+      agentManager.setTools({ ...agentManager.getTools(), ...mcpTools });
+      console.log(
+        `[MCP] Loaded ${Object.keys(mcpTools).length} tools from MCP servers`
+      );
+    }
     setSpinnerOutputEnabled(false);
     sessionManager.initialize();
     applyCurrentSessionToRuntime();
