@@ -4,7 +4,7 @@
  *
  * Pattern coverage:
  * - Anthropic: prompt is too long, context_length_exceeded, too many tokens
- * - OpenAI/Friendli: maximum context length, context length exceeded, token limit
+ * - OpenAI-compatible: maximum context length, context length exceeded, token limit
  * - Google/Gemini: exceeds the context window, context window, input too long
  * - Generic: input is too long (shared pattern)
  */
@@ -19,7 +19,7 @@ const OVERFLOW_PATTERNS: RegExp[] = [
   /context_length_exceeded/i,
   /too many tokens/i,
 
-  // OpenAI / Friendli (4 patterns)
+  // OpenAI-compatible (4 patterns)
   /maximum context length/i,
   /context length exceeded/i,
   /token limit exceeded/i,
