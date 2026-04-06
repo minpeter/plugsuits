@@ -1,7 +1,7 @@
 {
   "name": "cea-monorepo",
   "version": "1.0.0",
-  "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
+  "description": "A code-editing agent using Vercel AI SDK and Anthropic",
   "private": true,
   "scripts": {
     "build": "turbo run build",
@@ -22,7 +22,6 @@
     "ai",
     "agent",
     "code-editing",
-    "friendliai",
     "vercel-ai-sdk"
   ],
   "author": "",

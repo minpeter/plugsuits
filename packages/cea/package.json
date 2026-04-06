@@ -1,7 +1,7 @@
 {
   "name": "plugsuits",
   "version": "2.3.0",
-  "description": "A code-editing agent using Vercel AI SDK and FriendliAI",
+  "description": "A code-editing agent using Vercel AI SDK and Anthropic",
   "type": "module",
   "main": "dist/index.js",
   "types": "./dist/index.d.ts",
@@ -44,7 +44,6 @@
     "@ai-sdk-tool/tui": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/openai-compatible": "^2.0.35",
-    "@friendliai/ai-provider": "^1.1.7",
     "@mariozechner/pi-tui": "^0.57.1",
     "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",

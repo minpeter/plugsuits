@@ -162,8 +162,8 @@ function readConfig(): HarnessConfig {
     maxIterations: Number(
       parseArg("--max-iterations") ?? DEFAULT_MAX_ITERATIONS
     ),
-    modelId: parseArg("-m") ?? parseArg("--model") ?? "MiniMaxAI/MiniMax-M2.5",
-    provider: parseArg("--provider") ?? "friendli",
+    modelId: parseArg("-m") ?? parseArg("--model") ?? "claude-sonnet-4-6",
+    provider: parseArg("--provider") ?? "anthropic",
     runs: Number(parseArg("--runs") ?? DEFAULT_RUNS),
     scenarioIds: (getArgList("--scenarios") ?? [
       "bug-trace",

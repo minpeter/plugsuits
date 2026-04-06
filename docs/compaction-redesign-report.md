@@ -87,18 +87,18 @@ plugsuits의 컴팩션 시스템을 frontier 코딩 에이전트(Crush, Goose, K
 
 ### 3.3 Cross-Agent 비교 벤치마크
 
-**동일 조건**: MiniMax M2.5 via Friendli Serverless, 32k/40k context
+**동일 조건**: 동일한 openai-compatible 경로, 32k/40k context
 
 | Agent | 32k | 40k | 출력 크기 | 연동 방식 |
 |-------|:---:|:---:|:---------:|----------|
-| **plugsuits** | ✅ | ✅ | 50KB | friendli native |
+| **plugsuits** | ✅ | ✅ | 50KB | openai-compat |
 | **pi-mono** | ✅ | ✅ | 1.3KB | openai-compat (baseUrl inject) |
 | **crush** | ✅ | ✅ | 2.3KB | .crush.json openai-compat |
 | gemini-cli | ⏭ | ⏭ | — | (no Google API key) |
 
 - **3개 에이전트 모두 32k/40k에서 성공**
 - plugsuits가 가장 상세한 출력 (tool call 기반 깊은 탐색)
-- 모든 에이전트가 Friendli Serverless로 통합 실행 가능
+- 모든 에이전트가 동일한 openai-compatible 경로로 통합 실행 가능
 
 ---
 

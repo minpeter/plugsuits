@@ -12,7 +12,7 @@
  * Usage:
  *   node --import tsx scripts/test-headless-edit-regression.ts [-m <model>] [--provider <provider>]
  *
- * Requires: FRIENDLI_TOKEN or appropriate API key set in environment.
+ * Requires: ANTHROPIC_API_KEY or appropriate API key set in environment.
  */
 
 import { spawn } from "node:child_process";

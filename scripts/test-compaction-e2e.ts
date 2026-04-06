@@ -41,11 +41,11 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (!hasProviderArg) {
-  extraArgs.push("--provider", "friendli");
+  extraArgs.push("--provider", "anthropic");
 }
 
 if (!hasModelArg) {
-  extraArgs.push("--model", "MiniMaxAI/MiniMax-M2.5");
+  extraArgs.push("--model", "claude-sonnet-4-6");
 }
 
 interface Scenario {
@@ -233,7 +233,7 @@ async function runScenario(scenario: Scenario): Promise<void> {
 
 const main = async () => {
   console.log(
-    "\n🧪 Compaction E2E Test — 32K/40K/80K (MiniMax M2.5 via Friendli)\n"
+    "\n🧪 Compaction E2E Test — 32K/40K/80K (Claude Sonnet 4.6 via Anthropic)\n"
   );
 
   mkdirSync(RESULTS_DIR, { recursive: true });

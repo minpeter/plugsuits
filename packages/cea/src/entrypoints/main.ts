@@ -163,12 +163,7 @@ const buildModelSelectorLabel = (
 };
 
 const buildModelSelectorDescription = (model: ModelInfo): string => {
-  let providerLabel = "FriendliAI";
-  if (model.provider === "anthropic") {
-    providerLabel = "Anthropic";
-  } else if (model.type === "dedicated") {
-    providerLabel = "FDE";
-  }
+  const providerLabel = "Anthropic";
 
   if (model.name?.trim()) {
     return `${model.name} • ${providerLabel}`;

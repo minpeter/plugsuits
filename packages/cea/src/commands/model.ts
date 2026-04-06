@@ -1,15 +1,12 @@
 import type { Command, CommandResult } from "@ai-sdk-tool/harness";
 import type { ProviderType } from "../agent";
 import { ANTHROPIC_MODELS, agentManager } from "../agent";
-import type { FriendliReasoningModelConfig } from "../friendli-models";
-import { FRIENDLI_MODELS } from "../friendli-models";
 import { colorize } from "../interaction/colors";
 
 export interface ModelInfo {
   id: string;
   name?: string;
   provider: ProviderType;
-  reasoning?: FriendliReasoningModelConfig | null;
   type?: "serverless" | "dedicated";
 }
 
@@ -22,9 +19,7 @@ function getAnthropicModels(): ModelInfo[] {
 }
 
 export function getAvailableModels(): ModelInfo[] {
-  const anthropicModels = getAnthropicModels();
-
-  return [...anthropicModels, ...FRIENDLI_MODELS.filter((m) => !m.masked)];
+  return getAnthropicModels();
 }
 
 export function findModelBySelection(
@@ -45,11 +40,7 @@ export function findModelBySelection(
 }
 
 const getProviderLabel = (provider: ProviderType): string => {
-  const providerLabels: Record<ProviderType, string> = {
-    anthropic: "Anthropic",
-    friendli: "FriendliAI",
-  };
-  return providerLabels[provider];
+  return provider === "anthropic" ? "Anthropic" : provider;
 };
 
 export const applyModelSelection = (
@@ -96,14 +87,7 @@ function formatModelList(
     const isCurrent =
       model.id === currentModelId && model.provider === currentProvider;
     const marker = isCurrent ? colorize("green", " (current)") : "";
-    let providerLabel: string;
-    if (model.provider === "anthropic") {
-      providerLabel = colorize("magenta", " [Anthropic]");
-    } else if (model.type === "dedicated") {
-      providerLabel = colorize("cyan", " [FDE]");
-    } else {
-      providerLabel = colorize("blue", " [FriendliAI]");
-    }
+    const providerLabel = colorize("magenta", " [Anthropic]");
     const nameLabel = model.name ? ` - ${model.name}` : "";
     return `  ${index + 1}. ${model.id}${nameLabel}${providerLabel}${marker}`;
   });

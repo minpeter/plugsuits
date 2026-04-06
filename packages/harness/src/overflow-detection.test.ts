@@ -22,7 +22,7 @@ describe("isContextOverflowError", () => {
     });
   });
 
-  describe("OpenAI / Friendli patterns", () => {
+  describe("OpenAI-compatible patterns", () => {
     it("detects 'maximum context length'", () => {
       const error = new Error(
         "This model's maximum context length is 128000 tokens"

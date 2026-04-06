@@ -6,8 +6,7 @@ RESULTS_DIR="/Users/minpeter/github.com/minpeter/plugsuits/results/cross-agent"
 PROMPT="코드베이스를 탐색하고, 이 코드 베이스에 대해서 설명해줘"
 TIMEOUT=300
 LIMITS="${1:-32000,40000}"
-FRIENDLI_MODEL="${2:-MiniMaxAI/MiniMax-M2.5}"
-FRIENDLI_BASE="https://api.friendli.ai/serverless"
+PLUGSUITS_MODEL="${2:-claude-sonnet-4-6}"
 
 TIMEOUT_CMD="gtimeout"
 if ! command -v gtimeout &>/dev/null; then
@@ -20,12 +19,12 @@ mkdir -p "$RESULTS_DIR"
 run_plugsuits() {
   local limit=$1
   local tag="plugsuits-${limit}"
-  echo "▶ [plugsuits] limit=${limit} model=${FRIENDLI_MODEL} (friendli native)"
+  echo "▶ [plugsuits] limit=${limit} model=${PLUGSUITS_MODEL} (anthropic native)"
   COMPACTION_DEBUG=1 CONTEXT_LIMIT_OVERRIDE=$limit \
     $TIMEOUT_CMD $TIMEOUT node --conditions=@ai-sdk-tool/source --import tsx \
     /Users/minpeter/github.com/minpeter/plugsuits/packages/cea/src/entrypoints/main.ts \
     -p "$PROMPT" --no-translate --max-iterations 12 \
-    -m "$FRIENDLI_MODEL" --provider friendli \
+    -m "$PLUGSUITS_MODEL" --provider anthropic \
     > "$RESULTS_DIR/${tag}-trajectory.jsonl" \
     2> "$RESULTS_DIR/${tag}-stderr.log" || true
   echo "  ✓ plugsuits@${limit} done"
@@ -34,13 +33,13 @@ run_plugsuits() {
 run_pi_mono() {
   local limit=$1
   local tag="pi-mono-${limit}"
-  echo "▶ [pi-mono] limit=${limit} model=${FRIENDLI_MODEL} (friendli via openai provider)"
+  echo "▶ [pi-mono] limit=${limit} model=${PLUGSUITS_MODEL} (openai-compatible path)"
   cd "$EXAMPLES_DIR/pi-mono"
   CONTEXT_LIMIT_OVERRIDE=$limit \
-  OPENAI_API_KEY="${FRIENDLI_TOKEN}" \
+  OPENAI_API_KEY="${ANTHROPIC_API_KEY}" \
     $TIMEOUT_CMD $TIMEOUT node packages/coding-agent/dist/cli.js \
     -p "$PROMPT" --no-session \
-    --provider openai --model "${FRIENDLI_MODEL}" \
+    --provider openai --model "${PLUGSUITS_MODEL}" \
     > "$RESULTS_DIR/${tag}-output.txt" \
     2> "$RESULTS_DIR/${tag}-stderr.log" || true
   cd - > /dev/null
@@ -69,7 +68,7 @@ run_gemini_cli() {
 run_crush() {
   local limit=$1
   local tag="crush-${limit}"
-  echo "▶ [crush] limit=${limit} model=${FRIENDLI_MODEL} (friendli via .crush.json)"
+  echo "▶ [crush] limit=${limit} model=${PLUGSUITS_MODEL} (external config path)"
   cd "$EXAMPLES_DIR/crush"
   CONTEXT_LIMIT_OVERRIDE=$limit \
     $TIMEOUT_CMD $TIMEOUT ./crush-bin run "$PROMPT" \
@@ -83,15 +82,15 @@ cat << HEADER
 ═══════════════════════════════════════════════════════
   Cross-Agent Compaction Benchmark
   Limits: $LIMITS
-  Model: $FRIENDLI_MODEL (Friendli Serverless)
+  Model: $PLUGSUITS_MODEL (Anthropic)
   Timeout: ${TIMEOUT}s per run
   Results: $RESULTS_DIR
   
   Agents:
-    plugsuits  → friendli provider (native)
-    pi-mono    → ANTHROPIC_BASE_URL → friendli
+    plugsuits  → anthropic provider (native)
+    pi-mono    → openai-compatible provider
     gemini-cli → Google Gemini API (if key set)
-    crush      → ANTHROPIC_BASE_URL → friendli
+    crush      → external config path
 ═══════════════════════════════════════════════════════
 
 HEADER
