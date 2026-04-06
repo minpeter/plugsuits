@@ -59,16 +59,20 @@ describe("loadMCPConfig", () => {
     const result = await loadMCPConfig();
     const config = result.mcpServers.remote;
 
-    expect(config).toEqual(validConfig.mcpServers.remote);
+    expect(config).toEqual({
+      ...validConfig.mcpServers.remote,
+      type: "http",
+    });
     expect(isRemoteConfig(config)).toBe(true);
     expect(isStdioConfig(config)).toBe(false);
   });
 
-  it("parses a valid SSE config with only a url", async () => {
+  it("parses a valid SSE config with explicit sse transport type", async () => {
     const validConfig = {
       mcpServers: {
         events: {
           url: "https://example.com/sse",
+          type: "sse",
         },
       },
     };
@@ -81,6 +85,25 @@ describe("loadMCPConfig", () => {
     expect(isRemoteConfig(result.mcpServers.events)).toBe(true);
   });
 
+  it("defaults remote transport type to http when not specified", async () => {
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({
+        mcpServers: {
+          remote: {
+            url: "https://example.com/mcp",
+          },
+        },
+      })
+    );
+
+    const result = await loadMCPConfig();
+
+    expect(result.mcpServers.remote).toEqual({
+      url: "https://example.com/mcp",
+      type: "http",
+    });
+  });
+
   it("parses mixed server configs", async () => {
     const validConfig = {
       mcpServers: {
@@ -90,12 +113,14 @@ describe("loadMCPConfig", () => {
         },
         httpServer: {
           url: "https://example.com/http",
+          type: "http",
           headers: {
             "x-api-key": "secret",
           },
         },
         sseServer: {
           url: "https://example.com/sse",
+          type: "sse",
         },
       },
     };

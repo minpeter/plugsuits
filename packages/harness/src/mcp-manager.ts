@@ -156,7 +156,7 @@ export class MCPManager {
 
     return await createMCPClient({
       transport: {
-        type: "http",
+        type: config.type ?? "http",
         url: config.url,
         headers: config.headers,
       },

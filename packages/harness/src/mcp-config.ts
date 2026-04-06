@@ -22,6 +22,7 @@ const MCPStdioServerConfigSchema = z
 const MCPRemoteServerConfigSchema = z
   .object({
     url: z.string().url(),
+    type: z.enum(["http", "sse"]).optional().default("http"),
     headers: z.record(z.string(), z.string()).optional(),
   })
   .strip();

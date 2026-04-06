@@ -26,6 +26,8 @@ export interface MCPStdioServerConfig {
 export interface MCPRemoteServerConfig {
   /** The base URL of the remote MCP server (e.g., "http://localhost:3000", "https://api.example.com") */
   url: string;
+  /** Transport type: 'http' (Streamable HTTP, default) or 'sse' (Server-Sent Events) */
+  type?: "http" | "sse";
   /** Optional HTTP headers to include in requests (e.g., authorization, custom headers) */
   headers?: Record<string, string>;
 }
