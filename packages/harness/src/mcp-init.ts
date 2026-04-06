@@ -80,6 +80,7 @@ function getOrCreateEntry(
   options: {
     configPath?: string;
     onError?: (server: string, error: unknown) => void;
+    servers?: Record<string, MCPServerConfig>;
     toolsTimeout?: number;
   }
 ): CacheEntry {
@@ -92,6 +93,7 @@ function getOrCreateEntry(
   const manager = new MCPManager({
     configPath: options.configPath,
     onError: options.onError,
+    servers: options.servers,
     toolsTimeout: options.toolsTimeout,
   });
   const entry: CacheEntry = {
@@ -108,6 +110,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   options: {
     configPath?: string;
     onError?: (server: string, error: unknown) => void;
+    servers?: Record<string, MCPServerConfig>;
     toolsTimeout?: number;
   };
   servers: Record<string, MCPServerConfig>;
@@ -122,10 +125,11 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   }
 
   if (Array.isArray(mcp)) {
+    const named = arrayToNamedServers(mcp);
     return {
       cacheKey: `inline:${stableStringify(sortServers(mcp))}`,
-      options: {},
-      servers: arrayToNamedServers(mcp),
+      options: { servers: named },
+      servers: named,
     };
   }
 
@@ -134,17 +138,17 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
     ? (await loadMCPConfig(configPath ? { configPath } : undefined)).mcpServers
     : {};
   const inlineServers = mcp.servers ?? [];
+  const namedInline = arrayToNamedServers(inlineServers, "inline");
+  const allServers = { ...fileServers, ...namedInline };
   return {
     cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(sortServers(inlineServers))}`,
     options: {
-      configPath,
+      configPath: mcp.config ? configPath : undefined,
       onError: mcp.onError,
+      servers: Object.keys(namedInline).length > 0 ? namedInline : undefined,
       toolsTimeout: mcp.toolsTimeout,
     },
-    servers: {
-      ...fileServers,
-      ...arrayToNamedServers(inlineServers, "inline"),
-    },
+    servers: allServers,
   };
 }
 

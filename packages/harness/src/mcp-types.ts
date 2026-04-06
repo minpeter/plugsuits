@@ -55,6 +55,8 @@ export interface MCPManagerOptions {
   configPath?: string;
   /** Optional callback for server errors (connection failures, crashes, etc.) */
   onError?: (server: string, error: unknown) => void;
+  /** Inline server configurations merged with any file-based config */
+  servers?: Record<string, MCPServerConfig>;
   /** Timeout (in milliseconds) for tool execution requests to MCP servers (default: 30000) */
   toolsTimeout?: number;
 }

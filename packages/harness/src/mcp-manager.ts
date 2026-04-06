@@ -69,7 +69,10 @@ export class MCPManager {
       const config = await loadMCPConfig({
         configPath: this.options.configPath,
       });
-      const serverEntries = Object.entries(config.mcpServers);
+      const serverEntries = Object.entries({
+        ...config.mcpServers,
+        ...this.options.servers,
+      });
       const mcpTools: Record<string, ToolSet> = {};
 
       const connectionResults = await Promise.allSettled(
