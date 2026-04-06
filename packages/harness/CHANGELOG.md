@@ -1,5 +1,12 @@
 # @ai-sdk-tool/harness
 
+## 1.2.1
+
+### Patch Changes
+
+- 2f62589: Silence unhandled rejections on createAgent stream result promises. When the underlying `streamText()` rejects its internal DelayedPromise fields (for example with `NoOutputGeneratedError` after an empty provider stream), the `totalUsage` promise was never awaited by downstream consumers and caused a process-level `unhandledRejection` crash. The fix attaches no-op rejection handlers to all four promise-returning fields (`finishReason`, `response`, `usage`, `totalUsage`) while returning the original promise instances, so callers still receive rejections normally when they do await them.
+- 2f62589: Prevent infinite compaction loops in small-context scenarios. Adds a per-turn compaction cap (`maxAcceptedCompactionsPerTurn`, default 10), relaxes the compaction acceptance gate to reject only on `fitsBudget` failures, and introduces opt-in task-aware 2-step compaction (enabled in CEA) that extracts the current user turn's task intent before summarizing to preserve the work context. Turn boundaries are now tracked via `notifyNewUserTurn()` called from TUI and headless runtime.
+
 ## 1.2.0
 
 ### Minor Changes

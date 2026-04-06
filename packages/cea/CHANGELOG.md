@@ -1,5 +1,20 @@
 # plugsuits
 
+## 2.3.0
+
+### Minor Changes
+
+- 2f62589: Prevent infinite compaction loops in small-context scenarios. Adds a per-turn compaction cap (`maxAcceptedCompactionsPerTurn`, default 10), relaxes the compaction acceptance gate to reject only on `fitsBudget` failures, and introduces opt-in task-aware 2-step compaction (enabled in CEA) that extracts the current user turn's task intent before summarizing to preserve the work context. Turn boundaries are now tracked via `notifyNewUserTurn()` called from TUI and headless runtime.
+
+### Patch Changes
+
+- 2f62589: Silence unhandled rejections in `buildAgentStreamWithTodoContinuation`. The todo-continuation wrapper creates new promise chains via async IIFEs and `.then()` derivations that fan out from `stream.finishReason`. When the base stream rejects (for example with `NoOutputGeneratedError`), callers that don't await every branch of the fan-out would previously crash the process with an unhandled rejection. Adds no-op `.catch()` guards on `continuationDecision`, `response`, and `finishReason` while still returning the same promise instances so actual awaiters continue to receive rejections.
+- Updated dependencies [2f62589]
+- Updated dependencies [2f62589]
+  - @ai-sdk-tool/harness@1.2.1
+  - @ai-sdk-tool/tui@3.0.1
+  - @ai-sdk-tool/headless@3.0.1
+
 ## 2.2.1
 
 ### Patch Changes
