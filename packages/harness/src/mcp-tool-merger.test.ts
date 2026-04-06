@@ -183,4 +183,23 @@ describe("mergeMCPTools", () => {
       sources: ["local", "filesystem"],
     });
   });
+
+  it("adds numeric suffixes when sanitized server prefixes would collide", () => {
+    const result = mergeMCPTools({
+      localTools: { toolname: mockTool },
+      mcpTools: {
+        "my-server": { toolname: mockTool },
+        my_server: { toolname: mockTool },
+      },
+    });
+
+    expect(result.tools).toEqual({
+      toolname: mockTool,
+      my_server_toolname: mockTool,
+      my_server_toolname_2: mockTool,
+    });
+    expect(result.conflicts).toEqual([
+      { toolName: "toolname", sources: ["local", "my-server", "my_server"] },
+    ]);
+  });
 });

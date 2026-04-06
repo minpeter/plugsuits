@@ -23,22 +23,47 @@ export class MCPManager {
   private readonly options: MCPManagerOptions;
   private clients: ManagedClient[] = [];
   private mergedTools: ToolSet = {};
+  private mcpToolsByServer: Record<string, ToolSet> = {};
   private readonly statuses = new Map<string, MCPServerStatus>();
   private initialized = false;
-  private initializing = false;
   private closed = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(options: MCPManagerOptions = {}) {
     this.options = options;
   }
 
-  async init(): Promise<void> {
-    if (this.initialized || this.initializing) {
-      return;
+  init(): Promise<void> {
+    if (this.initialized) {
+      return Promise.resolve();
     }
 
-    this.initializing = true;
-    this.closed = false;
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    if (this.closed) {
+      return Promise.reject(
+        new Error("MCPManager has been closed. Create a new instance.")
+      );
+    }
+
+    this.initPromise = this.doInit();
+    return this.initPromise;
+  }
+
+  toolsByServer(): Record<string, ToolSet> {
+    if (!this.initialized) {
+      throw new Error("MCPManager not initialized. Call init() first.");
+    }
+
+    return { ...this.mcpToolsByServer };
+  }
+
+  private async doInit(): Promise<void> {
+    if (this.closed) {
+      throw new Error("MCPManager has been closed. Create a new instance.");
+    }
 
     try {
       const config = await loadMCPConfig({
@@ -68,15 +93,30 @@ export class MCPManager {
 
         const { client } = result.value;
         this.clients.push({ name: serverName, client });
+      }
 
-        const toolSet = await this.getToolsWithTimeout(serverName, client);
-        if (!toolSet) {
+      if (this.closed) {
+        await this.close();
+        throw new Error("MCPManager has been closed. Create a new instance.");
+      }
+
+      const connectedClients = this.clients;
+      const toolResults = await Promise.allSettled(
+        connectedClients.map(async ({ name, client }) => {
+          const toolSet = await this.getToolsWithTimeout(name, client);
+          return { name, toolSet };
+        })
+      );
+
+      for (const result of toolResults) {
+        if (result.status !== "fulfilled" || !result.value.toolSet) {
           continue;
         }
 
-        mcpTools[serverName] = toolSet;
-        this.statuses.set(serverName, {
-          name: serverName,
+        const { name, toolSet } = result.value;
+        mcpTools[name] = toolSet;
+        this.statuses.set(name, {
+          name,
           status: "connected",
           toolCount: Object.keys(toolSet).length,
         });
@@ -93,9 +133,10 @@ export class MCPManager {
       });
 
       this.mergedTools = mergeResult.tools;
+      this.mcpToolsByServer = mcpTools;
       this.initialized = true;
     } finally {
-      this.initializing = false;
+      this.initPromise = null;
     }
   }
 
@@ -117,6 +158,8 @@ export class MCPManager {
     }
 
     this.closed = true;
+    this.initialized = false;
+    this.initPromise = null;
 
     await Promise.allSettled(
       this.clients.map(async ({ name, client }) => {
@@ -133,6 +176,8 @@ export class MCPManager {
     );
 
     this.clients = [];
+    this.mergedTools = {};
+    this.mcpToolsByServer = {};
   }
 
   private async connectServer(

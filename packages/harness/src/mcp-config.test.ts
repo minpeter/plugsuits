@@ -166,7 +166,7 @@ describe("loadMCPConfig", () => {
     await expect(loadMCPConfig()).rejects.toThrow(INVALID_CONFIG_ERROR_PATTERN);
   });
 
-  it("ignores unknown extra fields at the root and server level", async () => {
+  it("preserves unknown root fields while stripping unknown server fields", async () => {
     const configWithExtras = {
       mcpServers: {
         filesystem: {
@@ -192,6 +192,28 @@ describe("loadMCPConfig", () => {
       version: 1,
     });
     expect(result.mcpServers.filesystem).not.toHaveProperty("extraField");
+  });
+
+  it("accepts mixed stdio and remote fields by stripping the non-matching server fields", async () => {
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({
+        mcpServers: {
+          mixed: {
+            command: "node",
+            url: "https://example.com/mcp",
+            args: ["server.js"],
+          },
+        },
+      })
+    );
+
+    const result = await loadMCPConfig();
+
+    expect(result.mcpServers.mixed).toEqual({
+      command: "node",
+      args: ["server.js"],
+    });
+    expect(isStdioConfig(result.mcpServers.mixed)).toBe(true);
   });
 
   it("accepts an empty mcpServers object", async () => {

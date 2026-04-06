@@ -17,6 +17,7 @@ export function mergeMCPTools(options: MergeOptions): MCPToolMergeResult {
 
   const localToolNames = new Set(Object.keys(localTools));
   const conflicts: Array<{ toolName: string; sources: string[] }> = [];
+  const processedConflicts = new Set<string>();
 
   const allMCPEntries: Array<{
     serverName: string;
@@ -50,7 +51,13 @@ export function mergeMCPTools(options: MergeOptions): MCPToolMergeResult {
     const conflictsWithOtherMCP = serversWithThisTool.length > 1;
 
     if (conflictsWithLocal || conflictsWithOtherMCP) {
-      const prefixedName = `${sanitizeServerName(serverName)}_${toolName}`;
+      const sanitizedServerName = sanitizeServerName(serverName);
+      let prefixedName = `${sanitizedServerName}_${toolName}`;
+      let suffix = 2;
+      while (prefixedName in mergedTools) {
+        prefixedName = `${sanitizedServerName}_${toolName}_${suffix}`;
+        suffix++;
+      }
       mergedTools[prefixedName] = tool;
 
       const sources = conflictsWithLocal
@@ -58,7 +65,8 @@ export function mergeMCPTools(options: MergeOptions): MCPToolMergeResult {
         : serversWithThisTool;
       const uniqueSources = [...new Set(sources)];
 
-      if (!conflicts.find((conflict) => conflict.toolName === toolName)) {
+      if (!processedConflicts.has(toolName)) {
+        processedConflicts.add(toolName);
         const conflict = { toolName, sources: uniqueSources };
         conflicts.push(conflict);
         onConflict?.(conflict);

@@ -1,7 +1,8 @@
 import type { ToolSet } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const NOT_INITIALIZED_ERROR_PATTERN = /not initialized/i;
+const CLOSED_ERROR_PATTERN = /closed/i;
 
 const {
   createMCPClientMock,
@@ -106,6 +107,10 @@ describe("MCPManager", () => {
     }));
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("init() with valid config connects all servers, and tools() returns merged ToolSet", async () => {
     const alphaTools = createToolSet("alpha_tool");
     const betaTools = createToolSet("beta_tool");
@@ -161,13 +166,13 @@ describe("MCPManager", () => {
     expect(onError).toHaveBeenCalledWith("beta", failure);
     expect(manager.tools()).toEqual(alphaTools);
     expect(manager.status()).toEqual([
-      { name: "alpha", status: "connected", toolCount: 1 },
       {
         name: "beta",
         status: "failed",
         toolCount: 0,
         error: failure.toString(),
       },
+      { name: "alpha", status: "connected", toolCount: 1 },
     ]);
   });
 
@@ -225,6 +230,44 @@ describe("MCPManager", () => {
     await manager.init();
 
     expect(createMCPClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("init() shares an in-flight initialization promise across concurrent callers", async () => {
+    let resolveTools: ((value: ToolSet) => void) | undefined;
+    const client = createMockClient(
+      new Promise<ToolSet>((resolve) => {
+        resolveTools = resolve;
+      })
+    );
+
+    loadMCPConfigMock.mockResolvedValue({
+      mcpServers: {
+        alpha: { url: "https://alpha.example.com/mcp" },
+      },
+    });
+    createMCPClientMock.mockResolvedValue(client);
+    mergeMCPToolsMock.mockReturnValue({
+      tools: createToolSet("alpha_tool"),
+      conflicts: [],
+    });
+
+    const manager = new MCPManager();
+    const firstInit = manager.init();
+    const secondInit = manager.init();
+
+    expect(firstInit).toBe(secondInit);
+    resolveTools?.(createToolSet("alpha_tool"));
+    await Promise.all([firstInit, secondInit]);
+
+    expect(createMCPClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("init() rejects after close() has been called", async () => {
+    const manager = new MCPManager();
+
+    await manager.close();
+
+    await expect(manager.init()).rejects.toThrow(CLOSED_ERROR_PATTERN);
   });
 
   it("init() with no .mcp.json returns empty tools without error", async () => {
@@ -320,6 +363,35 @@ describe("MCPManager", () => {
       { name: "alpha", status: "connected", toolCount: 2 },
       { name: "beta", status: "connected", toolCount: 1 },
     ]);
+  });
+
+  it("toolsByServer() returns per-server tool sets after init", async () => {
+    const alphaTools = createToolSet("alpha_tool");
+    const betaTools = createToolSet("beta_tool");
+    const alphaClient = createMockClient(alphaTools);
+    const betaClient = createMockClient(betaTools);
+
+    loadMCPConfigMock.mockResolvedValue({
+      mcpServers: {
+        alpha: { url: "https://alpha.example.com/mcp" },
+        beta: { url: "https://beta.example.com/mcp" },
+      },
+    });
+    createMCPClientMock
+      .mockResolvedValueOnce(alphaClient)
+      .mockResolvedValueOnce(betaClient);
+    mergeMCPToolsMock.mockReturnValue({
+      tools: { ...alphaTools, ...betaTools },
+      conflicts: [],
+    });
+
+    const manager = new MCPManager();
+    await manager.init();
+
+    expect(manager.toolsByServer()).toEqual({
+      alpha: alphaTools,
+      beta: betaTools,
+    });
   });
 
   it("tools() before init() throws error containing not initialized", () => {

@@ -576,8 +576,13 @@ const createCliCommands = (): Command[] => {
   });
 };
 
-const exitWithCleanup = (code: number): never => {
-  mcpManager?.close().catch(() => undefined);
+const exitWithCleanup = async (code: number): Promise<never> => {
+  if (mcpManager) {
+    await Promise.race([
+      mcpManager.close(),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+  }
   cleanup(true);
   process.exit(code);
 };
@@ -588,7 +593,7 @@ const requestSignalShutdown = (code: number): void => {
   }
   signalShutdownRequested = true;
   requestedProcessExitCode = code;
-  exitWithCleanup(code);
+  exitWithCleanup(code).catch(() => process.exit(code));
 };
 
 const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
@@ -619,12 +624,12 @@ process.once("SIGQUIT", () => {
 
 process.once("uncaughtException", (error: unknown) => {
   console.error("Fatal error:", error);
-  exitWithCleanup(1);
+  exitWithCleanup(1).catch(() => process.exit(1));
 });
 
 process.once("unhandledRejection", (reason: unknown) => {
   console.error("Unhandled rejection:", reason);
-  exitWithCleanup(1);
+  exitWithCleanup(1).catch(() => process.exit(1));
 });
 
 const initializeMCPTools = async (): Promise<void> => {
@@ -634,15 +639,15 @@ const initializeMCPTools = async (): Promise<void> => {
     },
   });
   await mcpManager.init();
-  const mcpTools = mcpManager.tools();
-  if (Object.keys(mcpTools).length === 0) {
+  const perServerTools = mcpManager.toolsByServer();
+  if (Object.keys(perServerTools).length === 0) {
     return;
   }
 
   const localTools = agentManager.getTools();
   const { tools: mergedTools, conflicts } = mergeMCPTools({
     localTools,
-    mcpTools: { "mcp-servers": mcpTools },
+    mcpTools: perServerTools,
     onConflict: (conflict) => {
       console.warn(
         `[MCP] Tool name conflict: "${conflict.toolName}" — renamed to avoid collision with local tools`
