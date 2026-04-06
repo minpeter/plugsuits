@@ -58,7 +58,6 @@ import {
   type ModelInfo,
 } from "../commands/model";
 import { createReasoningModeCommand } from "../commands/reasoning-mode";
-import { createRenderCommand } from "../commands/render";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { createTranslateCommand } from "../commands/translate";
 import type { SkillInfo } from "../context/skills";
@@ -163,12 +162,7 @@ const buildModelSelectorLabel = (
 };
 
 const buildModelSelectorDescription = (model: ModelInfo): string => {
-  let providerLabel = "FriendliAI";
-  if (model.provider === "anthropic") {
-    providerLabel = "Anthropic";
-  } else if (model.type === "dedicated") {
-    providerLabel = "FDE";
-  }
+  const providerLabel = "Anthropic";
 
   if (model.name?.trim()) {
     return `${model.name} • ${providerLabel}`;
@@ -387,17 +381,6 @@ const handleCompactionComplete = (result: CompactionResult): void => {
 let requestedProcessExitCode: number | null = null;
 let signalShutdownRequested = false;
 
-registerCommand(
-  createRenderCommand(async () => ({
-    model: agentManager.getModelId(),
-    modelType: agentManager.getModelType(),
-    instructions: await agentManager.getInstructions(),
-    tools: agentManager.getTools(),
-    messages: messageHistory.toModelMessages(),
-    reasoningMode: agentManager.getReasoningMode(),
-    toolFallbackMode: agentManager.getToolFallbackMode(),
-  }))
-);
 registerCommand(createModelCommand());
 registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());

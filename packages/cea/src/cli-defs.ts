@@ -17,7 +17,7 @@ export const sharedArgsDef = {
   },
   provider: {
     type: "enum",
-    options: ["friendli", "anthropic"],
+    options: ["anthropic"],
     description: "Provider type",
   },
   "reasoning-mode": {

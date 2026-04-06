@@ -15,7 +15,6 @@ import {
   type AgentStreamResult as HarnessAgentStreamResult,
   type PruningConfig,
 } from "@ai-sdk-tool/harness";
-import { createFriendli } from "@friendliai/ai-provider";
 import {
   InvalidToolInputError,
   type ModelMessage,
@@ -27,12 +26,6 @@ import { loadSkillsMetadata } from "./context/skills";
 import { SYSTEM_PROMPT } from "./context/system-prompt";
 import type { TranslationModelConfig } from "./context/translation";
 import { env } from "./env";
-import { getFriendliApiModelId, getFriendliModelById } from "./friendli-models";
-import {
-  applyFriendliInterleavedField,
-  buildFriendliChatTemplateKwargs,
-  getFriendliSelectableReasoningModes,
-} from "./friendli-reasoning";
 import { buildMiddlewares } from "./middleware";
 import {
   buildTodoContinuationPrompt,
@@ -46,8 +39,8 @@ import {
 } from "./tool-fallback-mode";
 import { createTools, type ToolRegistry } from "./tools";
 
-export const DEFAULT_MODEL_ID = "zai-org/GLM-5";
 export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
+export const DEFAULT_MODEL_ID = DEFAULT_ANTHROPIC_MODEL_ID;
 
 /**
  * Hard cap on output tokens sent to the API.
@@ -77,7 +70,7 @@ export type AgentStreamOptions = Pick<
 >;
 export type AgentStreamResult = HarnessAgentStreamResult;
 
-export type ProviderType = "friendli" | "anthropic";
+export type ProviderType = "anthropic";
 
 export interface UsageMeasurement {
   inputTokens: number;
@@ -168,14 +161,6 @@ export const ANTHROPIC_MODELS: readonly AnthropicModelInfo[] = [
   },
 ] as const;
 
-const friendli = env.FRIENDLI_TOKEN
-  ? createFriendli({
-      apiKey: env.FRIENDLI_TOKEN,
-      includeUsage: true,
-      ...(env.FRIENDLI_BASE_URL ? { baseURL: env.FRIENDLI_BASE_URL } : {}),
-    })
-  : null;
-
 const anthropic = env.ANTHROPIC_API_KEY
   ? createAnthropic({
       apiKey: env.ANTHROPIC_API_KEY,
@@ -236,11 +221,11 @@ const getModelMaxCompletionTokens = (
   modelId: string,
   provider: ProviderType
 ): number => {
-  if (provider === "anthropic") {
-    const model = ANTHROPIC_MODELS.find((m) => m.id === modelId);
-    return model?.maxCompletionTokens ?? OUTPUT_TOKEN_CAP;
+  if (provider !== "anthropic") {
+    return OUTPUT_TOKEN_CAP;
   }
-  const model = getFriendliModelById(modelId);
+
+  const model = ANTHROPIC_MODELS.find((m) => m.id === modelId);
   return model?.maxCompletionTokens ?? OUTPUT_TOKEN_CAP;
 };
 
@@ -263,11 +248,11 @@ const getModelContextLength = (
   modelId: string,
   provider: ProviderType
 ): number => {
-  if (provider === "anthropic") {
-    const model = ANTHROPIC_MODELS.find((m) => m.id === modelId);
-    return model?.contextLength ?? DEFAULT_CONTEXT_LENGTH;
+  if (provider !== "anthropic") {
+    return DEFAULT_CONTEXT_LENGTH;
   }
-  const model = getFriendliModelById(modelId);
+
+  const model = ANTHROPIC_MODELS.find((m) => m.id === modelId);
   return model?.contextLength ?? DEFAULT_CONTEXT_LENGTH;
 };
 
@@ -275,15 +260,7 @@ const getCompactionReserveTokens = (
   modelId: string,
   provider: ProviderType
 ): number => {
-  if (provider === "anthropic") {
-    return getEffectiveMaxOutputTokens(modelId, provider);
-  }
-
-  const model = getFriendliModelById(modelId);
-  return (
-    model?.compactionReserveTokens ??
-    getEffectiveMaxOutputTokens(modelId, provider)
-  );
+  return getEffectiveMaxOutputTokens(modelId, provider);
 };
 
 const getProviderOptions = (
@@ -327,19 +304,8 @@ const getProviderOptions = (
     };
   }
 
-  const chatTemplateKwargs = buildFriendliChatTemplateKwargs(
-    modelId,
-    reasoningMode
-  );
-
   return {
-    options: chatTemplateKwargs
-      ? {
-          friendli: {
-            chat_template_kwargs: chatTemplateKwargs,
-          },
-        }
-      : undefined,
+    options: undefined,
     maxOutputTokens: effectiveMaxTokens,
   };
 };
@@ -514,23 +480,16 @@ export class AgentManager {
   private _memoryExtractorStorePath: string | null = null;
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
-  private provider: ProviderType = "friendli";
+  private provider: ProviderType = "anthropic";
   private headlessMode = false;
   private reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
   private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private translationEnabled = true;
   private sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
-  private readonly friendliClient: ReturnType<typeof createFriendli> | null;
   private readonly anthropicClient: ReturnType<typeof createAnthropic> | null;
 
-  constructor(
-    friendliClient?: ReturnType<typeof createFriendli> | null,
-    anthropicClient?: ReturnType<typeof createAnthropic> | null
-  ) {
-    // Use provided clients or fall back to module-level singletons
-    this.friendliClient =
-      friendliClient !== undefined ? friendliClient : friendli;
+  constructor(anthropicClient?: ReturnType<typeof createAnthropic> | null) {
     this.anthropicClient =
       anthropicClient !== undefined ? anthropicClient : anthropic;
     this.applyBestReasoningModeForCurrentModel();
@@ -539,7 +498,7 @@ export class AgentManager {
   resetForTesting(): void {
     this.modelId = DEFAULT_MODEL_ID;
     this.modelType = "serverless";
-    this.provider = "friendli";
+    this.provider = "anthropic";
     this.headlessMode = false;
     this.reasoningMode = DEFAULT_REASONING_MODE;
     this.toolRegistry = defaultToolRegistry;
@@ -561,24 +520,14 @@ export class AgentManager {
     );
   }
 
-  private getProviderModel(modelId: string, provider: ProviderType) {
-    if (provider === "anthropic") {
-      if (!this.anthropicClient) {
-        throw new Error(
-          "ANTHROPIC_API_KEY is not set. Please set it in your environment."
-        );
-      }
-      return this.anthropicClient(modelId);
-    }
-
-    if (!this.friendliClient) {
+  private getProviderModel(modelId: string, _provider: ProviderType) {
+    if (!this.anthropicClient) {
       throw new Error(
-        "FRIENDLI_TOKEN is not set. Please set it in your environment."
+        "ANTHROPIC_API_KEY is not set. Please set it in your environment."
       );
     }
-    // Resolve internal id (e.g. "test-8k") to actual API model id
-    const apiModelId = getFriendliApiModelId(modelId);
-    return this.friendliClient(apiModelId);
+
+    return this.anthropicClient(modelId);
   }
 
   private buildModel(reasoningMode: ReasoningMode = this.reasoningMode) {
@@ -776,12 +725,7 @@ export class AgentManager {
 
   setProvider(provider: ProviderType): void {
     this.provider = provider;
-    if (provider === "anthropic") {
-      this.modelId = DEFAULT_ANTHROPIC_MODEL_ID;
-    } else {
-      this.modelId = DEFAULT_MODEL_ID;
-    }
-
+    this.modelId = DEFAULT_ANTHROPIC_MODEL_ID;
     this.applyBestReasoningModeForCurrentModel();
   }
 
@@ -802,9 +746,6 @@ export class AgentManager {
   }
 
   getSelectableReasoningModes(): ReasoningMode[] {
-    if (this.provider === "friendli") {
-      return getFriendliSelectableReasoningModes(this.modelId);
-    }
     return [...ANTHROPIC_SELECTABLE_REASONING_MODES];
   }
 
@@ -903,14 +844,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
         ? Math.min(options.maxOutputTokens, providerMaxOutputTokens)
         : providerMaxOutputTokens;
 
-    const preparedMessages =
-      this.provider === "friendli"
-        ? applyFriendliInterleavedField(
-            messages,
-            this.modelId,
-            this.reasoningMode
-          )
-        : messages;
+    const preparedMessages = messages;
 
     if (preparedMessages.length === 0) {
       throw new Error(
@@ -948,14 +882,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
             },
           ] satisfies ModelMessage[]);
     const { model, providerOptions } = this.buildModel("off");
-    const preparedMessages =
-      this.provider === "friendli"
-        ? applyFriendliInterleavedField(
-            probeMessages,
-            this.modelId,
-            DEFAULT_REASONING_MODE
-          )
-        : probeMessages;
+    const preparedMessages = probeMessages;
 
     const agent = createAgent({
       model,
@@ -999,36 +926,23 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
  * Factory function for creating a fresh AgentManager instance with custom provider clients.
  * Useful for test isolation and multi-agent scenarios.
  *
- * @param options - Optional provider credentials and base URLs.
+ * @param options - Optional Anthropic credentials and base URL.
  *   If not provided, falls back to environment variables.
- * @returns A new AgentManager instance with fresh provider clients.
+ * @returns A new AgentManager instance with a fresh provider client.
  *
  * @example
  * ```typescript
  * // Test isolation: create a fresh instance per test
  * const manager = createAgentManager({
- *   friendliToken: 'test-token',
- *   friendliBaseUrl: 'http://localhost:8080',
+ *   anthropicApiKey: 'test-token',
+ *   anthropicBaseUrl: 'http://localhost:8080',
  * });
  * ```
  */
 export function createAgentManager(options?: {
-  friendliToken?: string;
   anthropicApiKey?: string;
-  friendliBaseUrl?: string;
   anthropicBaseUrl?: string;
 }): AgentManager {
-  const friendliToken = options?.friendliToken ?? env.FRIENDLI_TOKEN;
-  const friendliClient = friendliToken
-    ? createFriendli({
-        apiKey: friendliToken,
-        includeUsage: true,
-        ...((options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL)
-          ? { baseURL: options?.friendliBaseUrl ?? env.FRIENDLI_BASE_URL }
-          : {}),
-      })
-    : null;
-
   const anthropicApiKey = options?.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
   const anthropicClient = anthropicApiKey
     ? createAnthropic({
@@ -1039,7 +953,7 @@ export function createAgentManager(options?: {
       })
     : null;
 
-  return new AgentManager(friendliClient, anthropicClient);
+  return new AgentManager(anthropicClient);
 }
 
 export const agentManager = createAgentManager();
