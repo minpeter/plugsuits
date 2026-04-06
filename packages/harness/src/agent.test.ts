@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgent } from "./agent";
+import { clearMCPCache } from "./mcp-init.js";
 import type { AgentConfig } from "./types";
 
-const { streamTextMock } = vi.hoisted(() => {
+const { resolveMCPOptionMock, streamTextMock } = vi.hoisted(() => {
   const mock = vi.fn(() => {
     const fullStream: AsyncIterable<{ finishReason: string; type: string }> = {
       [Symbol.asyncIterator]() {
@@ -30,7 +31,13 @@ const { streamTextMock } = vi.hoisted(() => {
     };
   });
 
-  return { streamTextMock: mock };
+  return {
+    resolveMCPOptionMock: vi.fn().mockResolvedValue({
+      close: vi.fn().mockResolvedValue(undefined),
+      tools: { mcp_tool: {} },
+    }),
+    streamTextMock: mock,
+  };
 });
 
 vi.mock("ai", () => {
@@ -40,25 +47,34 @@ vi.mock("ai", () => {
   };
 });
 
+vi.mock("./mcp-init.js", () => ({
+  clearMCPCache: vi.fn(),
+  resolveMCPOption: resolveMCPOptionMock,
+}));
+
 function createMockModel(): AgentConfig["model"] {
   return {} as AgentConfig["model"];
 }
 
 describe("createAgent", () => {
   beforeEach(() => {
+    clearMCPCache();
+    resolveMCPOptionMock.mockClear();
     streamTextMock.mockClear();
   });
 
-  it("returns an agent with config and stream method", () => {
+  it("returns an agent with config, stream method, and close method", async () => {
     const model = createMockModel();
-    const agent = createAgent({ model });
+    const agent = await createAgent({ model });
 
     expect(agent).toHaveProperty("config");
+    expect(agent).toHaveProperty("close");
     expect(agent).toHaveProperty("stream");
+    expect(typeof agent.close).toBe("function");
     expect(typeof agent.stream).toBe("function");
   });
 
-  it("preserves provided config values", () => {
+  it("preserves provided config values", async () => {
     const model = createMockModel();
     const config: AgentConfig = {
       model,
@@ -66,21 +82,21 @@ describe("createAgent", () => {
       maxStepsPerTurn: 5,
     };
 
-    const agent = createAgent(config);
+    const agent = await createAgent(config);
 
     expect(agent.config.model).toBe(model);
     expect(agent.config.instructions).toBe("You are a harness test agent.");
     expect(agent.config.maxStepsPerTurn).toBe(5);
   });
 
-  it("keeps maxStepsPerTurn undefined when omitted", () => {
-    const agent = createAgent({ model: createMockModel() });
+  it("keeps maxStepsPerTurn undefined when omitted", async () => {
+    const agent = await createAgent({ model: createMockModel() });
 
     expect(agent.config.maxStepsPerTurn).toBeUndefined();
   });
 
-  it("passes temperature and seed through to streamText", () => {
-    const agent = createAgent({ model: createMockModel() });
+  it("passes temperature and seed through to streamText", async () => {
+    const agent = await createAgent({ model: createMockModel() });
 
     agent.stream({
       messages: [],
@@ -94,6 +110,36 @@ describe("createAgent", () => {
         temperature: 0,
       })
     );
+  });
+
+  it("agent.close is a no-op when MCP is not configured", async () => {
+    const agent = await createAgent({ model: createMockModel() });
+
+    await expect(agent.close()).resolves.toBeUndefined();
+  });
+
+  it("calls resolveMCPOption when MCP is provided", async () => {
+    const model = createMockModel();
+
+    await createAgent({ model, mcp: true });
+
+    expect(resolveMCPOptionMock).toHaveBeenCalledWith(true, {});
+  });
+
+  it("returns an agent with MCP-resolved tools and close handler", async () => {
+    const closeMock = vi.fn().mockResolvedValue(undefined);
+    const mcpTools = { mcp_tool: {} };
+    resolveMCPOptionMock.mockResolvedValueOnce({
+      close: closeMock,
+      tools: mcpTools,
+    });
+
+    const agent = await createAgent({ model: createMockModel(), mcp: true });
+
+    expect(agent.config.tools).toBe(mcpTools);
+
+    await agent.close();
+    expect(closeMock).toHaveBeenCalledTimes(1);
   });
 
   it("silences unhandled rejections when stream result promises are not awaited", async () => {
@@ -138,7 +184,7 @@ describe("createAgent", () => {
     process.on("unhandledRejection", handler);
 
     try {
-      const agent = createAgent({ model: createMockModel() });
+      const agent = await createAgent({ model: createMockModel() });
       const result = agent.stream({ messages: [] });
 
       finishReasonDeferred.reject(rejectionError);
@@ -177,16 +223,21 @@ describe("createAgent", () => {
           },
         };
 
-      const streamResult: Record<string, unknown> = {
+      const streamResult = {
         finishReason: Promise.resolve("stop"),
         fullStream: emptyStream,
         response: Promise.resolve({ messages: [] }),
         totalUsage: Promise.resolve(undefined),
         usage: Promise.resolve(undefined),
-      };
+      } as ReturnType<typeof streamTextMock>;
       let rejectTarget: (error: unknown) => void = () => undefined;
-      streamResult[targetField] = new Promise<never>((_, reject) => {
-        rejectTarget = reject;
+      Object.defineProperty(streamResult, targetField, {
+        configurable: true,
+        enumerable: true,
+        value: new Promise<never>((_, reject) => {
+          rejectTarget = reject;
+        }),
+        writable: true,
       });
 
       streamTextMock.mockImplementationOnce(() => streamResult);
@@ -198,7 +249,7 @@ describe("createAgent", () => {
       process.on("unhandledRejection", handler);
 
       try {
-        const agent = createAgent({ model: createMockModel() });
+        const agent = await createAgent({ model: createMockModel() });
         const result = agent.stream({ messages: [] });
 
         rejectTarget(rejectionError);
