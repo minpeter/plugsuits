@@ -10,6 +10,7 @@ import {
   type CompactionResult,
   estimateTokens,
   MCPManager,
+  mergeMCPTools,
   PostCompactRestorer,
   parseCommand,
   type RunnableAgent,
@@ -626,6 +627,36 @@ process.once("unhandledRejection", (reason: unknown) => {
   exitWithCleanup(1);
 });
 
+const initializeMCPTools = async (): Promise<void> => {
+  mcpManager = new MCPManager({
+    onError: (server, error) => {
+      console.warn(`[MCP] Server "${server}" failed:`, error);
+    },
+  });
+  await mcpManager.init();
+  const mcpTools = mcpManager.tools();
+  if (Object.keys(mcpTools).length === 0) {
+    return;
+  }
+
+  const localTools = agentManager.getTools();
+  const { tools: mergedTools, conflicts } = mergeMCPTools({
+    localTools,
+    mcpTools: { "mcp-servers": mcpTools },
+    onConflict: (conflict) => {
+      console.warn(
+        `[MCP] Tool name conflict: "${conflict.toolName}" — renamed to avoid collision with local tools`
+      );
+    },
+  });
+  agentManager.setTools(mergedTools as typeof localTools);
+  const addedCount =
+    Object.keys(mergedTools).length - Object.keys(localTools).length;
+  console.warn(
+    `[MCP] Loaded ${addedCount} MCP tools from MCP servers${conflicts.length > 0 ? `, ${conflicts.length} conflict(s) resolved` : ""}`
+  );
+};
+
 const __cliDirname = dirname(fileURLToPath(import.meta.url));
 const __cliVersion: string = JSON.parse(
   readFileSync(join(__cliDirname, "../../package.json"), "utf-8")
@@ -659,19 +690,7 @@ const mainCommand = defineCommand({
   async run({ args }) {
     validateProviderConfig();
     await initializeTools();
-    mcpManager = new MCPManager({
-      onError: (server, error) => {
-        console.warn(`[MCP] Server "${server}" failed:`, error);
-      },
-    });
-    await mcpManager.init();
-    const mcpTools = mcpManager.tools();
-    if (Object.keys(mcpTools).length > 0) {
-      agentManager.setTools({ ...agentManager.getTools(), ...mcpTools });
-      console.warn(
-        `[MCP] Loaded ${Object.keys(mcpTools).length} tools from MCP servers`
-      );
-    }
+    await initializeMCPTools();
     setSpinnerOutputEnabled(false);
     sessionManager.initialize();
     applyCurrentSessionToRuntime();
