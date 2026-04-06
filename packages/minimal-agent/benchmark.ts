@@ -9,7 +9,6 @@ import {
   InMemoryStore,
   SessionMemoryTracker,
 } from "@ai-sdk-tool/harness";
-import { createFriendli } from "@friendliai/ai-provider";
 import { generateText, type LanguageModel, type ModelMessage } from "ai";
 import { defineCommand, runMain } from "citty";
 
@@ -1018,7 +1017,7 @@ const main = defineCommand({
     provider: {
       alias: ["p"],
       type: "string",
-      description: "Provider: friendli (default) or anthropic",
+      description: "Provider: anthropic",
     },
     baseline: {
       type: "boolean",
@@ -1040,8 +1039,8 @@ const main = defineCommand({
       process.exit(1);
     }
 
-    const VALID_PROVIDERS = ["friendli", "anthropic"] as const;
-    const provider = args.provider || "friendli";
+    const VALID_PROVIDERS = ["anthropic"] as const;
+    const provider = args.provider || "anthropic";
     if (
       !VALID_PROVIDERS.includes(provider as (typeof VALID_PROVIDERS)[number])
     ) {
@@ -1051,30 +1050,14 @@ const main = defineCommand({
       process.exit(1);
     }
 
-    let model: LanguageModel;
-    let modelId: string;
-
-    if (provider === "anthropic") {
-      if (!env.ANTHROPIC_API_KEY) {
-        process.stderr.write("Error: ANTHROPIC_API_KEY required\n");
-        process.exit(1);
-      }
-      modelId = args.model || "claude-sonnet-4-20250514";
-      const anthropic = createAnthropic({});
-      model = anthropic(modelId);
-    } else {
-      if (!env.FRIENDLI_TOKEN) {
-        process.stderr.write("Error: FRIENDLI_TOKEN required\n");
-        process.exit(1);
-      }
-      modelId = args.model || env.FRIENDLI_MODEL || "zai-org/GLM-5";
-      const friendli = createFriendli({
-        apiKey: env.FRIENDLI_TOKEN,
-        baseURL: env.FRIENDLI_BASE_URL || "serverless",
-        includeUsage: true,
-      });
-      model = friendli(modelId);
+    if (!env.ANTHROPIC_API_KEY) {
+      process.stderr.write("Error: ANTHROPIC_API_KEY required\n");
+      process.exit(1);
     }
+
+    const modelId = args.model || "claude-sonnet-4-6";
+    const anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    const model: LanguageModel = anthropic(modelId);
 
     const result = await runBenchmark({
       baseline: args.baseline === true,

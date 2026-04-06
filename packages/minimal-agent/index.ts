@@ -1,6 +1,7 @@
 import {
   CheckpointHistory,
   type Command,
+  type CommandAction,
   CompactionCircuitBreaker,
   type CompactionResult,
   type ContextUsage,
@@ -15,10 +16,7 @@ import {
 
 import { emitEvent, runHeadless } from "@ai-sdk-tool/headless";
 import { createAgentTUI } from "@ai-sdk-tool/tui";
-import {
-  createFriendli,
-  type FriendliAIProvider,
-} from "@friendliai/ai-provider";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { LanguageModel } from "ai";
 import { defineCommand, runMain } from "citty";
 
@@ -31,7 +29,7 @@ import {
 } from "./compaction-config.js";
 import { env } from "./env.js";
 
-const DEFAULT_MODEL_ID = "zai-org/GLM-5";
+const DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 const DEFAULT_SYSTEM_PROMPT = `You are a minimal example agent. Be concise and helpful.
 When the user shares personal information (name, preferences, pets, job, hobbies, etc.), remember it carefully.
 When asked to recall information, list ALL known facts — do not omit any details.`;
@@ -85,16 +83,8 @@ const LOCAL_COMMANDS: Command[] = [
   },
 ];
 
-function createFriendliProvider(): FriendliAIProvider {
-  return createFriendli({
-    apiKey: env.FRIENDLI_TOKEN ?? "",
-    baseURL: env.FRIENDLI_BASE_URL || "serverless",
-    includeUsage: true,
-  });
-}
-
 function resolveModelId(cliModel?: string): string {
-  return cliModel?.trim() || env.FRIENDLI_MODEL || DEFAULT_MODEL_ID;
+  return cliModel?.trim() || DEFAULT_MODEL_ID;
 }
 
 function createCompactionConfig(
@@ -144,13 +134,13 @@ function formatContextUsage(contextUsage: ContextUsage): string {
 const main = defineCommand({
   meta: {
     name: "minimal-agent",
-    description: "Minimal FriendliAI-backed agent example",
+    description: "Minimal Anthropic-backed agent example",
   },
   args: {
     model: {
       alias: ["m"],
       type: "string",
-      description: "Override the Friendli model ID",
+      description: "Override the Anthropic model ID",
     },
     prompt: {
       alias: ["p"],
@@ -165,8 +155,8 @@ const main = defineCommand({
     const circuitBreaker = new CompactionCircuitBreaker();
     const sessionMemoryTracker = new SessionMemoryTracker();
     const selectedModelId = resolveModelId(args.model);
-    const friendli = createFriendliProvider();
-    const model = friendli(selectedModelId);
+    const anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY ?? "" });
+    const model = anthropic(selectedModelId);
     const compaction = createCompactionConfig(model, sessionMemoryTracker);
     const messageHistory = new CheckpointHistory({
       compaction,
@@ -254,7 +244,7 @@ const main = defineCommand({
           return `${selectedModelId}\nSession: ${sessionManager.getId()}`;
         },
       },
-      onCommandAction: (action) => {
+      onCommandAction: (action: CommandAction) => {
         if (action.type === "new-session") {
           sessionManager.initialize();
           circuitBreaker.resetForNewSession();

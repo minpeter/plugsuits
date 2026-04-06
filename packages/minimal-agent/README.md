@@ -1,17 +1,15 @@
 # Minimal Agent
 
-Minimal FriendliAI-backed example agent built on the workspace packages.
+Minimal Anthropic-backed example agent built on the workspace packages.
 
 ## Requirements
 
 - Node.js 22+
 - pnpm 10+
-- `FRIENDLI_TOKEN`
+- `ANTHROPIC_API_KEY`
 
 Optional:
-
-- `FRIENDLI_BASE_URL`
-- `FRIENDLI_MODEL`
+- none
 
 ## Scripts
 
