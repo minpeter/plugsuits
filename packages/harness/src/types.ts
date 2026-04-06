@@ -38,7 +38,7 @@ export type AgentInstructions = string | (() => Promise<string>);
  * @example `mcp: mcpManager` — pre-initialized instance (lifecycle managed by caller)
  */
 export type MCPOption =
-  | boolean
+  | true
   | MCPServerConfig[]
   | {
       config?: boolean | string;
