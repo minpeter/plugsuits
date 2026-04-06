@@ -1,3 +1,4 @@
+import { harnessEnv } from "@ai-sdk-tool/harness";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
@@ -10,7 +11,12 @@ export const env = createEnv({
     DEBUG_SHOW_FINISH_REASON: z.stringbool().default(false),
     DEBUG_SHOW_TOOL_RESULTS: z.stringbool().default(false),
     DEBUG_SHOW_RAW_TOOL_IO: z.stringbool().default(false),
+    BENCHMARK_SEED: z.coerce.number().int().optional(),
+    BENCHMARK_TEMPERATURE: z.coerce.number().optional(),
+    ATIF_OUTPUT_PATH: z.string().min(1).optional(),
+    DISABLE_BME: z.stringbool().default(false),
   },
+  extends: [harnessEnv],
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 });

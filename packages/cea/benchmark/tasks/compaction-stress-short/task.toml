@@ -1,0 +1,25 @@
+schema_version = "1.1"
+
+[task]
+name = "compaction-stress-short"
+description = "Stress short-context recall by creating five auth service files and answering memory checks"
+authors = [{ name = "minpeter", email = "minpeter@plugsuits.dev" }]
+keywords = ["compaction", "short", "memory", "context-pressure"]
+
+[metadata]
+difficulty = "medium"
+category = "compaction-benchmark"
+context_limit_override = 8000
+
+[verifier]
+timeout_sec = 300.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 300.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 4096
+env = { CONTEXT_LIMIT_OVERRIDE = "${CONTEXT_LIMIT_OVERRIDE}" }

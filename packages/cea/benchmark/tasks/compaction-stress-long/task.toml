@@ -1,0 +1,25 @@
+schema_version = "1.1"
+
+[task]
+name = "compaction-stress-long"
+description = "Stress long multi-step file creation and recall under very tight context"
+authors = [{ name = "minpeter", email = "minpeter@plugsuits.dev" }]
+keywords = ["compaction", "long", "recall", "context-pressure"]
+
+[metadata]
+difficulty = "hard"
+category = "compaction-benchmark"
+context_limit_override = 4000
+
+[verifier]
+timeout_sec = 300.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 300.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 4096
+env = { CONTEXT_LIMIT_OVERRIDE = "${CONTEXT_LIMIT_OVERRIDE}" }

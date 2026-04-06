@@ -1,0 +1,657 @@
+{
+  "contextLimit": 4096,
+  "blockingThreshold": 2662,
+  "speculativeThreshold": 2129,
+  "modelId": "zai-org/GLM-5",
+  "turns": [
+    {
+      "turn": 1,
+      "type": "fact",
+      "contextAfter": 40,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 2,
+      "type": "fact",
+      "contextAfter": 82,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 3,
+      "type": "fact",
+      "contextAfter": 125,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 4,
+      "type": "fact",
+      "contextAfter": 175,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 5,
+      "type": "probe",
+      "contextAfter": 207,
+      "compactionEvent": null,
+      "probeScore": "2/2"
+    },
+    {
+      "turn": 6,
+      "type": "fact",
+      "contextAfter": 253,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 7,
+      "type": "fact",
+      "contextAfter": 290,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 8,
+      "type": "fact",
+      "contextAfter": 327,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 9,
+      "type": "chat",
+      "contextAfter": 499,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 10,
+      "type": "probe",
+      "contextAfter": 554,
+      "compactionEvent": null,
+      "probeScore": "2/2"
+    },
+    {
+      "turn": 11,
+      "type": "fact",
+      "contextAfter": 595,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 12,
+      "type": "fact",
+      "contextAfter": 633,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 13,
+      "type": "fact",
+      "contextAfter": 695,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 14,
+      "type": "chat",
+      "contextAfter": 793,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 15,
+      "type": "probe",
+      "contextAfter": 862,
+      "compactionEvent": null,
+      "probeScore": "2/2"
+    },
+    {
+      "turn": 16,
+      "type": "fact",
+      "contextAfter": 896,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 17,
+      "type": "fact",
+      "contextAfter": 949,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 18,
+      "type": "fact",
+      "contextAfter": 991,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 19,
+      "type": "chat",
+      "contextAfter": 1177,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 20,
+      "type": "probe",
+      "contextAfter": 1211,
+      "compactionEvent": null,
+      "probeScore": "2/2"
+    },
+    {
+      "turn": 21,
+      "type": "fact",
+      "contextAfter": 1266,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 22,
+      "type": "fact",
+      "contextAfter": 1317,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 23,
+      "type": "fact",
+      "contextAfter": 1371,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 24,
+      "type": "chat",
+      "contextAfter": 1605,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 25,
+      "type": "probe",
+      "contextAfter": 1678,
+      "compactionEvent": null,
+      "probeScore": "1/6"
+    },
+    {
+      "turn": 26,
+      "type": "fact",
+      "contextAfter": 1715,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 27,
+      "type": "fact",
+      "contextAfter": 1755,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 28,
+      "type": "fact",
+      "contextAfter": 1800,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 29,
+      "type": "chat",
+      "contextAfter": 2051,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 30,
+      "type": "probe",
+      "contextAfter": 170,
+      "compactionEvent": "spec started",
+      "probeScore": "3/3"
+    },
+    {
+      "turn": 31,
+      "type": "fact",
+      "contextAfter": 188,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 32,
+      "type": "fact",
+      "contextAfter": 285,
+      "compactionEvent": "spec applied",
+      "probeScore": null
+    },
+    {
+      "turn": 33,
+      "type": "fact",
+      "contextAfter": 325,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 34,
+      "type": "chat",
+      "contextAfter": 434,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 35,
+      "type": "probe",
+      "contextAfter": 479,
+      "compactionEvent": null,
+      "probeScore": "4/4"
+    },
+    {
+      "turn": 36,
+      "type": "fact",
+      "contextAfter": 517,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 37,
+      "type": "fact",
+      "contextAfter": 562,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 38,
+      "type": "fact",
+      "contextAfter": 600,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 39,
+      "type": "chat",
+      "contextAfter": 785,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 40,
+      "type": "probe",
+      "contextAfter": 864,
+      "compactionEvent": null,
+      "probeScore": "4/4"
+    },
+    {
+      "turn": 41,
+      "type": "fact",
+      "contextAfter": 905,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 42,
+      "type": "fact",
+      "contextAfter": 981,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 43,
+      "type": "fact",
+      "contextAfter": 1038,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 44,
+      "type": "chat",
+      "contextAfter": 1155,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 45,
+      "type": "probe",
+      "contextAfter": 1201,
+      "compactionEvent": null,
+      "probeScore": "3/3"
+    },
+    {
+      "turn": 46,
+      "type": "fact",
+      "contextAfter": 1264,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 47,
+      "type": "fact",
+      "contextAfter": 1340,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 48,
+      "type": "fact",
+      "contextAfter": 1397,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 49,
+      "type": "chat",
+      "contextAfter": 1573,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 50,
+      "type": "probe",
+      "contextAfter": 1619,
+      "compactionEvent": null,
+      "probeScore": "0/9"
+    },
+    {
+      "turn": 51,
+      "type": "fact",
+      "contextAfter": 1669,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 52,
+      "type": "fact",
+      "contextAfter": 1734,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 53,
+      "type": "fact",
+      "contextAfter": 1789,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 54,
+      "type": "chat",
+      "contextAfter": 192,
+      "compactionEvent": "spec started",
+      "probeScore": null
+    },
+    {
+      "turn": 55,
+      "type": "probe",
+      "contextAfter": 378,
+      "compactionEvent": null,
+      "probeScore": "2/3"
+    },
+    {
+      "turn": 56,
+      "type": "fact",
+      "contextAfter": 437,
+      "compactionEvent": "spec applied",
+      "probeScore": null
+    },
+    {
+      "turn": 57,
+      "type": "fact",
+      "contextAfter": 492,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 58,
+      "type": "fact",
+      "contextAfter": 565,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 59,
+      "type": "chat",
+      "contextAfter": 730,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 60,
+      "type": "probe",
+      "contextAfter": 834,
+      "compactionEvent": null,
+      "probeScore": "3/3"
+    },
+    {
+      "turn": 61,
+      "type": "fact",
+      "contextAfter": 906,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 62,
+      "type": "fact",
+      "contextAfter": 1023,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 63,
+      "type": "fact",
+      "contextAfter": 1072,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 64,
+      "type": "chat",
+      "contextAfter": 1276,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 65,
+      "type": "probe",
+      "contextAfter": 1353,
+      "compactionEvent": null,
+      "probeScore": "3/3"
+    },
+    {
+      "turn": 66,
+      "type": "fact",
+      "contextAfter": 1423,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 67,
+      "type": "fact",
+      "contextAfter": 1498,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 68,
+      "type": "fact",
+      "contextAfter": 1555,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 69,
+      "type": "chat",
+      "contextAfter": 1744,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 70,
+      "type": "probe",
+      "contextAfter": 1816,
+      "compactionEvent": null,
+      "probeScore": "3/3"
+    },
+    {
+      "turn": 71,
+      "type": "fact",
+      "contextAfter": 1875,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 72,
+      "type": "fact",
+      "contextAfter": 198,
+      "compactionEvent": "spec started",
+      "probeScore": null
+    },
+    {
+      "turn": 73,
+      "type": "fact",
+      "contextAfter": 314,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 74,
+      "type": "chat",
+      "contextAfter": 491,
+      "compactionEvent": "spec applied",
+      "probeScore": null
+    },
+    {
+      "turn": 75,
+      "type": "probe",
+      "contextAfter": 595,
+      "compactionEvent": null,
+      "probeScore": "2/3"
+    },
+    {
+      "turn": 76,
+      "type": "fact",
+      "contextAfter": 700,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 77,
+      "type": "fact",
+      "contextAfter": 812,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 78,
+      "type": "fact",
+      "contextAfter": 946,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 79,
+      "type": "chat",
+      "contextAfter": 1070,
+      "compactionEvent": null,
+      "probeScore": null
+    },
+    {
+      "turn": 80,
+      "type": "probe",
+      "contextAfter": 1112,
+      "compactionEvent": null,
+      "probeScore": "0/10"
+    }
+  ],
+  "probes": [
+    {
+      "turn": 5,
+      "found": 2,
+      "expected": 2
+    },
+    {
+      "turn": 10,
+      "found": 2,
+      "expected": 2
+    },
+    {
+      "turn": 15,
+      "found": 2,
+      "expected": 2
+    },
+    {
+      "turn": 20,
+      "found": 2,
+      "expected": 2
+    },
+    {
+      "turn": 25,
+      "found": 1,
+      "expected": 6
+    },
+    {
+      "turn": 30,
+      "found": 3,
+      "expected": 3
+    },
+    {
+      "turn": 35,
+      "found": 4,
+      "expected": 4
+    },
+    {
+      "turn": 40,
+      "found": 4,
+      "expected": 4
+    },
+    {
+      "turn": 45,
+      "found": 3,
+      "expected": 3
+    },
+    {
+      "turn": 50,
+      "found": 0,
+      "expected": 9
+    },
+    {
+      "turn": 55,
+      "found": 2,
+      "expected": 3
+    },
+    {
+      "turn": 60,
+      "found": 3,
+      "expected": 3
+    },
+    {
+      "turn": 65,
+      "found": 3,
+      "expected": 3
+    },
+    {
+      "turn": 70,
+      "found": 3,
+      "expected": 3
+    },
+    {
+      "turn": 75,
+      "found": 2,
+      "expected": 3
+    },
+    {
+      "turn": 80,
+      "found": 0,
+      "expected": 10
+    }
+  ],
+  "summary": {
+    "totalFound": 36,
+    "totalExpected": 62,
+    "retentionPct": 58,
+    "compactionCycles": 0,
+    "peakTokens": 2051
+  }
+}

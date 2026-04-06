@@ -1,10 +1,16 @@
+import { join } from "node:path";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
+  BackgroundMemoryExtractor,
   type CompactionConfig,
+  computeAdaptiveThresholdRatio as computeAdaptiveThresholdRatioFromPolicy,
+  computeCompactionMaxTokens as computeCompactionMaxTokensFromPolicy,
+  computeSpeculativeStartRatio as computeSpeculativeStartRatioFromPolicy,
   createAgent,
   createModelSummarizer,
   estimateTokens,
+  FileMemoryStore,
   type AgentStreamOptions as HarnessAgentStreamOptions,
   type AgentStreamResult as HarnessAgentStreamResult,
   type PruningConfig,
@@ -52,6 +58,11 @@ export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
 const OUTPUT_TOKEN_CAP = 64_000;
 const DEFAULT_CONTEXT_LENGTH = 200_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
+const DEFAULT_SESSION_MEMORY_STORE_PATH = join(
+  process.cwd(),
+  ".plugsuits",
+  "session-memory.md"
+);
 
 type ProviderOptions = AiProviderOptions | undefined;
 
@@ -125,16 +136,9 @@ const normalizeUsageMeasurement = (usage: unknown): UsageMeasurement | null => {
 };
 
 const getBenchmarkSamplingOverrides = (): BenchmarkSamplingOverrides => {
-  const seed = process.env.BENCHMARK_SEED
-    ? Number.parseInt(process.env.BENCHMARK_SEED, 10)
-    : undefined;
-  const temperature = process.env.BENCHMARK_TEMPERATURE
-    ? Number.parseFloat(process.env.BENCHMARK_TEMPERATURE)
-    : undefined;
-
   return {
-    seed: Number.isFinite(seed) ? seed : undefined,
-    temperature: Number.isFinite(temperature) ? temperature : undefined,
+    seed: env.BENCHMARK_SEED,
+    temperature: env.BENCHMARK_TEMPERATURE,
   };
 };
 
@@ -506,6 +510,8 @@ export function buildFileTrackingSummarizeFn(
 }
 
 export class AgentManager {
+  _memoryExtractor?: BackgroundMemoryExtractor | null;
+  private _memoryExtractorStorePath: string | null = null;
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
   private provider: ProviderType = "friendli";
@@ -514,6 +520,7 @@ export class AgentManager {
   private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private translationEnabled = true;
+  private sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
   private readonly friendliClient: ReturnType<typeof createFriendli> | null;
   private readonly anthropicClient: ReturnType<typeof createAnthropic> | null;
 
@@ -538,7 +545,14 @@ export class AgentManager {
     this.toolRegistry = defaultToolRegistry;
     this.toolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
     this.translationEnabled = true;
+    this.sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
+    this._memoryExtractor = null;
+    this._memoryExtractorStorePath = null;
     this.applyBestReasoningModeForCurrentModel();
+  }
+
+  setSessionMemoryStorePath(filePath: string): void {
+    this.sessionMemoryStorePath = filePath;
   }
 
   private applyBestReasoningModeForCurrentModel(): void {
@@ -585,22 +599,8 @@ export class AgentManager {
     return { model: wrappedModel, providerOptions: options, maxOutputTokens };
   }
 
-  /**
-   * Parse CONTEXT_LIMIT_OVERRIDE when COMPACTION_DEBUG is active.
-   * Returns the override value if valid, or null if not applicable.
-   */
   private getContextLimitOverride(): number | null {
-    if (
-      (process.env.COMPACTION_DEBUG === "1" ||
-        process.env.COMPACTION_DEBUG === "true") &&
-      process.env.CONTEXT_LIMIT_OVERRIDE
-    ) {
-      const override = Number.parseInt(process.env.CONTEXT_LIMIT_OVERRIDE, 10);
-      if (Number.isFinite(override) && override > 0) {
-        return override;
-      }
-    }
-    return null;
+    return env.CONTEXT_LIMIT_OVERRIDE ?? null;
   }
 
   /**
@@ -653,10 +653,56 @@ export class AgentManager {
       {
         instructions: () => this.getInstructions(),
         contextLimit: effectiveContextLength,
+        taskAwareCompaction: true,
       }
     );
-    const { summarizeFn, getStructuredState } =
+    const { summarizeFn, getStructuredState: fileTrackingState } =
       buildFileTrackingSummarizeFn(baseModelSummarizer);
+
+    const bmeDisabled = env.DISABLE_BME;
+    if (bmeDisabled) {
+      this._memoryExtractor = null;
+      this._memoryExtractorStorePath = null;
+    } else if (
+      this._memoryExtractor &&
+      this._memoryExtractorStorePath === this.sessionMemoryStorePath
+    ) {
+      this._memoryExtractor.updateModel(
+        this.getProviderModel(this.modelId, this.provider)
+      );
+    } else {
+      this._memoryExtractor = new BackgroundMemoryExtractor({
+        model: this.getProviderModel(this.modelId, this.provider),
+        store: new FileMemoryStore(this.sessionMemoryStorePath),
+        preset: "code",
+      });
+      this._memoryExtractorStorePath = this.sessionMemoryStorePath;
+    }
+    const memoryExtractor = this._memoryExtractor;
+
+    const getStructuredState = (): string | undefined => {
+      const fileState = fileTrackingState();
+      const memoryState = memoryExtractor?.getStructuredState();
+      if (!(fileState || memoryState)) {
+        return undefined;
+      }
+      const parts: string[] = [];
+      if (memoryState) {
+        parts.push(memoryState);
+      }
+      if (fileState) {
+        parts.push(fileState);
+      }
+      return parts.join("\n\n");
+    };
+
+    const getLastExtractionMessageIndex = (): number | undefined => {
+      if (!memoryExtractor?.getStructuredState()) {
+        return undefined;
+      }
+
+      return memoryExtractor.getLastExtractionMessageIndex();
+    };
 
     // Compute context-adaptive threshold ratio
     const thresholdRatio = computeAdaptiveThresholdRatio(
@@ -675,17 +721,24 @@ export class AgentManager {
     );
 
     return {
+      compactionDirection: "keep-recent" as const,
       contextLimit: effectiveContextLength,
       enabled: true,
       maxTokens,
       thresholdRatio,
       reserveTokens: effectiveReserveTokens,
       keepRecentTokens,
+      microCompact: {
+        clearToolResults: true,
+        keepRecentToolResults: 5,
+        clearOlderThanMs: 3_600_000,
+      },
       speculativeStartRatio: computeSpeculativeStartRatio(
         effectiveContextLength,
         effectiveReserveTokens
       ),
       summarizeFn,
+      getLastExtractionMessageIndex,
       getStructuredState,
       ...overrides,
     };
@@ -991,52 +1044,16 @@ export function createAgentManager(options?: {
 
 export const agentManager = createAgentManager();
 
-export const computeAdaptiveThresholdRatio = (
-  contextLength: number
-): number => {
-  if (!(contextLength > 0)) {
-    return 0.5;
-  }
-
-  if (contextLength <= 16_000) {
-    return 0.45;
-  }
-  if (contextLength <= 32_000) {
-    return 0.5;
-  }
-  if (contextLength <= 64_000) {
-    return 0.55;
-  }
-  if (contextLength <= 128_000) {
-    return 0.6;
-  }
-  return 0.65;
-};
+export const computeAdaptiveThresholdRatio = (contextLength: number): number =>
+  computeAdaptiveThresholdRatioFromPolicy(contextLength);
 
 export const computeCompactionMaxTokens = (
   contextLength: number,
   reserveTokens: number
-): number => {
-  if (!(contextLength > 0)) {
-    return 8000;
-  }
-
-  const usableInputBudget = Math.max(
-    1,
-    contextLength - Math.max(0, reserveTokens)
-  );
-  return Math.max(1024, Math.floor(usableInputBudget * 0.8));
-};
+): number => computeCompactionMaxTokensFromPolicy(contextLength, reserveTokens);
 
 export const computeSpeculativeStartRatio = (
   contextLength: number,
   reserveTokens: number
-): number => {
-  if (!(contextLength > 0)) {
-    return 0.75;
-  }
-
-  const softBudget = computeCompactionMaxTokens(contextLength, reserveTokens);
-  const speculativeThreshold = Math.max(512, Math.floor(softBudget * 0.75));
-  return Math.max(0.15, Math.min(0.95, speculativeThreshold / softBudget));
-};
+): number =>
+  computeSpeculativeStartRatioFromPolicy(contextLength, reserveTokens);

@@ -1,10 +1,14 @@
 import type { OverflowRecoveryResult } from "./checkpoint-history";
+import type { CompactionCircuitBreaker } from "./compaction-circuit-breaker";
 import {
+  computeContextBudget,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
   shouldStartSpeculativeCompaction,
 } from "./compaction-policy";
 import type { CompactionResult, PreparedCompaction } from "./compaction-types";
+import { INEFFECTIVE_COMPACTION_REASON } from "./compaction-types";
+import { env } from "./env";
 import { estimateTokens } from "./token-utils";
 
 export interface SpeculativeCompactionJob {
@@ -71,6 +75,35 @@ export interface CompactionOrchestratorCallbacks extends CompactionCallbacks {
   onRejected?: () => void;
   onSpeculativeReady?: () => void;
   onStillExceeded?: () => void;
+}
+
+export interface CompactionOrchestratorOptions {
+  callbacks?: CompactionOrchestratorCallbacks;
+  circuitBreaker?: CompactionCircuitBreaker;
+  /**
+   * Maximum number of accepted compactions per user turn. Prevents infinite
+   * compaction loops where a verbose summary causes immediate recompaction.
+   * Defaults to 10. Counter resets on notifyNewUserTurn().
+   */
+  maxAcceptedCompactionsPerTurn?: number;
+}
+
+const DEFAULT_MAX_ACCEPTED_COMPACTIONS_PER_TURN = 10;
+
+export const COMPACTION_CAP_EXCEEDED_REASON = "compaction cap exceeded";
+
+function isCompactionOrchestratorOptions(
+  value: unknown
+): value is CompactionOrchestratorOptions {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return (
+    "callbacks" in value ||
+    "circuitBreaker" in value ||
+    "maxAcceptedCompactionsPerTurn" in value
+  );
 }
 
 export function discardAllJobsCore(params: {
@@ -292,6 +325,21 @@ const DEFAULT_FAILURE_RESULT: CompactionResult = {
   reason: "unknown compaction error",
 };
 
+const BENIGN_COMPACTION_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  "compaction disabled",
+  "compaction not applied",
+  "no messages",
+  "no messages to summarize",
+  "no summarizeFn",
+]);
+
+function isBenignCompactionFailure(result: CompactionResult): boolean {
+  if (!result.reason) {
+    return false;
+  }
+  return BENIGN_COMPACTION_FAILURE_REASONS.has(result.reason);
+}
+
 function isHistoryLike(value: unknown): value is CompactionHistoryLike {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -322,7 +370,11 @@ function toCompactionResult(
 
 export class CompactionOrchestrator {
   private readonly callbacks: CompactionOrchestratorCallbacks;
+  private readonly circuitBreaker: CompactionCircuitBreaker | undefined;
   private readonly history: CompactionHistoryLike | null;
+  private readonly maxAcceptedCompactionsPerTurn: number;
+  private acceptedCompactionsThisTurn = 0;
+  private ineffectiveAttemptsThisTurn = 0;
   private compactionInProgress = false;
   private jobCounter = 0;
   private readonly jobs: SpeculativeCompactionJob[] = [];
@@ -330,31 +382,79 @@ export class CompactionOrchestrator {
 
   constructor(
     history: CompactionHistoryLike,
-    callbacks?: CompactionOrchestratorCallbacks
+    callbacksOrOptions?:
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions
   );
-  constructor(callbacks?: CompactionOrchestratorCallbacks);
+  constructor(
+    callbacksOrOptions?:
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions
+  );
   constructor(
     historyOrCallbacks?:
       | CompactionHistoryLike
-      | CompactionOrchestratorCallbacks,
-    maybeCallbacks?: CompactionOrchestratorCallbacks
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions,
+    maybeCallbacks?:
+      | CompactionOrchestratorCallbacks
+      | CompactionOrchestratorOptions
   ) {
+    const resolveCallbacks = (
+      value?: CompactionOrchestratorCallbacks | CompactionOrchestratorOptions
+    ): CompactionOrchestratorCallbacks => {
+      if (!value) {
+        return {};
+      }
+
+      if (isCompactionOrchestratorOptions(value)) {
+        return value.callbacks ?? {};
+      }
+
+      return value;
+    };
+
+    const resolveCircuitBreaker = (
+      value?: CompactionOrchestratorCallbacks | CompactionOrchestratorOptions
+    ): CompactionCircuitBreaker | undefined => {
+      if (!(value && isCompactionOrchestratorOptions(value))) {
+        return undefined;
+      }
+
+      return value.circuitBreaker;
+    };
+
+    const resolveMaxAcceptedCompactionsPerTurn = (
+      value?: CompactionOrchestratorCallbacks | CompactionOrchestratorOptions
+    ): number => {
+      if (!(value && isCompactionOrchestratorOptions(value))) {
+        return DEFAULT_MAX_ACCEPTED_COMPACTIONS_PER_TURN;
+      }
+      const raw = value.maxAcceptedCompactionsPerTurn;
+      if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 1) {
+        return DEFAULT_MAX_ACCEPTED_COMPACTIONS_PER_TURN;
+      }
+      return Math.floor(raw);
+    };
+
     if (isHistoryLike(historyOrCallbacks)) {
       this.history = historyOrCallbacks;
-      this.callbacks = maybeCallbacks ?? {};
+      this.callbacks = resolveCallbacks(maybeCallbacks);
+      this.circuitBreaker = resolveCircuitBreaker(maybeCallbacks);
+      this.maxAcceptedCompactionsPerTurn =
+        resolveMaxAcceptedCompactionsPerTurn(maybeCallbacks);
       return;
     }
 
     this.history = null;
-    this.callbacks =
-      (historyOrCallbacks as CompactionOrchestratorCallbacks) ?? {};
+    this.callbacks = resolveCallbacks(historyOrCallbacks);
+    this.circuitBreaker = resolveCircuitBreaker(historyOrCallbacks);
+    this.maxAcceptedCompactionsPerTurn =
+      resolveMaxAcceptedCompactionsPerTurn(historyOrCallbacks);
   }
 
   private debugLog(message: string): void {
-    if (
-      process.env.COMPACTION_DEBUG === "1" ||
-      process.env.COMPACTION_DEBUG === "true"
-    ) {
+    if (env.COMPACTION_DEBUG) {
       console.error(`[compaction-debug] ${message}`);
     }
   }
@@ -376,6 +476,34 @@ export class CompactionOrchestrator {
 
   isRunning(): boolean {
     return this.compactionInProgress;
+  }
+
+  /**
+   * Reset the per-turn compaction counter. Call this at the start of each
+   * user turn. Once the cap is reached within a turn, additional compaction
+   * attempts are blocked until notifyNewUserTurn() is invoked.
+   */
+  notifyNewUserTurn(): void {
+    this.acceptedCompactionsThisTurn = 0;
+    this.ineffectiveAttemptsThisTurn = 0;
+  }
+
+  getAcceptedCompactionsThisTurn(): number {
+    return this.acceptedCompactionsThisTurn;
+  }
+
+  getIneffectiveAttemptsThisTurn(): number {
+    return this.ineffectiveAttemptsThisTurn;
+  }
+
+  getMaxAcceptedCompactionsPerTurn(): number {
+    return this.maxAcceptedCompactionsPerTurn;
+  }
+
+  isCompactionCapReached(): boolean {
+    const totalAttempts =
+      this.acceptedCompactionsThisTurn + this.ineffectiveAttemptsThisTurn;
+    return totalAttempts >= this.maxAcceptedCompactionsPerTurn;
   }
 
   discardAll(): void {
@@ -401,7 +529,23 @@ export class CompactionOrchestrator {
   }
 
   async checkAndCompact(): Promise<boolean> {
+    if (env.DISABLE_AUTO_COMPACT) {
+      return false;
+    }
+
     const history = this.requireHistory();
+
+    if (this.circuitBreaker?.isOpen()) {
+      this.debugLog("checkAndCompact skip: circuit breaker open");
+      return false;
+    }
+
+    if (this.isCompactionCapReached()) {
+      this.debugLog(
+        `checkAndCompact skip: per-turn cap reached (${this.acceptedCompactionsThisTurn}/${this.maxAcceptedCompactionsPerTurn})`
+      );
+      return false;
+    }
 
     if (this.compactionInProgress || !this.needsCompaction(history)) {
       this.debugLog(
@@ -483,6 +627,17 @@ export class CompactionOrchestrator {
   }
 
   shouldStartSpeculative(history?: CompactionHistoryLike): boolean {
+    if (env.DISABLE_AUTO_COMPACT) {
+      return false;
+    }
+
+    if (this.isCompactionCapReached()) {
+      this.debugLog(
+        `shouldStartSpeculative=false: per-turn cap reached (${this.acceptedCompactionsThisTurn}/${this.maxAcceptedCompactionsPerTurn})`
+      );
+      return false;
+    }
+
     const resolvedHistory = this.resolveHistory(history);
     if (!resolvedHistory || this.compactionInProgress) {
       this.debugLog(
@@ -624,6 +779,14 @@ export class CompactionOrchestrator {
         jobId: job.id,
         phase: "new-turn",
       });
+      if (meta.result.success) {
+        this.acceptedCompactionsThisTurn += 1;
+      } else if (meta.result.reason === INEFFECTIVE_COMPACTION_REASON) {
+        this.ineffectiveAttemptsThisTurn += 1;
+        this.debugLog(
+          `applyReady ineffective (${meta.result.rejectionReason}): attempt ${this.ineffectiveAttemptsThisTurn}/${this.maxAcceptedCompactionsPerTurn}`
+        );
+      }
       return { applied: meta.result.success, stale };
     }
 
@@ -784,12 +947,19 @@ export class CompactionOrchestrator {
   private resolvePolicyContextLimit(
     config: ReturnType<CompactionHistoryLike["getCompactionConfig"]>
   ): number {
-    const contextLimit = config.contextLimit ?? 0;
-    if (contextLimit > 0) {
-      return contextLimit;
-    }
+    const rawContextLimit =
+      (config.contextLimit ?? 0) > 0
+        ? (config.contextLimit ?? 0)
+        : Math.max(1, config.maxTokens ?? 0, (config.reserveTokens ?? 0) * 3);
 
-    return Math.max(1, config.maxTokens ?? 0, (config.reserveTokens ?? 0) * 3);
+    const budget = computeContextBudget({
+      contextLimit: rawContextLimit,
+      maxOutputTokens: config.maxTokens,
+      reserveTokens: config.reserveTokens,
+      thresholdRatio: config.thresholdRatio,
+    });
+
+    return Math.max(1, budget.effectiveContextWindow);
   }
 
   private needsCompaction(history: CompactionHistoryLike): boolean {
@@ -948,9 +1118,25 @@ export class CompactionOrchestrator {
 
     try {
       const result = toCompactionResult(await history.compact(options));
+      if (result.success) {
+        this.circuitBreaker?.recordSuccess();
+        this.acceptedCompactionsThisTurn += 1;
+      } else if (result.reason === INEFFECTIVE_COMPACTION_REASON) {
+        this.ineffectiveAttemptsThisTurn += 1;
+        this.debugLog(
+          `runCompaction ineffective (${result.rejectionReason}): attempt ${this.ineffectiveAttemptsThisTurn}/${this.maxAcceptedCompactionsPerTurn}`
+        );
+      } else if (!isBenignCompactionFailure(result)) {
+        this.circuitBreaker?.recordFailure(
+          result.reason ?? "compaction returned success: false"
+        );
+      }
       this.emitCompactionResult(result, { phase: "new-turn" });
       return result;
     } catch (error) {
+      this.circuitBreaker?.recordFailure(
+        error instanceof Error ? error.message : String(error)
+      );
       this.reportError("Compaction failed", error);
       return {
         ...DEFAULT_FAILURE_RESULT,
@@ -968,6 +1154,18 @@ export class CompactionOrchestrator {
         });
       }
     }
+  }
+
+  getState(): {
+    circuitBreakerOpen: boolean;
+    compactionInProgress: boolean;
+    jobs: number;
+  } {
+    return {
+      circuitBreakerOpen: this.circuitBreaker?.isOpen() ?? false,
+      compactionInProgress: this.compactionInProgress,
+      jobs: this.jobs.filter((job) => !job.discarded).length,
+    };
   }
 
   private emitCompactionResult(

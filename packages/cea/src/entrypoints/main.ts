@@ -3,10 +3,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CheckpointHistory,
+  type CheckpointMessage,
   type Command,
   type CommandContext,
-  CompactionOrchestrator,
+  CompactionCircuitBreaker,
+  type CompactionResult,
   estimateTokens,
+  PostCompactRestorer,
   parseCommand,
   type RunnableAgent,
   SessionManager,
@@ -40,7 +43,11 @@ import {
   type SharedArgs,
   sharedArgsDef,
 } from "../cli-defs";
-import { getCommands, registerCommand } from "../commands";
+import {
+  getCommands,
+  registerCommand,
+  registerSkillLoadListener,
+} from "../commands";
 import { createClearCommand } from "../commands/clear";
 import { createCompactCommand } from "../commands/compact";
 import {
@@ -211,11 +218,171 @@ if (!sessionManagerScope.__ceaSessionManager) {
 }
 const sessionManager = sessionManagerScope.__ceaSessionManager;
 const sessionStoreBaseDir = join(process.cwd(), ".plugsuits", "sessions");
+const resolveSessionMemoryStorePath = (sessionId: string): string => {
+  return join(sessionStoreBaseDir, sessionId, "session-memory.md");
+};
 const messageHistory = createSessionScopedCheckpointHistory(
   sessionStoreBaseDir,
   "session-bootstrap"
 );
-const compactionOrchestrator = new CompactionOrchestrator(messageHistory);
+const compactionCircuitBreaker = new CompactionCircuitBreaker();
+const postCompactRestorer = new PostCompactRestorer();
+const unregisterSkillLoadListener = registerSkillLoadListener((skill) => {
+  postCompactRestorer.trackItem({
+    content: skill.content,
+    label: skill.name,
+    priority: 8,
+    type: "skill",
+  });
+});
+const trackedReadToolResultIds = new Set<string>();
+
+const toRecord = (value: unknown): Record<string, unknown> | null => {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+};
+
+const readTextFromOutput = (output: unknown): string => {
+  if (typeof output === "string") {
+    return output;
+  }
+
+  const outputRecord = toRecord(output);
+  if (outputRecord) {
+    const text = outputRecord.text;
+    if (typeof text === "string") {
+      return text;
+    }
+  }
+
+  try {
+    return JSON.stringify(output);
+  } catch {
+    return String(output);
+  }
+};
+
+const collectReadCallPathMap = (
+  messages: CheckpointMessage[]
+): Map<string, string> => {
+  const readCallPaths = new Map<string, string>();
+
+  for (const checkpointMessage of messages) {
+    if (checkpointMessage.message.role !== "assistant") {
+      continue;
+    }
+
+    const content = checkpointMessage.message.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const part of content) {
+      const record = toRecord(part);
+      if (
+        !record ||
+        record.type !== "tool-call" ||
+        record.toolName !== "read_file" ||
+        typeof record.toolCallId !== "string"
+      ) {
+        continue;
+      }
+
+      const input = toRecord(record.input);
+      const path = input?.path;
+      if (typeof path === "string" && path.trim().length > 0) {
+        readCallPaths.set(record.toolCallId, path);
+      }
+    }
+  }
+
+  return readCallPaths;
+};
+
+const trackReadResultPart = (
+  part: unknown,
+  readCallPaths: Map<string, string>
+): void => {
+  const record = toRecord(part);
+  if (!record || record.type !== "tool-result") {
+    return;
+  }
+
+  const toolCallId =
+    typeof record.toolCallId === "string" ? record.toolCallId : null;
+  if (!toolCallId || trackedReadToolResultIds.has(toolCallId)) {
+    return;
+  }
+
+  const path = readCallPaths.get(toolCallId);
+  if (!path) {
+    return;
+  }
+
+  const text = readTextFromOutput(record.output).trim();
+  if (
+    text.length > 0 &&
+    !text.includes("(duplicate request suppressed)") &&
+    !text.includes("[truncated:") &&
+    !text.includes("tokens freed for context budget")
+  ) {
+    postCompactRestorer.trackItem({
+      content: text,
+      label: path,
+      priority: 100,
+      type: "file",
+    });
+  }
+
+  trackedReadToolResultIds.add(toolCallId);
+};
+
+const trackReadFileRestorationItems = (messages: CheckpointMessage[]): void => {
+  const readCallPaths = collectReadCallPathMap(messages);
+
+  for (const checkpointMessage of messages) {
+    if (checkpointMessage.message.role !== "tool") {
+      continue;
+    }
+
+    const content = checkpointMessage.message.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const part of content) {
+      trackReadResultPart(part, readCallPaths);
+    }
+  }
+};
+
+const handleCompactionComplete = (result: CompactionResult): void => {
+  if (!result.success) {
+    return;
+  }
+
+  const usage = messageHistory.getContextUsage();
+  if (usage && usage.limit > 0) {
+    const budgetRatio = usage.source === "estimated" ? 0.3 : 0.5;
+    const budgetForRestoration = Math.floor(usage.remaining * budgetRatio);
+    postCompactRestorer.setMaxTotalTokens(
+      Math.max(0, Math.min(budgetForRestoration, 50_000))
+    );
+  }
+
+  postCompactRestorer.filterAgainstKeptMessages(
+    messageHistory.getActiveMessages()
+  );
+
+  const restorationMessage = postCompactRestorer.buildRestorationMessage();
+  if (!restorationMessage) {
+    return;
+  }
+
+  messageHistory.addUserMessage(restorationMessage);
+  postCompactRestorer.clear();
+};
 
 let requestedProcessExitCode: number | null = null;
 let signalShutdownRequested = false;
@@ -236,7 +403,7 @@ registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
 registerCommand(createTranslateCommand());
-registerCommand(createCompactCommand(() => compactionOrchestrator));
+registerCommand(createCompactCommand({ messageHistory }));
 
 const createTranslationPreprocessor = () => {
   return async (
@@ -327,12 +494,26 @@ const buildAgentStreamWithTodoContinuation = (): RunnableAgent => {
         } as StreamResponse;
       })();
 
+      const finishReason = continuationDecision.then(
+        (decision) => decision.finishReason
+      );
+
+      // Rejection from `stream.finishReason` (e.g. NoOutputGeneratedError)
+      // fans out into three independent promise chains — continuationDecision,
+      // response, finishReason — but callers may only await a subset of them
+      // (Promise.all short-circuits on the first rejection). Without these
+      // guards the unawaited branches become floating unhandled rejections
+      // that kill the process. The same rejection is still surfaced to the
+      // caller through the `response`/`finishReason` promises they await.
+      const swallow = () => undefined;
+      continuationDecision.catch(swallow);
+      response.catch(swallow);
+      finishReason.catch(swallow);
+
       return {
         ...stream,
         response,
-        finishReason: continuationDecision.then(
-          (decision) => decision.finishReason
-        ),
+        finishReason,
       };
     },
   };
@@ -346,6 +527,14 @@ const updateCompactionForCurrentModel = async (): Promise<void> => {
   );
   const instructions = await agentManager.getInstructions();
   messageHistory.setSystemPromptTokens(estimateTokens(instructions));
+};
+
+const applyCurrentSessionToRuntime = (): void => {
+  const sessionId = sessionManager.getId();
+  messageHistory.setSession(sessionId);
+  agentManager.setSessionMemoryStorePath(
+    resolveSessionMemoryStorePath(sessionId)
+  );
 };
 
 const wrapCommand = (
@@ -403,7 +592,16 @@ const requestSignalShutdown = (code: number): void => {
   exitWithCleanup(code);
 };
 
+const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
+  if (!args.atif) {
+    return undefined;
+  }
+
+  return env.ATIF_OUTPUT_PATH || "trajectory.json";
+};
+
 process.once("exit", () => {
+  unregisterSkillLoadListener();
   cleanup();
 });
 
@@ -452,13 +650,19 @@ const mainCommand = defineCommand({
       type: "string",
       description: "Maximum number of iterations (headless mode only)",
     },
+    atif: {
+      type: "boolean",
+      description:
+        "Generate trajectory.json in ATIF-v1.6 format (Harbor compatible)",
+      default: false,
+    },
   },
   async run({ args }) {
     validateProviderConfig();
     await initializeTools();
     setSpinnerOutputEnabled(false);
     sessionManager.initialize();
-    messageHistory.setSession(sessionManager.getId());
+    applyCurrentSessionToRuntime();
 
     const config = resolveSharedConfig(args as SharedArgs);
     if (config.provider) {
@@ -489,7 +693,6 @@ const mainCommand = defineCommand({
         emitEvent({
           timestamp: new Date().toISOString(),
           type: "error",
-          sessionId: sessionManager.getId(),
           error: `[translation] Failed to translate input: ${preparedPrompt.error}. Using original text.`,
         });
       }
@@ -503,6 +706,7 @@ const mainCommand = defineCommand({
             return n > 0 ? n : undefined;
           })()
         : undefined;
+      const atifOutputPath = getAtifOutputPath(args as { atif?: boolean });
 
       try {
         await runHeadless({
@@ -512,6 +716,7 @@ const mainCommand = defineCommand({
                 maxOutputTokens: opts.maxOutputTokens,
               }),
           },
+          circuitBreaker: compactionCircuitBreaker,
           measureUsage: (messages) => agentManager.measureUsage(messages),
           sessionId: sessionManager.getId(),
           emitEvent,
@@ -521,8 +726,18 @@ const mainCommand = defineCommand({
             originalContent: preparedPrompt.originalText,
           },
           maxIterations,
+          atifOutputPath,
           messageHistory,
           modelId: agentManager.getModelId(),
+          compactionCallbacks: {
+            onCompactionComplete: handleCompactionComplete,
+          },
+          onTurnComplete: (messages, usage) => {
+            trackReadFileRestorationItems(messages);
+            agentManager._memoryExtractor
+              ?.onTurnComplete(messages, usage)
+              .catch(() => undefined);
+          },
           onTodoReminder: async () => {
             const incompleteTodos = await getIncompleteTodos();
             if (incompleteTodos.length === 0) {
@@ -538,7 +753,6 @@ const mainCommand = defineCommand({
         emitEvent({
           timestamp: new Date().toISOString(),
           type: "error",
-          sessionId: sessionManager.getId(),
           error: error instanceof Error ? error.message : String(error),
         });
         exitWithCleanup(1);
@@ -1053,10 +1267,14 @@ const mainCommand = defineCommand({
     try {
       await createAgentTUI({
         agent: buildAgentStreamWithTodoContinuation(),
+        circuitBreaker: compactionCircuitBreaker,
         measureUsage: (messages) => agentManager.measureUsage(messages),
         messageHistory,
         skills,
         commands: createCliCommands(),
+        compactionCallbacks: {
+          onCompactionComplete: handleCompactionComplete,
+        },
         footer: {
           get text() {
             const contextUsage = messageHistory.getContextUsage();
@@ -1081,10 +1299,19 @@ const mainCommand = defineCommand({
         showRawToolIo: env.DEBUG_SHOW_RAW_TOOL_IO,
         preprocessCommand: createCommandPreprocessor(),
         preprocessUserInput: createTranslationPreprocessor(),
+        onTurnComplete: (messages, usage) => {
+          trackReadFileRestorationItems(messages);
+          agentManager._memoryExtractor
+            ?.onTurnComplete(messages, usage)
+            .catch(() => undefined);
+        },
         onCommandAction: async (action) => {
           if (action.type === "new-session") {
             sessionManager.initialize();
-            messageHistory.setSession(sessionManager.getId());
+            applyCurrentSessionToRuntime();
+            compactionCircuitBreaker.resetForNewSession();
+            postCompactRestorer.clear();
+            trackedReadToolResultIds.clear();
             await updateCompactionForCurrentModel();
             resetMissingLinesFailures();
           }

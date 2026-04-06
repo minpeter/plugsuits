@@ -630,4 +630,130 @@ describe("compaction-prompts", () => {
       expect(result.length).toBeGreaterThan(0);
     });
   });
+
+  describe("taskAwareCompaction option", () => {
+    function createSequentialMockModel(responses: string[]) {
+      let callIndex = 0;
+      const calls: unknown[][] = [];
+      return {
+        model: new MockLanguageModelV3({
+          doGenerate: (options: unknown) => {
+            calls.push([options]);
+            const text = responses[Math.min(callIndex, responses.length - 1)];
+            callIndex += 1;
+            return Promise.resolve({
+              content: [{ type: "text" as const, text }],
+              finishReason: "stop",
+              usage: { inputTokens: 50, outputTokens: 25 },
+            } as any);
+          },
+        } as any),
+        calls,
+        getCallCount: () => callIndex,
+      };
+    }
+
+    it("issues two model calls when taskAwareCompaction is true", async () => {
+      const { model, getCallCount } = createSequentialMockModel([
+        "<task-intent>\nORIGINAL_REQUEST: test\nTASK_TYPE: investigation\nMUST_PRESERVE: x\nMUST_NOT_LOSE: y\n</task-intent>",
+        "<summary>focused summary</summary>",
+      ]);
+      const summarizer = createModelSummarizer(model, {
+        taskAwareCompaction: true,
+      });
+
+      const result = await summarizer([
+        {
+          role: "user",
+          content: "investigate the codebase",
+        } as ModelMessage,
+      ]);
+
+      expect(getCallCount()).toBe(2);
+      expect(result).toContain("focused summary");
+    });
+
+    it("issues only one model call when taskAwareCompaction is false", async () => {
+      const { model, getCallCount } = createSequentialMockModel([
+        "<summary>one-shot summary</summary>",
+      ]);
+      const summarizer = createModelSummarizer(model, {
+        taskAwareCompaction: false,
+      });
+
+      await summarizer([
+        { role: "user", content: "do something" } as ModelMessage,
+      ]);
+
+      expect(getCallCount()).toBe(1);
+    });
+
+    it("defaults to single-call (backward compat)", async () => {
+      const { model, getCallCount } = createSequentialMockModel([
+        "<summary>default summary</summary>",
+      ]);
+      const summarizer = createModelSummarizer(model);
+
+      await summarizer([
+        { role: "user", content: "do something" } as ModelMessage,
+      ]);
+
+      expect(getCallCount()).toBe(1);
+    });
+
+    it("injects extracted task-intent into the summarization prompt", async () => {
+      const { model, calls } = createSequentialMockModel([
+        "<task-intent>\nORIGINAL_REQUEST: build a parser\nTASK_TYPE: implementation\nMUST_PRESERVE: file paths\nMUST_NOT_LOSE: parser.ts\n</task-intent>",
+        "<summary>parser work in progress</summary>",
+      ]);
+      const summarizer = createModelSummarizer(model, {
+        taskAwareCompaction: true,
+      });
+
+      await summarizer([
+        { role: "user", content: "build a parser" } as ModelMessage,
+      ]);
+
+      const summaryCall = calls[1]?.[0] as { prompt: unknown[] };
+      const summaryPrompt = extractUserContent(summaryCall.prompt);
+      expect(summaryPrompt).toContain("<task-intent>");
+      expect(summaryPrompt).toContain("build a parser");
+      expect(summaryPrompt).toContain("parser.ts");
+    });
+
+    it("falls back gracefully when intent extraction returns no tag", async () => {
+      const { model, getCallCount } = createSequentialMockModel([
+        "no task intent tag here",
+        "<summary>fallback summary</summary>",
+      ]);
+      const summarizer = createModelSummarizer(model, {
+        taskAwareCompaction: true,
+      });
+
+      const result = await summarizer([
+        { role: "user", content: "task" } as ModelMessage,
+      ]);
+
+      expect(getCallCount()).toBe(2);
+      expect(result).toContain("fallback summary");
+    });
+
+    it("skips intent extraction when there are no user messages", async () => {
+      const { model, getCallCount } = createSequentialMockModel([
+        "<summary>no-user summary</summary>",
+      ]);
+      const summarizer = createModelSummarizer(model, {
+        taskAwareCompaction: true,
+      });
+
+      await summarizer([
+        {
+          role: "assistant",
+          content: "assistant-only content",
+        } as ModelMessage,
+      ]);
+
+      expect(getCallCount()).toBe(1);
+    });
+  });
 });

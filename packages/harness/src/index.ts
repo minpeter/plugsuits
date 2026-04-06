@@ -1,5 +1,7 @@
 export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
+export type { BackgroundMemoryExtractorConfig } from "./background-memory-extractor";
+export { BackgroundMemoryExtractor } from "./background-memory-extractor";
 export type {
   CheckpointHistoryOptions,
   OverflowRecoveryResult,
@@ -25,17 +27,25 @@ export {
   resolveRegisteredCommandName,
 } from "./commands";
 export type {
+  CircuitBreakerConfig,
+  CompactionCircuitBreakerOptions,
+  CompactionCircuitBreakerState,
+} from "./compaction-circuit-breaker";
+export { CompactionCircuitBreaker } from "./compaction-circuit-breaker";
+export type {
   BlockingCompactionEvent,
   BlockingCompactionReason,
   BlockingCompactionStage,
   CompactionAppliedDetail,
   CompactionOrchestratorCallbacks,
+  CompactionOrchestratorOptions,
   CompactionPhase,
   SpeculativeCompactionJob,
 } from "./compaction-orchestrator";
 export {
   applyReadyCompactionCore,
   blockAtHardLimitCore,
+  COMPACTION_CAP_EXCEEDED_REASON,
   CompactionOrchestrator,
   discardAllJobsCore,
 } from "./compaction-orchestrator";
@@ -44,8 +54,17 @@ export {
   calculateCompactionSplitIndex,
   calculateDefaultCompactionSplitIndex,
 } from "./compaction-planner";
-export type { CompactionPolicyInput } from "./compaction-policy";
+export type {
+  CompactionPolicyInput,
+  ContextBudget,
+  ContextPressureLevel,
+} from "./compaction-policy";
 export {
+  computeAdaptiveThresholdRatio,
+  computeCompactionMaxTokens,
+  computeContextBudget,
+  computeSpeculativeStartRatio,
+  getContextPressureLevel,
   getRecommendedMaxOutputTokens,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
@@ -62,15 +81,38 @@ export {
   DEFAULT_COMPACTION_USER_PROMPT,
 } from "./compaction-prompts";
 export type * from "./compaction-types";
+export {
+  DEFAULT_MIN_SAVINGS_RATIO,
+  INEFFECTIVE_COMPACTION_REASON,
+} from "./compaction-types";
+export type { ContextTokenStats } from "./context-analysis";
+export { analyzeContextTokens } from "./context-analysis";
+export type {
+  CollapsedGroup,
+  CollapseOptions,
+  CollapseResult,
+} from "./context-collapse";
+export { collapseConsecutiveOps } from "./context-collapse";
+export type { ContextSuggestion } from "./context-suggestions";
+export { generateContextSuggestions } from "./context-suggestions";
 export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
+export { env as harnessEnv } from "./env";
 export { runAgentLoop } from "./loop";
+export { CHAT_MEMORY_PRESET, CODE_MEMORY_PRESET } from "./memory-presets";
+export type { MemoryStore } from "./memory-store";
+export { FileMemoryStore, InMemoryStore } from "./memory-store";
 export type { MessageTextOptions } from "./message-text";
 export {
   getLastMessageText,
   getLastUserText,
   getMessageText,
 } from "./message-text";
+export type {
+  MicroCompactOptions,
+  MicroCompactResult,
+} from "./micro-compact";
+export { microCompactMessages } from "./micro-compact";
 export type { MiddlewareConfig } from "./middleware";
 export { buildMiddlewareChain } from "./middleware";
 export {
@@ -79,7 +121,14 @@ export {
 } from "./overflow-detection";
 export type { AgentPaths, AgentPathsOptions } from "./paths";
 export { createAgentPaths } from "./paths";
+export type {
+  PostCompactRestorationConfig,
+  RestorationItem,
+} from "./post-compact-restoration";
+export { PostCompactRestorer } from "./post-compact-restoration";
 export { SessionManager } from "./session";
+export type { MemoryFact, SessionMemoryConfig } from "./session-memory";
+export { SessionMemoryTracker } from "./session-memory";
 export type { SessionData } from "./session-store";
 export { SessionStore } from "./session-store";
 export {
@@ -96,6 +145,7 @@ export {
   normalizeFinishReason,
   shouldContinueManualToolLoop,
 } from "./tool-loop-control";
+export { adjustSplitIndexForToolPairs } from "./tool-pair-validation";
 export type {
   ProgressivePruneResult,
   PruneResult,

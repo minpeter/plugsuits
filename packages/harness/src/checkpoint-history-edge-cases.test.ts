@@ -872,7 +872,7 @@ describe("CheckpointHistory edge cases", () => {
     const history = new CheckpointHistory({
       compaction: {
         enabled: true,
-        contextLimit: 80,
+        contextLimit: 200,
         keepRecentTokens: 10,
         maxTokens: 10,
         reserveTokens: 0,
@@ -880,7 +880,7 @@ describe("CheckpointHistory edge cases", () => {
       },
     });
 
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 20; index += 1) {
       history.addUserMessage(`long message ${index} that should compact soon`);
     }
 
@@ -895,7 +895,7 @@ describe("CheckpointHistory edge cases", () => {
     const history = new CheckpointHistory({
       compaction: {
         enabled: true,
-        contextLimit: 80,
+        contextLimit: 200,
         keepRecentTokens: 10,
         maxTokens: 10,
         reserveTokens: 0,
@@ -903,7 +903,7 @@ describe("CheckpointHistory edge cases", () => {
       },
     });
 
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 20; index += 1) {
       history.addUserMessage(`long message ${index} that should compact soon`);
     }
 

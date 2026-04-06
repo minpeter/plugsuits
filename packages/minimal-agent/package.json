@@ -6,14 +6,15 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
+    "benchmark": "node --conditions=@ai-sdk-tool/source --import tsx benchmark.ts",
     "build": "tsc && node ../../scripts/fix-esm-imports.mjs dist",
     "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
-    "@ai-sdk-tool/tui": "workspace:*",
     "@ai-sdk-tool/headless": "workspace:*",
+    "@ai-sdk-tool/tui": "workspace:*",
     "@friendliai/ai-provider": "^1.1.7",
     "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",
@@ -21,6 +22,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "^3.0.58",
     "@types/node": "^25.4.0",
     "typescript": "^5.9.3"
   }

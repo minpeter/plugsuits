@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import type { MicroCompactOptions } from "./micro-compact";
 
 // Forward declaration types for messages that reference Message
 // (Message is defined in message-history.ts to avoid circular imports)
@@ -35,10 +36,50 @@ export interface SessionMetadata {
 // --- Configuration ---
 
 /**
+ * Session-memory compaction keep-window options.
+ * 세션 메모리 요약을 사용할 때 최근 원문 메시지를 함께 보존하기 위한 설정입니다.
+ */
+export interface SessionMemoryCompactionConfig {
+  /**
+   * Maximum token budget for the unsummarized keep window.
+   * 원문 보존 구간에 허용되는 최대 토큰 예산입니다.
+   * @default contextLimit * 0.4
+   * @minimum 0
+   */
+  maxKeepTokens?: number;
+
+  /**
+   * Minimum number of textual messages to keep unsummarized.
+   * 요약하지 않고 원문으로 유지할 최소 텍스트 메시지 수입니다.
+   * @default 3
+   * @minimum 0
+   */
+  minKeepMessages?: number;
+  /**
+   * Minimum number of tokens to keep unsummarized.
+   * 요약하지 않고 원문으로 유지할 최소 토큰 수입니다.
+   * @default 2000
+   * @minimum 0
+   */
+  minKeepTokens?: number;
+}
+
+/**
  * Configuration options for message compaction.
  * 압축(compaction) 설정 옵션.
  */
 export interface CompactionConfig {
+  /**
+   * Direction for choosing which side of conversation to preserve.
+   * 대화에서 어느 쪽을 보존할지 결정하는 방향 설정입니다.
+   * "keep-recent"은 기존 동작(뒤쪽 최신 메시지 보존),
+   * "keep-prefix"는 앞쪽 오래된 메시지 보존 + 뒤쪽 최근 메시지 요약입니다.
+   * @default "keep-recent"
+   */
+  compactionDirection?: "keep-recent" | "keep-prefix";
+
+  contextCollapse?: boolean;
+
   /**
    * Maximum number of tokens allowed in the model's context window.
    * 모델의 컨텍스트 창에 허용되는 최대 토큰 수입니다.
@@ -55,6 +96,15 @@ export interface CompactionConfig {
    * @default false
    */
   enabled?: boolean;
+
+  /**
+   * Optional callback that returns the absolute message index covered by
+   * session-memory extraction.
+   *
+   * Messages strictly before this index are considered covered by memory notes,
+   * while newer messages can be kept verbatim during session-memory compaction.
+   */
+  getLastExtractionMessageIndex?: () => number | undefined;
   /**
    * Optional callback that returns structured state to inject into the compaction summary.
    * Crush pattern: inject TODOs, file ops, and other runtime state before summarization.
@@ -84,6 +134,8 @@ export interface CompactionConfig {
    */
   maxTokens?: number;
 
+  microCompact?: MicroCompactOptions | boolean;
+
   /**
    * Tokens reserved for model output generation.
    * 모델 응답 생성을 위해 예약된 토큰 수입니다.
@@ -94,6 +146,11 @@ export interface CompactionConfig {
    * @minimum 0
    */
   reserveTokens?: number;
+
+  /**
+   * Keep-window policy used when compaction summary is produced from session memory.
+   */
+  sessionMemoryCompaction?: SessionMemoryCompactionConfig;
 
   /**
    * Ratio at which to start speculative/safe compaction early.
@@ -180,14 +237,59 @@ export type ContinuationVariant = "manual" | "auto-with-replay" | "tool-loop";
 
 // --- Compaction Results ---
 
+/**
+ * Acceptance evaluation for a completed compaction attempt.
+ * 완료된 compaction 시도에 대한 수락 평가 결과입니다.
+ *
+ * Currently only `fitsBudget` is enforced as a hard gate for acceptance.
+ * `belowTriggerThreshold` and `meetsMinSavings` are tracked for
+ * observability but do not cause rejection — the per-turn cap in the
+ * orchestrator prevents degenerate retry loops instead.
+ */
+export interface CompactionEffectiveness {
+  belowTriggerThreshold: boolean;
+  fitsBudget: boolean;
+  meetsMinSavings: boolean;
+  savedTokens: number;
+  savingsRatio: number;
+  triggerThresholdTokens: number;
+}
+
+/**
+ * Reason a compaction attempt was rejected by the acceptance gate.
+ * Note: Currently only "exceeds-budget" is actively produced by the
+ * acceptance logic. The other variants are retained for observability
+ * and potential future use.
+ */
+export type CompactionRejectionReason =
+  | "above-trigger-threshold"
+  | "exceeds-budget"
+  | "insufficient-savings";
+
 export interface CompactionResult {
+  compactionMethod?: "llm" | "session-memory";
   continuationVariant?: ContinuationVariant;
+  effectiveness?: CompactionEffectiveness;
   reason?: string; // why compaction failed, if success=false
+  rejectionReason?: CompactionRejectionReason;
   success: boolean;
   summaryMessageId?: string;
   tokensAfter: number;
   tokensBefore: number;
 }
+
+/**
+ * Minimum ratio of tokens a compaction must save to be accepted.
+ * Compactions below this threshold are treated as ineffective and rolled back.
+ * compaction이 수락되기 위한 최소 토큰 절감 비율입니다.
+ */
+export const DEFAULT_MIN_SAVINGS_RATIO = 0.1;
+
+/**
+ * Benign compaction rejection reason returned to the orchestrator when the
+ * summary did not reduce context enough to make forward progress.
+ */
+export const INEFFECTIVE_COMPACTION_REASON = "ineffective compaction";
 
 export interface PreparedCompactionV2 {
   baseMessageIds: string[];

@@ -1,5 +1,6 @@
 import { generateText, type ModelMessage } from "ai";
 import type { CheckpointMessage, StructuredState } from "./compaction-types";
+import { env } from "./env";
 import { estimateTokens, extractMessageText } from "./token-utils";
 
 type GenerateTextModel = Parameters<typeof generateText>[0]["model"];
@@ -43,6 +44,22 @@ IMPORTANT: Do NOT use any tools. You MUST respond with ONLY the <summary>...</su
 const COMPACT_COMPACTION_PROMPT =
   "Summarize this conversation concisely. Preserve: key topics, decisions, user requests, and current state. Output only the summary text, no tags or formatting.";
 
+const TASK_INTENT_EXTRACTION_PROMPT = `[INTERNAL INSTRUCTION — NOT CONVERSATION HISTORY]
+Analyze the user messages in this conversation and produce a single focused task-intent block. This block will guide a downstream summarizer to prioritize the right information.
+
+Your output MUST have exactly this format:
+
+<task-intent>
+ORIGINAL_REQUEST: <1-2 sentence verbatim-style restatement of the user's primary objective>
+TASK_TYPE: <one of: investigation, refactoring, debugging, implementation, explanation, other>
+MUST_PRESERVE: <comma-separated list of specific items the summary MUST preserve to continue this task without restarting>
+MUST_NOT_LOSE: <specific entities/details that would force redundant tool calls if lost (e.g., file paths already explored, patterns already searched, errors already diagnosed)>
+</task-intent>
+
+Be concrete and short. Focus on items whose loss would cause the agent to repeat prior work.
+
+IMPORTANT: Do NOT use any tools. Respond with ONLY the <task-intent>...</task-intent> block.`;
+
 export interface ModelSummarizerOptions {
   contextLimit?: number;
   getStructuredState?: () => string | undefined;
@@ -51,6 +68,13 @@ export interface ModelSummarizerOptions {
   maxOutputTokens?: number;
 
   prompt?: string;
+
+  /**
+   * When true, a 2-step compaction runs: first extract the user's task intent,
+   * then produce a summary biased toward preserving what that task needs.
+   * Defaults to false for backward-compat. Set to true to enable.
+   */
+  taskAwareCompaction?: boolean;
 }
 
 export interface BuildSummaryInputOptions {
@@ -59,11 +83,18 @@ export interface BuildSummaryInputOptions {
 }
 
 const SUMMARY_TAG_REGEX = /<summary>([\s\S]*?)<\/summary>/;
+const TASK_INTENT_TAG_REGEX = /<task-intent>([\s\S]*?)<\/task-intent>/;
 const PREVIOUS_SUMMARY_CLOSE_TAG_REGEX = /<\/previous-summary>/gi;
+const TASK_INTENT_CLOSE_TAG_REGEX = /<\/task-intent>/gi;
 
 function extractSummaryFromResponse(text: string): string {
   const match = text.match(SUMMARY_TAG_REGEX);
   return match ? match[1].trim() : text.trim();
+}
+
+function extractTaskIntentFromResponse(text: string): string | null {
+  const match = text.match(TASK_INTENT_TAG_REGEX);
+  return match ? match[1].trim() : null;
 }
 
 function isCheckpointMessage(
@@ -145,9 +176,18 @@ function buildCompactionPrompt(
 function buildUserTurnContent(
   previousSummary: string | undefined,
   structuredState: string | undefined,
+  taskIntent: string | undefined,
   compactionPrompt: string
 ): string {
   const parts: string[] = [];
+
+  if (taskIntent) {
+    const escapedIntent = taskIntent.replace(
+      TASK_INTENT_CLOSE_TAG_REGEX,
+      "[/task-intent]"
+    );
+    parts.push(`<task-intent>\n${escapedIntent}\n</task-intent>`);
+  }
 
   if (structuredState) {
     parts.push(`<structured-state>\n${structuredState}\n</structured-state>`);
@@ -213,12 +253,40 @@ function resolveSummarizerInputs(
   };
 }
 
+async function extractTaskIntent(
+  model: GenerateTextModel,
+  userOnlyMessages: ModelMessage[],
+  maxOutputTokens: number
+): Promise<string | null> {
+  if (userOnlyMessages.length === 0) {
+    return null;
+  }
+
+  try {
+    const result = await generateText({
+      model,
+      messages: [
+        ...userOnlyMessages,
+        { role: "user" as const, content: TASK_INTENT_EXTRACTION_PROMPT },
+      ],
+      maxOutputTokens: Math.min(maxOutputTokens, 512),
+    });
+    return extractTaskIntentFromResponse(result.text);
+  } catch {
+    return null;
+  }
+}
+
+function filterUserMessages(messages: ModelMessage[]): ModelMessage[] {
+  return messages.filter((m) => m.role === "user").slice(-5);
+}
+
 function logSummarizerUsage(
   usage: Awaited<ReturnType<typeof generateText>>["usage"],
   sentMessages: number,
   totalMessages: number
 ): void {
-  if (!(usage && process.env.DEBUG_TOKENS)) {
+  if (!(usage && env.DEBUG_TOKENS)) {
     return;
   }
 
@@ -285,6 +353,7 @@ export function createModelSummarizer(
   const contextLimit = options?.contextLimit ?? 0;
   const configuredMaxOutput =
     options?.maxOutputTokens ?? computeSummarizerMaxOutput(contextLimit);
+  const taskAwareCompaction = options?.taskAwareCompaction ?? false;
 
   return async (
     messages: SummarizerInput,
@@ -299,9 +368,19 @@ export function createModelSummarizer(
     try {
       const compactionPrompt = buildCompactionPrompt(contextLimit, fullPrompt);
       const structuredState = getStructuredState?.();
+
+      const taskIntent = taskAwareCompaction
+        ? ((await extractTaskIntent(
+            model,
+            filterUserMessages(normalizedMessages),
+            configuredMaxOutput
+          )) ?? undefined)
+        : undefined;
+
       const userTurnContent = buildUserTurnContent(
         previousSummary,
         structuredState,
+        taskIntent,
         compactionPrompt
       );
       const systemPrompt = await resolveSystemPrompt(instructionsSource);

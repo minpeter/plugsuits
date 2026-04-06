@@ -54,12 +54,23 @@ export function createAgent(config: AgentConfig): Agent {
         experimental_repairToolCall: config.experimental_repairToolCall,
       });
 
+      const finishReason = result.finishReason;
+      const response = result.response;
+      const usage = result.usage;
+      const totalUsage = result.totalUsage;
+
+      const swallow = () => undefined;
+      finishReason.then(undefined, swallow);
+      response.then(undefined, swallow);
+      usage.then(undefined, swallow);
+      totalUsage.then(undefined, swallow);
+
       return {
-        finishReason: result.finishReason,
+        finishReason,
         fullStream: result.fullStream,
-        response: result.response,
-        usage: result.usage,
-        totalUsage: result.totalUsage,
+        response,
+        usage,
+        totalUsage,
       };
     },
   };

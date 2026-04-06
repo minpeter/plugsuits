@@ -77,6 +77,7 @@ plugsuits/
 - `tsconfig.json` enforces `strict` in each package; do not treat `dist/` as source-of-truth.
 - Legacy code should always be fully deprecated; aggressive updates without backward-compatibility guarantees are acceptable.
 - Package build order: `harness` then `tui` and `headless` (both depend on harness), then `cea` (depends on all three).
+- **Environment variables MUST use `@t3-oss/env-core`** (`createEnv`) — never read `process.env` directly. Each package defines its own `env.ts` (see `packages/harness/src/env.ts`, `packages/cea/src/env.ts`). Add new env vars to the appropriate `createEnv({ server: { ... } })` schema with Zod validation. Raw `process.env.X` access is an anti-pattern.
 
 ## CHANGESET VERSIONING RULES
 
@@ -103,6 +104,7 @@ When creating changeset files (`.changeset/*.md`), follow these version bump rul
 - Stopping at planning/todo updates without executing the concrete actions.
 - For benchmark work: changing event types without updating trajectory conversion rules in `packages/cea/benchmark/harbor_agent.py`.
 - Importing from `@ai-sdk-tool/cea` inside `harness`, `tui`, or `headless` — dependency direction is one-way.
+- Reading `process.env.X` directly instead of using `@t3-oss/env-core` `createEnv` — all env vars must be validated via Zod schema in the package's `env.ts`.
 
 ## UNIQUE STYLES
 

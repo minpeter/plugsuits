@@ -87,7 +87,7 @@ function createDeferred<T>() {
 
 describe("runHeadless", () => {
   it("adds and emits the initial user message via headless bootstrap", async () => {
-    const events: Array<{ content?: string; type: string }> = [];
+    const events: TrajectoryEvent[] = [];
     const history = new CheckpointHistory();
 
     await runHeadless({
@@ -96,10 +96,7 @@ describe("runHeadless", () => {
           createMockStream([{ role: "assistant", content: "hello" }]),
       },
       emitEvent: (event) => {
-        events.push({
-          type: event.type,
-          content: "content" in event ? event.content : undefined,
-        });
+        events.push(event);
       },
       initialUserMessage: {
         content: "hello",
@@ -111,7 +108,20 @@ describe("runHeadless", () => {
       sessionId: "session-1",
     });
 
-    expect(events[0]).toEqual({ type: "user", content: "안녕" });
+    expect(events[0]).toMatchObject({
+      type: "metadata",
+      session_id: "session-1",
+      agent: {
+        name: "plugsuits",
+        version: "1.0.0",
+        model_name: "mock-model",
+      },
+    });
+    expect(events[1]).toMatchObject({
+      type: "step",
+      source: "user",
+      message: "안녕",
+    });
     expect(history.getAll()[0]?.message).toEqual({
       role: "user",
       content: "hello",
@@ -120,7 +130,7 @@ describe("runHeadless", () => {
   });
 
   it("does not emit a synthetic user event when no initial user message is given", async () => {
-    const events: Array<{ content?: string; type: string }> = [];
+    const events: TrajectoryEvent[] = [];
 
     await runHeadless({
       agent: {
@@ -128,17 +138,19 @@ describe("runHeadless", () => {
           createMockStream([{ role: "assistant", content: "hello" }]),
       },
       emitEvent: (event) => {
-        events.push({
-          type: event.type,
-          content: "content" in event ? event.content : undefined,
-        });
+        events.push(event);
       },
       messageHistory: new CheckpointHistory(),
       modelId: "mock-model",
       sessionId: "session-2",
     });
 
-    expect(events.some((event) => event.type === "user")).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "step" && "source" in event && event.source === "user"
+      )
+    ).toBe(false);
   });
 
   it("compacts before a normal follow-up once the soft compaction threshold is exceeded", async () => {
@@ -362,8 +374,8 @@ describe("runHeadless", () => {
     expect(capturedMessages[1]?.[0]?.role).toBe("user");
   });
 
-  it("keeps JSONL event types unchanged", async () => {
-    const eventTypes: string[] = [];
+  it("emits ATIF-v1.6 step events for user messages and agent tool responses", async () => {
+    const collectedEvents: TrajectoryEvent[] = [];
 
     await runHeadless({
       agent: {
@@ -371,7 +383,7 @@ describe("runHeadless", () => {
           createToolCallStream([{ role: "assistant", content: "done" }]),
       },
       emitEvent: (event) => {
-        eventTypes.push(event.type);
+        collectedEvents.push(event);
       },
       initialUserMessage: {
         content: "inspect src/index.ts",
@@ -381,15 +393,21 @@ describe("runHeadless", () => {
       sessionId: "session-jsonl-types",
     });
 
-    expect(eventTypes).toEqual([
-      "user",
-      "tool_call",
-      "tool_result",
-      "assistant",
-    ]);
-    expect(new Set(eventTypes)).toEqual(
-      new Set(["user", "tool_call", "tool_result", "assistant"])
+    const stepEvents = collectedEvents.filter(
+      (event): event is Extract<TrajectoryEvent, { type: "step" }> =>
+        event.type === "step"
     );
+
+    expect(stepEvents[0]).toMatchObject({
+      type: "step",
+      source: "user",
+    });
+    expect(stepEvents[1]).toMatchObject({
+      type: "step",
+      source: "agent",
+      tool_calls: expect.any(Array),
+      observation: expect.any(Object),
+    });
   });
 
   it("stops todo continuation after hitting the global max iteration budget", async () => {
@@ -459,9 +477,11 @@ describe("runHeadless", () => {
     });
 
     expect(streamCallCount).toBe(2);
-    const assistantEvents = events.filter((e) => e.type === "assistant");
-    expect(assistantEvents).toHaveLength(1);
-    expect(assistantEvents[0]).toMatchObject({ content: "ok" });
+    const agentEvents = events.filter(
+      (e) => e.type === "step" && "source" in e && e.source === "agent"
+    );
+    expect(agentEvents).toHaveLength(1);
+    expect(agentEvents[0]).toMatchObject({ message: "ok" });
   });
 
   it("retries once on no output generated error", async () => {
@@ -496,9 +516,11 @@ describe("runHeadless", () => {
     });
 
     expect(streamCallCount).toBe(2);
-    const assistantEvents = events.filter((e) => e.type === "assistant");
-    expect(assistantEvents).toHaveLength(1);
-    expect(assistantEvents[0]).toMatchObject({ content: "ok" });
+    const agentEvents = events.filter(
+      (e) => e.type === "step" && "source" in e && e.source === "agent"
+    );
+    expect(agentEvents).toHaveLength(1);
+    expect(agentEvents[0]).toMatchObject({ message: "ok" });
   });
 
   it("retries multiple times on no output generated error before succeeding", async () => {
@@ -533,7 +555,9 @@ describe("runHeadless", () => {
     });
 
     expect(streamCallCount).toBe(4);
-    const assistantEvents = events.filter((e) => e.type === "assistant");
-    expect(assistantEvents).toHaveLength(1);
+    const agentEvents = events.filter(
+      (e) => e.type === "step" && "source" in e && e.source === "agent"
+    );
+    expect(agentEvents).toHaveLength(1);
   });
 });

@@ -1,5 +1,12 @@
 import type { AgentStreamResult, ModelMessage } from "@ai-sdk-tool/harness";
-import type { TrajectoryEvent } from "./types";
+import type {
+  AgentStepEvent,
+  ErrorEvent,
+  ObservationResult,
+  StepMetrics,
+  ToolCallData,
+  TrajectoryEvent,
+} from "./types";
 
 export const extractToolOutput = (
   output: unknown
@@ -42,6 +49,13 @@ export const getToolInputId = (part: {
 export interface PendingToolCall {
   arguments: string;
   id: string;
+  input?: unknown;
+  toolName?: string;
+}
+
+export interface PendingToolResult {
+  content: string;
+  sourceCallId: string;
 }
 
 export const handleToolInputStart = (
@@ -90,75 +104,62 @@ export const handleToolInputDelta = (
   });
 };
 
-export const emitToolCallEvent = (
-  emitEvent: (event: TrajectoryEvent) => void,
-  sessionId: string,
-  completedToolCallIds: Set<string>,
-  modelId: string,
-  reasoningContent: string,
+export const upsertCompletedToolCall = (
+  pendingToolCalls: Map<string, PendingToolCall>,
   part: {
-    input: unknown;
+    input?: unknown;
     toolCallId: string;
     toolName: string;
   }
-): string => {
-  completedToolCallIds.add(part.toolCallId);
-  emitEvent({
-    timestamp: new Date().toISOString(),
-    type: "tool_call",
-    sessionId,
-    tool_call_id: part.toolCallId,
-    tool_name: part.toolName,
-    tool_input: part.input as Record<string, unknown>,
-    model: modelId,
-    reasoning_content: reasoningContent || undefined,
-  });
-  return "";
-};
-
-export const emitToolResultEvent = (
-  emitEvent: (event: TrajectoryEvent) => void,
-  sessionId: string,
-  part: {
-    output: unknown;
-    toolCallId: string;
-  }
 ): void => {
-  const toolOutput = extractToolOutput(part.output);
-  emitEvent({
-    timestamp: new Date().toISOString(),
-    type: "tool_result",
-    sessionId,
-    tool_call_id: part.toolCallId,
-    output: toolOutput.stdout,
-    error: toolOutput.error,
-    exit_code: toolOutput.exitCode,
+  const existing = pendingToolCalls.get(part.toolCallId);
+  if (existing) {
+    existing.toolName = part.toolName;
+    existing.input = part.input;
+    return;
+  }
+
+  pendingToolCalls.set(part.toolCallId, {
+    id: part.toolCallId,
+    arguments: "",
+    input: part.input,
+    toolName: part.toolName,
   });
 };
 
-export const emitToolErrorEvent = (
-  emitEvent: (event: TrajectoryEvent) => void,
-  sessionId: string,
-  part: {
-    error: unknown;
-    toolCallId: string;
+export const bufferedToolCallData = (
+  pendingToolCalls: Map<string, PendingToolCall>,
+  completedToolCallIds: Set<string>
+): ToolCallData[] | undefined => {
+  const result: ToolCallData[] = [];
+  for (const [id, pending] of pendingToolCalls) {
+    if (!completedToolCallIds.has(id)) {
+      continue;
+    }
+    const args = pending.input ?? parseToolArguments(pending.arguments);
+    if (args) {
+      result.push({
+        tool_call_id: id,
+        function_name: pending.toolName ?? "",
+        arguments: args as Record<string, unknown>,
+      });
+    }
   }
-): void => {
-  emitEvent({
-    timestamp: new Date().toISOString(),
-    type: "tool_result",
-    sessionId,
-    tool_call_id: part.toolCallId,
-    output: "",
-    error:
-      part.error instanceof Error ? part.error.message : String(part.error),
-    exit_code: 1,
-  });
+  return result.length > 0 ? result : undefined;
+};
+
+const parseToolArguments = (
+  argumentsStr: string
+): Record<string, unknown> | null => {
+  try {
+    return JSON.parse(argumentsStr) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 };
 
 export const emitMalformedToolCallErrors = (
   emitEvent: (event: TrajectoryEvent) => void,
-  sessionId: string,
   completedToolCallIds: Set<string>,
   pendingToolCalls: Map<string, PendingToolCall>
 ): void => {
@@ -170,7 +171,6 @@ export const emitMalformedToolCallErrors = (
     emitEvent({
       timestamp: new Date().toISOString(),
       type: "error",
-      sessionId,
       error: `Tool call failed: malformed JSON in tool arguments (id: ${id}). Raw arguments: ${pending.arguments.slice(0, 500)}`,
     });
   }
@@ -178,7 +178,6 @@ export const emitMalformedToolCallErrors = (
 
 export const emitMalformedToolCallsSummary = (
   emitEvent: (event: TrajectoryEvent) => void,
-  sessionId: string,
   completedToolCallIds: Set<string>,
   lastFinishReason: string | undefined,
   pendingToolCalls: Map<string, PendingToolCall>
@@ -194,7 +193,6 @@ export const emitMalformedToolCallsSummary = (
   emitEvent({
     timestamp: new Date().toISOString(),
     type: "error",
-    sessionId,
     error:
       "Model attempted tool calls but all failed due to malformed JSON. This is likely a model bug with JSON escaping in tool arguments.",
   });
@@ -204,8 +202,8 @@ export interface ProcessStreamOptions {
   emitEvent: (event: TrajectoryEvent) => void;
   modelId: string;
   onMessages: (messages: ModelMessage[]) => void;
-  sessionId: string;
   shouldContinue: (finishReason: string) => boolean;
+  stepId: number;
   stream: AgentStreamResult;
 }
 
@@ -225,13 +223,14 @@ const STREAM_RESPONSE_TIMEOUT_MS = 30_000;
 export const processStream = async (
   opts: ProcessStreamOptions
 ): Promise<ProcessStreamResult> => {
-  const { stream, sessionId, modelId, emitEvent, shouldContinue, onMessages } =
+  const { stream, stepId, modelId, emitEvent, shouldContinue, onMessages } =
     opts;
 
   let currentText = "";
   let currentReasoning = "";
   const pendingToolCalls = new Map<string, PendingToolCall>();
   const completedToolCallIds = new Set<string>();
+  const observationResults: ObservationResult[] = [];
   let lastFinishReason: string | undefined;
 
   for await (const part of stream.fullStream) {
@@ -250,22 +249,40 @@ export const processStream = async (
         break;
       case "tool-input-end":
         break;
-      case "tool-call":
-        currentReasoning = emitToolCallEvent(
-          emitEvent,
-          sessionId,
-          completedToolCallIds,
-          modelId,
-          currentReasoning,
-          part
-        );
+      case "tool-call": {
+        const callPart = part as Extract<typeof part, { type: "tool-call" }>;
+        completedToolCallIds.add(callPart.toolCallId);
+        upsertCompletedToolCall(pendingToolCalls, callPart);
         break;
-      case "tool-result":
-        emitToolResultEvent(emitEvent, sessionId, part);
+      }
+      case "tool-result": {
+        const resultPart = part as Extract<
+          typeof part,
+          { type: "tool-result" }
+        >;
+        const toolOutput = extractToolOutput(resultPart.output);
+        observationResults.push({
+          source_call_id: resultPart.toolCallId,
+          content: JSON.stringify({
+            stdout: toolOutput.stdout,
+            error: toolOutput.error,
+            exit_code: toolOutput.exitCode,
+          }),
+        });
         break;
-      case "tool-error":
-        emitToolErrorEvent(emitEvent, sessionId, part);
+      }
+      case "tool-error": {
+        const errorPart = part as Extract<typeof part, { type: "tool-error" }>;
+        const errorMsg =
+          errorPart.error instanceof Error
+            ? errorPart.error.message
+            : String(errorPart.error);
+        observationResults.push({
+          source_call_id: errorPart.toolCallId,
+          content: JSON.stringify({ error: errorMsg, exit_code: 1 }),
+        });
         break;
+      }
       case "finish-step": {
         const finishPart = part as Extract<
           typeof part,
@@ -281,13 +298,11 @@ export const processStream = async (
 
   emitMalformedToolCallErrors(
     emitEvent,
-    sessionId,
     completedToolCallIds,
     pendingToolCalls
   );
   emitMalformedToolCallsSummary(
     emitEvent,
-    sessionId,
     completedToolCallIds,
     lastFinishReason,
     pendingToolCalls
@@ -310,16 +325,34 @@ export const processStream = async (
     ]);
     onMessages(response.messages);
 
-    if (currentText.trim()) {
-      emitEvent({
-        timestamp: new Date().toISOString(),
-        type: "assistant",
-        sessionId,
-        content: currentText,
-        model: modelId,
-        reasoning_content: currentReasoning || undefined,
-      });
-    }
+    const agentStepEvent: AgentStepEvent = {
+      type: "step",
+      step_id: stepId,
+      timestamp: new Date().toISOString(),
+      source: "agent",
+      message: currentText || "(no text output)",
+      model_name: modelId,
+      reasoning_content: currentReasoning || undefined,
+      tool_calls: bufferedToolCallData(pendingToolCalls, completedToolCallIds),
+      observation: observationResults.length
+        ? { results: observationResults }
+        : undefined,
+      metrics: usage
+        ? ({
+            prompt_tokens:
+              usage.inputTokens ??
+              (usage as Record<string, unknown>).promptTokens,
+            completion_tokens:
+              usage.outputTokens ??
+              (usage as Record<string, unknown>).completionTokens,
+            cached_tokens:
+              (usage as Record<string, unknown>).cachedTokens ?? undefined,
+            cost_usd: (usage as Record<string, unknown>).costUsd ?? undefined,
+          } as StepMetrics)
+        : undefined,
+    };
+
+    emitEvent(agentStepEvent);
 
     pendingToolCalls.clear();
     completedToolCallIds.clear();
@@ -331,12 +364,12 @@ export const processStream = async (
       usage: usage ?? null,
     };
   } catch (error) {
-    emitEvent({
+    const errorEvent: ErrorEvent = {
       timestamp: new Date().toISOString(),
       type: "error",
-      sessionId,
       error: String(error),
-    });
+    };
+    emitEvent(errorEvent);
 
     return {
       shouldContinue: false,

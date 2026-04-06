@@ -50,13 +50,14 @@ await runHeadless({
 });
 ```
 
-**Example output:**
+**Example output (ATIF-v1.6):**
 
 ```jsonl
-{"type":"user","sessionId":"session-abc123","timestamp":"2026-03-09T10:00:00.000Z","content":"Fix the type error in src/index.ts"}
-{"type":"tool_call","sessionId":"session-abc123","timestamp":"2026-03-09T10:00:01.000Z","model":"gpt-4o","tool_name":"read_file","tool_call_id":"call_1","tool_input":{"path":"src/index.ts"}}
-{"type":"tool_result","sessionId":"session-abc123","timestamp":"2026-03-09T10:00:01.500Z","tool_call_id":"call_1","output":"...file contents..."}
-{"type":"assistant","sessionId":"session-abc123","timestamp":"2026-03-09T10:00:03.000Z","model":"gpt-4o","content":"I found the issue and fixed it."}
+{"type":"metadata","timestamp":"2026-04-03T10:00:00.000Z","session_id":"ses-abc123","agent":{"name":"code-editing-agent","version":"1.0.0","model_name":"gpt-4o"}}
+{"type":"step","step_id":1,"timestamp":"2026-04-03T10:00:00.000Z","source":"user","message":"Fix the type error in src/index.ts"}
+{"type":"step","step_id":2,"timestamp":"2026-04-03T10:00:01.000Z","source":"agent","message":"I'll inspect the file.","model_name":"gpt-4o","tool_calls":[{"tool_call_id":"call_1","function_name":"read_file","arguments":{"path":"src/index.ts"}}],"metrics":{"prompt_tokens":520,"completion_tokens":80}}
+{"type":"step","step_id":3,"timestamp":"2026-04-03T10:00:02.000Z","source":"system","observation":{"results":[{"source_call_id":"call_1","content":"{\"stdout\":\"...file contents...\"}"}]}}
+{"type":"step","step_id":4,"timestamp":"2026-04-03T10:00:03.000Z","source":"agent","message":"I found the issue and fixed it.","model_name":"gpt-4o","metrics":{"prompt_tokens":410,"completion_tokens":65}}
 ```
 
 ## API Reference
@@ -69,10 +70,10 @@ Runs the agent loop, emitting JSONL events for each turn. Continues looping whil
 import { runHeadless } from "@ai-sdk-tool/headless";
 
 await runHeadless({
-  sessionId,       // string — unique session ID stamped on every event
+  sessionId,       // string — becomes metadata.session_id
   stream,          // (messages: unknown[]) => Promise<AgentStreamResult>
   messageHistory,  // CheckpointHistory from @ai-sdk-tool/harness
-  getModelId,      // () => string — current model ID for event metadata
+  getModelId,      // () => string — current model ID for metadata and agent steps
   maxIterations,   // optional number — safety cap on loop iterations
   emitEvent,       // optional (event: TrajectoryEvent) => void — defaults to stdout JSONL
   onTodoReminder,  // optional () => Promise<{ hasReminder, message }> — TODO continuation
@@ -83,10 +84,10 @@ await runHeadless({
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `sessionId` | `string` | yes | Unique ID stamped on every emitted event |
+| `sessionId` | `string` | yes | Unique ID emitted once as `metadata.session_id` |
 | `stream` | `(messages) => Promise<AgentStreamResult>` | yes | Agent stream function |
 | `messageHistory` | `CheckpointHistory` | yes | Conversation history — read and written during the loop |
-| `getModelId` | `() => string` | yes | Returns the current model ID for `tool_call` and `assistant` events |
+| `getModelId` | `() => string` | yes | Returns the current model ID for metadata and `step` events |
 | `maxIterations` | `number` | no | Total iteration budget across the entire headless run, including TODO reminder turns; emits an `error` event and stops if exceeded |
 | `emitEvent` | `(event) => void` | no | Custom event sink; defaults to `console.log(JSON.stringify(event))` |
 | `onTodoReminder` | `() => Promise<{ hasReminder, message }>` | no | Called after the main loop; if `hasReminder` is true, sends `message` as a user turn and continues |
@@ -146,77 +147,83 @@ registerSignalHandlers({
 
 ## JSONL Event Types
 
-All events share `sessionId: string` and `timestamp: string` (ISO 8601).
+Headless output now follows the **ATIF-v1.6** protocol documented in `packages/headless/AGENTS.md`.
 
-### `user`
+### Event overview
 
-A user message sent to the agent.
+| Type | Source | Description |
+|------|--------|-------------|
+| `metadata` | system | Emitted once at start with `session_id` and agent info |
+| `step` | `user` | A user message step |
+| `step` | `agent` | An agent response, including text, reasoning, tool calls, and optional observations |
+| `step` | `system` | A system step, typically observations detached from the agent message |
+| `compaction` | system | Lifecycle event for history compaction |
+| `error` | system | Fatal error or iteration-limit event |
+
+### `metadata`
 
 ```typescript
 {
-  type: "user",
-  sessionId: string,
+  type: "metadata",
   timestamp: string,
-  content: string,
+  session_id: string,
+  agent: {
+    name: string,
+    version: string,
+    model_name: string,
+  },
 }
 ```
 
-### `assistant`
-
-A completed assistant text response.
+### `step`
 
 ```typescript
 {
-  type: "assistant",
-  sessionId: string,
+  type: "step",
+  step_id: number,
   timestamp: string,
-  content: string,
-  model: string,
-  reasoning_content?: string,  // present when the model emits reasoning tokens
+  source: "user" | "agent" | "system",
+  message?: string,
+  model_name?: string,
+  tool_calls?: Array<{
+    tool_call_id: string,
+    function_name: string,
+    arguments: Record<string, unknown>,
+  }>,
+  observation?: {
+    results: Array<{
+      source_call_id: string,
+      content: string,
+    }>,
+  },
+  metrics?: {
+    prompt_tokens: number,
+    completion_tokens: number,
+  },
 }
 ```
 
-### `tool_call`
-
-A tool invocation by the agent.
+### `compaction`
 
 ```typescript
 {
-  type: "tool_call",
-  sessionId: string,
+  type: "compaction",
   timestamp: string,
-  model: string,
-  tool_name: string,
-  tool_call_id: string,
-  tool_input: Record<string, unknown>,
-  reasoning_content?: string,
-}
-```
-
-### `tool_result`
-
-The result of a tool call.
-
-```typescript
-{
-  type: "tool_result",
-  sessionId: string,
-  timestamp: string,
-  tool_call_id: string,
-  output: string,
-  error?: string,       // present if the tool threw
-  exit_code?: number,   // present for shell execution tools
+  event: "start" | "complete" | "blocking_change",
+  tokensBefore: number,
+  tokensAfter?: number,
+  strategy?: string,
+  durationMs?: number,
+  blocking?: boolean,
+  reason?: string,
 }
 ```
 
 ### `error`
 
-A fatal error or iteration limit reached.
-
 ```typescript
 {
   type: "error",
-  sessionId: string,
   timestamp: string,
   error: string,
 }
@@ -227,14 +234,17 @@ A fatal error or iteration limit reached.
 ```typescript
 import type {
   TrajectoryEvent,
-  UserEvent,
-  AssistantEvent,
-  ToolCallEvent,
-  ToolResultEvent,
+  StepEvent,
+  UserStepEvent,
+  AgentStepEvent,
+  SystemStepEvent,
+  MetadataEvent,
+  CompactionEvent,
   ErrorEvent,
-  BaseEvent,
 } from "@ai-sdk-tool/headless";
 ```
+
+> Note: pre-ATIF examples that used standalone `user`, `assistant`, `tool_call`, and `tool_result` event types are obsolete. Tool results are now carried in `step.observation.results`, and `session_id` appears only in the initial `metadata` event.
 
 ---
 
@@ -296,8 +306,8 @@ await runHeadless({
 ### Parsing JSONL output
 
 ```bash
-# Run headless and filter only assistant events
-pnpm run headless -- "Fix the bug" | grep '"type":"assistant"' | jq .content
+# Run headless and filter only agent step events
+pnpm run headless -- "Fix the bug" | grep '"type":"step"' | jq 'select(.source == "agent") | .message'
 ```
 
 ```typescript
@@ -310,8 +320,8 @@ const rl = createInterface({ input: createReadStream("trajectory.jsonl") });
 
 for await (const line of rl) {
   const event = JSON.parse(line) as TrajectoryEvent;
-  if (event.type === "assistant") {
-    console.log("Assistant:", event.content);
+  if (event.type === "step" && event.source === "agent") {
+    console.log("Assistant:", event.message);
   }
 }
 ```

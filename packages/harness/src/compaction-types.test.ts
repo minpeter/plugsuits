@@ -203,6 +203,13 @@ describe("compaction-types", () => {
       expect(config.getStructuredState?.()).toBeUndefined();
     });
 
+    it("should accept getLastExtractionMessageIndex callback", () => {
+      const config: CompactionConfig = {
+        getLastExtractionMessageIndex: () => 42,
+      };
+      expect(config.getLastExtractionMessageIndex?.()).toBe(42);
+    });
+
     it("should accept keepRecentTokens", () => {
       const config: CompactionConfig = {
         keepRecentTokens: 2000,
@@ -247,14 +254,35 @@ describe("compaction-types", () => {
       expect(config.thresholdRatio).toBe(0.5);
     });
 
+    it("should accept sessionMemoryCompaction config", () => {
+      const config: CompactionConfig = {
+        sessionMemoryCompaction: {
+          minKeepTokens: 1500,
+          minKeepMessages: 2,
+          maxKeepTokens: 4000,
+        },
+      };
+
+      expect(config.sessionMemoryCompaction?.minKeepTokens).toBe(1500);
+      expect(config.sessionMemoryCompaction?.minKeepMessages).toBe(2);
+      expect(config.sessionMemoryCompaction?.maxKeepTokens).toBe(4000);
+    });
+
     it("should accept all fields together", () => {
       const config: CompactionConfig = {
+        compactionDirection: "keep-prefix",
         contextLimit: 128_000,
         enabled: true,
+        getLastExtractionMessageIndex: () => 100,
         getStructuredState: () => "state",
         keepRecentTokens: 2000,
         maxTokens: 8000,
         reserveTokens: 2000,
+        sessionMemoryCompaction: {
+          minKeepMessages: 3,
+          minKeepTokens: 2000,
+          maxKeepTokens: 4000,
+        },
         speculativeStartRatio: 0.5,
         summarizeFn: async () => "summary",
         thresholdRatio: 0.5,
@@ -266,6 +294,15 @@ describe("compaction-types", () => {
       expect(config.reserveTokens).toBe(2000);
       expect(config.speculativeStartRatio).toBe(0.5);
       expect(config.thresholdRatio).toBe(0.5);
+      expect(config.compactionDirection).toBe("keep-prefix");
+    });
+
+    it("should accept keep-recent compactionDirection", () => {
+      const config: CompactionConfig = {
+        compactionDirection: "keep-recent",
+      };
+
+      expect(config.compactionDirection).toBe("keep-recent");
     });
 
     it("should allow zero values for numeric fields", () => {
@@ -428,6 +465,17 @@ describe("compaction-types", () => {
         summaryMessageId: "summary-123",
       };
       expect(result.summaryMessageId).toBe("summary-123");
+    });
+
+    it("should allow optional compactionMethod", () => {
+      const result: CompactionResult = {
+        success: true,
+        tokensAfter: 1000,
+        tokensBefore: 5000,
+        compactionMethod: "session-memory",
+      };
+
+      expect(result.compactionMethod).toBe("session-memory");
     });
 
     it("should calculate token delta correctly", () => {
@@ -1314,10 +1362,16 @@ describe("compaction-types", () => {
       const fullConfig: CompactionConfig = {
         contextLimit: 128_000,
         enabled: true,
+        getLastExtractionMessageIndex: () => 10,
         getStructuredState: () => "state",
         keepRecentTokens: 2000,
         maxTokens: 8000,
         reserveTokens: 2000,
+        sessionMemoryCompaction: {
+          minKeepMessages: 3,
+          minKeepTokens: 2000,
+          maxKeepTokens: 4000,
+        },
         speculativeStartRatio: 0.5,
         summarizeFn: async () => "summary",
         thresholdRatio: 0.5,

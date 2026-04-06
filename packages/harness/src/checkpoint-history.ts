@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ModelMessage, TextPart } from "ai";
 import { calculateCompactionSplitIndex } from "./compaction-planner";
 import {
+  computeContextBudget,
   getRecommendedMaxOutputTokens as getRecommendedMaxOutputTokensFromPolicy,
   isAtHardContextLimitFromUsage,
   needsCompactionFromUsage,
@@ -11,28 +12,45 @@ import type {
   ActualTokenUsageInput,
   CheckpointMessage,
   CompactionConfig,
+  CompactionEffectiveness,
+  CompactionRejectionReason,
   CompactionResult,
   ContextUsage,
   ContinuationVariant,
   MessageLine,
   PruningConfig,
 } from "./compaction-types";
+import {
+  DEFAULT_MIN_SAVINGS_RATIO,
+  INEFFECTIVE_COMPACTION_REASON,
+} from "./compaction-types";
+import { collapseConsecutiveOps } from "./context-collapse";
 import { createContinuationMessage } from "./continuation";
+import { env } from "./env";
+import { microCompactMessages } from "./micro-compact";
 import type { SessionStore } from "./session-store";
 import {
   estimateMessageTokens,
   estimateTokens,
   extractMessageText,
 } from "./token-utils";
+import { adjustSplitIndexForToolPairs } from "./tool-pair-validation";
 import { progressivePrune, pruneToolOutputs } from "./tool-pruning";
 
+const TOOL_RESULT_CHARS_PER_TOKEN_INTERNAL = 6;
+
 const DEFAULT_COMPACTION_CONFIG: NormalizedCompactionConfig = {
+  compactionDirection: "keep-recent",
   contextLimit: 0,
+  contextCollapse: true,
   enabled: false,
+  getLastExtractionMessageIndex: undefined,
   getStructuredState: undefined,
+  microCompact: undefined,
   maxTokens: 8000,
   keepRecentTokens: 2000,
   reserveTokens: 2000,
+  sessionMemoryCompaction: undefined,
   speculativeStartRatio: undefined,
   thresholdRatio: 0.5,
   summarizeFn: undefined,
@@ -61,19 +79,45 @@ const COMPACTION_CONTINUATION_TEXTS = {
     "The context was compacted due to overflow. I'll resume the task from where we left off.",
 } as const;
 
+const COMPACTION_CONTINUATION_TEXT_SET: ReadonlySet<string> = new Set(
+  Object.values(COMPACTION_CONTINUATION_TEXTS)
+);
+
 export function getContinuationText(
   variant: keyof typeof COMPACTION_CONTINUATION_TEXTS
 ): string {
   return COMPACTION_CONTINUATION_TEXTS[variant];
 }
 
+function computeSavingsRatio(
+  savedTokens: number,
+  tokensBefore: number
+): number {
+  if (tokensBefore > 0) {
+    return savedTokens / tokensBefore;
+  }
+  return savedTokens > 0 ? 1 : 0;
+}
+
+type CompactionDirection = "keep-recent" | "keep-prefix";
+
 type NormalizedCompactionConfig = Omit<
   Required<CompactionConfig>,
-  "getStructuredState" | "speculativeStartRatio" | "summarizeFn"
+  | "getStructuredState"
+  | "getLastExtractionMessageIndex"
+  | "microCompact"
+  | "sessionMemoryCompaction"
+  | "speculativeStartRatio"
+  | "summarizeFn"
 > &
   Pick<
     CompactionConfig,
-    "getStructuredState" | "speculativeStartRatio" | "summarizeFn"
+    | "getStructuredState"
+    | "getLastExtractionMessageIndex"
+    | "microCompact"
+    | "sessionMemoryCompaction"
+    | "speculativeStartRatio"
+    | "summarizeFn"
   >;
 
 export interface CheckpointHistoryOptions {
@@ -236,6 +280,27 @@ function findReplayableUserMessage(
   return null;
 }
 
+function hasTextContent(message: CheckpointMessage): boolean {
+  const content = message.message.content;
+
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+
+  if (!Array.isArray(content)) {
+    return false;
+  }
+
+  return content.some(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      part.type === "text" &&
+      typeof part.text === "string" &&
+      part.text.trim().length > 0
+  );
+}
+
 export class CheckpointHistory {
   private messages: CheckpointMessage[] = [];
   private summaryMessageId: string | null = null;
@@ -276,7 +341,7 @@ export class CheckpointHistory {
 
     this.messages.push(message);
     this.persistMessage(message);
-    this.actualUsage = null;
+    this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
 
@@ -303,9 +368,10 @@ export class CheckpointHistory {
     }
 
     if (accepted.length > 0) {
-      this.actualUsage = null;
+      this.refreshEstimatedUsage();
       this.revision += 1;
       this.messageRevision += 1;
+      this.truncateToolResultsIfOverBudget();
     }
     return accepted;
   }
@@ -350,7 +416,7 @@ export class CheckpointHistory {
   clear(): void {
     this.messages = [];
     this.summaryMessageId = null;
-    this.actualUsage = null;
+    this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
   }
@@ -359,10 +425,7 @@ export class CheckpointHistory {
     const inputTokens = usage.inputTokens ?? usage.promptTokens;
 
     if (inputTokens === undefined || inputTokens === null) {
-      if (
-        process.env.COMPACTION_DEBUG === "1" ||
-        process.env.COMPACTION_DEBUG === "true"
-      ) {
+      if (env.COMPACTION_DEBUG) {
         console.error(
           `[compaction-debug] updateActualUsage: no inputTokens/promptTokens in usage data, skipping (received keys: ${Object.keys(usage).join(", ")})`
         );
@@ -381,6 +444,7 @@ export class CheckpointHistory {
       updatedAt: usage.updatedAt ?? new Date(),
     };
     this.revision += 1;
+    this.truncateToolResultsIfOverBudget();
   }
 
   getActualUsage(): ActualTokenUsage | null {
@@ -439,7 +503,11 @@ export class CheckpointHistory {
   }
 
   setSystemPromptTokens(tokens: number): void {
+    const prev = this.systemPromptTokens;
     this.systemPromptTokens = tokens;
+    if (prev !== tokens && this.actualUsage) {
+      this.actualUsage = null;
+    }
     this.revision += 1;
   }
 
@@ -477,7 +545,7 @@ export class CheckpointHistory {
   }
 
   needsCompaction(): boolean {
-    const contextLimit = this.getActiveContextLimit();
+    const contextLimit = this.getCompactionPolicyContextLimit();
     const configuredThresholdRatio =
       this.compactionConfig.thresholdRatio ?? 0.5;
     const maxTokensRatio =
@@ -509,7 +577,7 @@ export class CheckpointHistory {
       return false;
     }
 
-    const contextLimit = this.getActiveContextLimit();
+    const contextLimit = this.getCompactionPolicyContextLimit();
     const currentUsage = this.getCurrentUsageTokens();
 
     const configuredThresholdRatio =
@@ -540,10 +608,7 @@ export class CheckpointHistory {
 
     const result = currentUsage >= speculativeThreshold;
 
-    if (
-      process.env.COMPACTION_DEBUG === "1" ||
-      process.env.COMPACTION_DEBUG === "true"
-    ) {
+    if (env.COMPACTION_DEBUG) {
       console.error(
         `[compaction-debug] speculative? usage=${currentUsage} specThreshold=${Math.floor(speculativeThreshold)} blockThreshold=${Math.floor(blockingThreshold)} → ${result}`
       );
@@ -638,6 +703,7 @@ export class CheckpointHistory {
 
     const autoCompact = options?.auto === true;
     const hasExplicitAutoFlag = typeof options?.auto === "boolean";
+    const compactionDirection = this.resolveCompactionDirection();
     const replayMessage = autoCompact
       ? findReplayableUserMessage(activeMessages)
       : null;
@@ -646,10 +712,11 @@ export class CheckpointHistory {
       ? activeMessages.length
       : this.resolveCompactionSplitIndex(
           activeMessages,
-          options?.aggressive === true
+          options?.aggressive === true,
+          compactionDirection
         );
 
-    if (splitIndex === null || splitIndex <= 0) {
+    if (!this.isValidCompactionSplitIndex(splitIndex)) {
       return {
         success: false,
         tokensBefore,
@@ -658,52 +725,69 @@ export class CheckpointHistory {
       };
     }
 
-    const toSummarizeCandidates = activeMessages.slice(0, splitIndex);
-    const previousSummaryMessage =
-      summaryIndex >= 0 ? this.messages[summaryIndex] : undefined;
-    const previousSummary =
-      previousSummaryMessage?.isSummary &&
-      typeof previousSummaryMessage.message.content === "string"
-        ? previousSummaryMessage.message.content
-        : undefined;
-
-    const toSummarize =
-      previousSummary && toSummarizeCandidates[0]?.isSummary
-        ? toSummarizeCandidates.slice(1)
-        : toSummarizeCandidates;
-
-    const toSummarizeForSummary = this.prePruneMessagesForSummary(toSummarize);
-
-    if (toSummarizeForSummary.length === 0) {
-      return {
-        success: false,
-        tokensBefore,
-        tokensAfter: tokensBefore,
-        reason: "no messages to summarize",
-      };
-    }
-
-    const summarizeFn = this.compactionConfig.summarizeFn;
-    if (!summarizeFn) {
-      return {
-        success: false,
-        tokensBefore,
-        tokensAfter: tokensBefore,
-        reason: "no summarizeFn",
-      };
-    }
+    const previousSummary = this.resolvePreviousSummary(summaryIndex);
 
     const messageRevisionBeforeSummarize = this.messageRevision;
-
-    const summaryText = await this.buildCompactionSummaryText({
+    let summaryText: string;
+    let compactionMethod: CompactionResult["compactionMethod"];
+    let summaryInsertSplitIndex = splitIndex;
+    const sessionMemorySummary = this.buildSessionMemoryCompactionSummary(
       activeMessages,
-      previousSummary,
-      splitIndex,
-      summarizeFn,
-      toSummarizeForSummary,
-    });
+      activeStartIndex
+    );
 
-    if (!summaryText || summaryText.trim().length === 0) {
+    if (sessionMemorySummary) {
+      summaryText = sessionMemorySummary.summary;
+      summaryInsertSplitIndex = sessionMemorySummary.keepFromIndex;
+      compactionMethod = "session-memory";
+    } else {
+      const toSummarizeCandidates = this.selectMessagesToSummarize(
+        activeMessages,
+        splitIndex,
+        compactionDirection
+      );
+      const toSummarize =
+        previousSummary && toSummarizeCandidates[0]?.isSummary
+          ? toSummarizeCandidates.slice(1)
+          : toSummarizeCandidates;
+      const toSummarizeForSummary =
+        this.prePruneMessagesForSummary(toSummarize);
+      const toSummarizeForCompaction = this.applyMicroCompactionForSummary(
+        toSummarizeForSummary
+      );
+
+      if (toSummarizeForCompaction.length === 0) {
+        return {
+          success: false,
+          tokensBefore,
+          tokensAfter: tokensBefore,
+          reason: "no messages to summarize",
+        };
+      }
+
+      const summarizeFn = this.compactionConfig.summarizeFn;
+      if (!summarizeFn) {
+        return {
+          success: false,
+          tokensBefore,
+          tokensAfter: tokensBefore,
+          reason: "no summarizeFn",
+        };
+      }
+
+      summaryText = await this.buildCompactionSummaryText({
+        activeMessages,
+        compactionDirection,
+        previousSummary,
+        splitIndex,
+        summarizeFn,
+        toSummarizeForSummary: toSummarizeForCompaction,
+      });
+      compactionMethod = "llm";
+      this.logCompactionDebug("compact summary method=llm");
+    }
+
+    if (this.isEmptyCompactionSummary(summaryText)) {
       return {
         success: false,
         tokensBefore,
@@ -747,17 +831,46 @@ export class CheckpointHistory {
       effectiveReplayMessage
     );
 
-    const insertIndex = activeStartIndex + splitIndex;
+    const preInstallSnapshot = {
+      messages: [...this.messages],
+      summaryMessageId: this.summaryMessageId,
+      revision: this.revision,
+      messageRevision: this.messageRevision,
+      actualUsage: this.actualUsage,
+    };
+
+    const insertIndex = activeStartIndex + summaryInsertSplitIndex;
     this.messages.splice(insertIndex, 0, summaryMessage);
     this.messages.splice(insertIndex + 1, 0, continuationMessage);
-    if (replayMessageCopy) {
-      this.messages.push(replayMessageCopy);
-    }
+    this.insertReplayMessage(
+      replayMessageCopy,
+      compactionDirection,
+      insertIndex + 2
+    );
 
     this.summaryMessageId = summaryMessage.id;
-    this.actualUsage = null;
+    this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
+
+    const tokensAfter = this.getEstimatedTokens();
+    const effectiveness = this.evaluateCompactionAcceptance({
+      contextLimit: this.compactionConfig.contextLimit,
+      tokensAfter,
+      tokensBefore,
+    });
+
+    const rejection = this.maybeRejectCompaction({
+      autoCompact,
+      compactionMethod,
+      effectiveness,
+      snapshot: preInstallSnapshot,
+      tokensAfter,
+      tokensBefore,
+    });
+    if (rejection) {
+      return rejection;
+    }
 
     await this.persistCompactionMessages({
       continuationMessage,
@@ -765,14 +878,226 @@ export class CheckpointHistory {
       summaryMessage,
     });
 
-    const tokensAfter = this.getEstimatedTokens();
     return {
       success: true,
+      compactionMethod,
       continuationVariant,
+      effectiveness,
       summaryMessageId: summaryMessage.id,
       tokensBefore,
       tokensAfter,
     };
+  }
+
+  private appendReplayMessage(
+    replayMessageCopy: CheckpointMessage | null
+  ): void {
+    if (replayMessageCopy) {
+      this.messages.push(replayMessageCopy);
+    }
+  }
+
+  private insertReplayMessage(
+    replayMessageCopy: CheckpointMessage | null,
+    direction: CompactionDirection,
+    insertIndex: number
+  ): void {
+    if (!replayMessageCopy) {
+      return;
+    }
+
+    if (direction === "keep-prefix") {
+      this.messages.splice(insertIndex, 0, replayMessageCopy);
+      return;
+    }
+
+    this.appendReplayMessage(replayMessageCopy);
+  }
+
+  private selectMessagesToSummarize(
+    activeMessages: CheckpointMessage[],
+    splitIndex: number,
+    direction: CompactionDirection
+  ): CheckpointMessage[] {
+    if (direction === "keep-prefix") {
+      return activeMessages.slice(splitIndex);
+    }
+
+    return activeMessages.slice(0, splitIndex);
+  }
+
+  private isValidCompactionSplitIndex(
+    splitIndex: number | null
+  ): splitIndex is number {
+    return splitIndex !== null && splitIndex > 0;
+  }
+
+  private isEmptyCompactionSummary(summaryText: string): boolean {
+    return summaryText.trim().length === 0;
+  }
+
+  private resolvePreviousSummary(summaryIndex: number): string | undefined {
+    if (summaryIndex < 0) {
+      return undefined;
+    }
+
+    const previousSummaryMessage = this.messages[summaryIndex];
+    if (
+      previousSummaryMessage?.isSummary &&
+      typeof previousSummaryMessage.message.content === "string"
+    ) {
+      return previousSummaryMessage.message.content;
+    }
+
+    return undefined;
+  }
+
+  private buildSessionMemoryCompactionSummary(
+    messages: CheckpointMessage[],
+    activeStartIndex: number
+  ): { keepFromIndex: number; summary: string } | undefined {
+    const structuredState = this.compactionConfig
+      .getStructuredState?.()
+      ?.trim();
+    if (!structuredState) {
+      this.logCompactionDebug(
+        "compact summary fallback=llm reason=structured-state-empty"
+      );
+      return undefined;
+    }
+
+    const estimatedStateTokens = estimateTokens(structuredState);
+    const contextLimit = this.getContextLimit();
+    const sessionMemoryThreshold = contextLimit * 0.3;
+
+    if (estimatedStateTokens >= sessionMemoryThreshold) {
+      this.logCompactionDebug(
+        `compact summary fallback=llm reason=structured-state-too-large structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit}`
+      );
+      return undefined;
+    }
+
+    const sessionMemoryCompactionConfig =
+      this.compactionConfig.sessionMemoryCompaction ?? {};
+    const minKeepTokens = Math.max(
+      0,
+      Math.floor(sessionMemoryCompactionConfig.minKeepTokens ?? 2000)
+    );
+    const minKeepMessages = Math.max(
+      0,
+      Math.floor(sessionMemoryCompactionConfig.minKeepMessages ?? 3)
+    );
+    const maxKeepTokens = Math.max(
+      0,
+      Math.floor(
+        sessionMemoryCompactionConfig.maxKeepTokens ?? contextLimit * 0.4
+      )
+    );
+
+    const keepWindow = this.resolveSessionMemoryKeepWindow(messages, {
+      maxKeepTokens,
+      minKeepMessages,
+      minKeepTokens,
+    });
+    let keepFromIndex = keepWindow.keepFromIndex;
+
+    const coveredUntilIndex = this.resolveSessionMemoryCoveredIndex(
+      activeStartIndex,
+      messages.length
+    );
+    if (coveredUntilIndex !== undefined) {
+      keepFromIndex = Math.min(keepFromIndex, coveredUntilIndex);
+    }
+
+    const adjustedKeepFromIndex = adjustSplitIndexForToolPairs(
+      messages,
+      keepFromIndex
+    );
+    if (adjustedKeepFromIndex <= 0 && coveredUntilIndex !== undefined) {
+      this.logCompactionDebug(
+        `compact summary fallback=llm reason=session-memory-keep-window-empty keepFromIndex=${adjustedKeepFromIndex} coveredUntilIndex=${coveredUntilIndex ?? "none"}`
+      );
+      return undefined;
+    }
+
+    this.logCompactionDebug(
+      `compact summary method=session-memory structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit} keepFromIndex=${adjustedKeepFromIndex} keptTokens=${keepWindow.keptTokens} keptTextMessages=${keepWindow.keptTextMessages} coveredUntilIndex=${coveredUntilIndex ?? "none"}`
+    );
+
+    return {
+      summary: `[Session Memory Summary]\n\n${structuredState}`,
+      keepFromIndex: adjustedKeepFromIndex,
+    };
+  }
+
+  private resolveSessionMemoryCoveredIndex(
+    activeStartIndex: number,
+    activeMessageCount: number
+  ): number | undefined {
+    const absoluteCoveredIndex =
+      this.compactionConfig.getLastExtractionMessageIndex?.();
+    if (
+      absoluteCoveredIndex === undefined ||
+      !Number.isFinite(absoluteCoveredIndex)
+    ) {
+      return undefined;
+    }
+
+    const normalizedAbsoluteIndex = Math.max(
+      0,
+      Math.floor(absoluteCoveredIndex)
+    );
+    const relativeCoveredIndex = normalizedAbsoluteIndex - activeStartIndex;
+
+    return Math.max(0, Math.min(activeMessageCount, relativeCoveredIndex));
+  }
+
+  private resolveSessionMemoryKeepWindow(
+    messages: CheckpointMessage[],
+    options: {
+      maxKeepTokens: number;
+      minKeepMessages: number;
+      minKeepTokens: number;
+    }
+  ): { keepFromIndex: number; keptTextMessages: number; keptTokens: number } {
+    const { maxKeepTokens, minKeepMessages, minKeepTokens } = options;
+    let keepFromIndex = messages.length;
+    let keptTokens = 0;
+    let keptTextMessages = 0;
+
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (!message) {
+        continue;
+      }
+
+      const messageTokens = estimateMessageTokens(message.message);
+      if (keptTokens + messageTokens > maxKeepTokens) {
+        break;
+      }
+
+      keepFromIndex = i;
+      keptTokens += messageTokens;
+      if (hasTextContent(message)) {
+        keptTextMessages += 1;
+      }
+
+      if (keptTokens >= minKeepTokens && keptTextMessages >= minKeepMessages) {
+        break;
+      }
+    }
+
+    return {
+      keepFromIndex,
+      keptTokens,
+      keptTextMessages,
+    };
+  }
+
+  private logCompactionDebug(message: string): void {
+    if (env.COMPACTION_DEBUG) {
+      console.error(`[compaction-debug] ${message}`);
+    }
   }
 
   private prePruneMessagesForSummary(
@@ -801,6 +1126,41 @@ export class CheckpointHistory {
     }
 
     return toSummarize;
+  }
+
+  private applyMicroCompactionForSummary(
+    messagesToSummarize: CheckpointMessage[]
+  ): CheckpointMessage[] {
+    let preparedMessages = messagesToSummarize;
+
+    if (this.compactionConfig.contextCollapse !== false) {
+      const collapsed = collapseConsecutiveOps(preparedMessages);
+      preparedMessages = collapsed.messages;
+    }
+
+    const microCompactSetting = this.compactionConfig.microCompact;
+    const shouldRunMicroCompact =
+      microCompactSetting === true ||
+      (typeof microCompactSetting === "object" && microCompactSetting !== null);
+
+    if (!shouldRunMicroCompact) {
+      return preparedMessages;
+    }
+
+    const result = microCompactMessages(
+      preparedMessages,
+      typeof microCompactSetting === "object" && microCompactSetting !== null
+        ? microCompactSetting
+        : undefined
+    );
+
+    if (env.COMPACTION_DEBUG) {
+      console.error(
+        `[compaction-debug] microCompact: modified=${result.messagesModified}, tokensSaved=${result.tokensSaved}`
+      );
+    }
+
+    return result.messages;
   }
 
   async handleContextOverflow(
@@ -989,7 +1349,7 @@ export class CheckpointHistory {
     await this.sessionStore.updateCheckpoint(this.sessionId, summaryMessage.id);
   }
 
-  private getActiveMessages(): CheckpointMessage[] {
+  getActiveMessages(): CheckpointMessage[] {
     if (!this.summaryMessageId) {
       return this.messages;
     }
@@ -1004,7 +1364,253 @@ export class CheckpointHistory {
       return this.messages;
     }
 
+    if (this.resolveCompactionDirection() === "keep-prefix") {
+      let endExclusive = summaryIndex + 1;
+      const continuationCandidate = this.messages[endExclusive];
+      if (this.isCompactionContinuationMessage(continuationCandidate)) {
+        endExclusive += 1;
+      }
+
+      const replayCandidate = this.messages[endExclusive];
+      if (replayCandidate && isReplayableTextOnlyUserMessage(replayCandidate)) {
+        endExclusive += 1;
+      }
+
+      return this.messages.slice(0, endExclusive);
+    }
+
     return this.messages.slice(summaryIndex);
+  }
+
+  private getActiveStartIndex(): number {
+    if (!this.summaryMessageId) {
+      return 0;
+    }
+
+    const summaryIndex = this.messages.findIndex(
+      (message) => message.id === this.summaryMessageId
+    );
+
+    if (summaryIndex === -1) {
+      return 0;
+    }
+
+    if (this.resolveCompactionDirection() === "keep-prefix") {
+      return 0;
+    }
+
+    return summaryIndex;
+  }
+
+  private isCompactionContinuationMessage(
+    message: CheckpointMessage | undefined
+  ): boolean {
+    if (
+      !message ||
+      message.message.role !== "assistant" ||
+      typeof message.message.content !== "string"
+    ) {
+      return false;
+    }
+
+    return COMPACTION_CONTINUATION_TEXT_SET.has(message.message.content);
+  }
+
+  private resolveCompactionDirection(): CompactionDirection {
+    return this.compactionConfig.compactionDirection === "keep-prefix"
+      ? "keep-prefix"
+      : "keep-recent";
+  }
+
+  private refreshEstimatedUsage(): void {
+    const estimated = this.getEstimatedTokens() + this.systemPromptTokens;
+    this.actualUsage = {
+      inputTokens: estimated,
+      outputTokens: 0,
+      totalTokens: estimated,
+      updatedAt: new Date(),
+    };
+  }
+
+  private truncateToolResultsIfOverBudget(): void {
+    const contextLimit = this.getActiveContextLimit();
+    if (contextLimit <= 0) {
+      return;
+    }
+
+    const reserveTokens = this.compactionConfig.reserveTokens ?? 0;
+    const hardCeiling = Math.max(
+      Math.floor(contextLimit * 0.9),
+      contextLimit - reserveTokens
+    );
+    const currentTokens = this.getCurrentUsageTokens();
+
+    if (currentTokens <= hardCeiling) {
+      return;
+    }
+
+    const entries = this.collectToolResultEntries();
+    entries.sort((a, b) => b.tokens - a.tokens);
+
+    let remaining = currentTokens;
+    for (const entry of entries) {
+      if (remaining <= hardCeiling) {
+        break;
+      }
+      remaining = this.truncateSingleToolResult(entry, remaining, hardCeiling);
+    }
+
+    if (remaining !== currentTokens) {
+      this.refreshEstimatedUsage();
+    }
+  }
+
+  private collectToolResultEntries(): Array<{
+    messageIndex: number;
+    partIndex: number;
+    tokens: number;
+  }> {
+    const entries: Array<{
+      messageIndex: number;
+      partIndex: number;
+      tokens: number;
+    }> = [];
+
+    // Only iterate over active messages so we don't waste truncation budget
+    // on pre-summary messages that don't contribute to active context tokens.
+    const startIndex = this.getActiveStartIndex();
+    for (let mi = startIndex; mi < this.messages.length; mi++) {
+      const content = this.messages[mi].message.content;
+      if (!Array.isArray(content)) {
+        continue;
+      }
+      for (let pi = 0; pi < content.length; pi++) {
+        const part = content[pi];
+        if (
+          typeof part === "object" &&
+          part !== null &&
+          "type" in part &&
+          part.type === "tool-result"
+        ) {
+          const output = (part as { output?: unknown }).output;
+          // Use inner field text when available, consistent with truncateSingleToolResult.
+          // This ensures charsToFree math operates on the same text basis as the token estimate.
+          const innerFieldText = this.extractInnerFieldText(output);
+          const text =
+            innerFieldText ??
+            (typeof output === "string"
+              ? output
+              : JSON.stringify(output ?? ""));
+          entries.push({
+            messageIndex: mi,
+            partIndex: pi,
+            tokens: Math.ceil(
+              text.length / TOOL_RESULT_CHARS_PER_TOKEN_INTERNAL
+            ),
+          });
+        }
+      }
+    }
+    return entries;
+  }
+
+  private truncateSingleToolResult(
+    entry: { messageIndex: number; partIndex: number; tokens: number },
+    currentTokens: number,
+    hardCeiling: number
+  ): number {
+    const message = this.messages[entry.messageIndex];
+    const content = message.message.content;
+    if (!Array.isArray(content)) {
+      return currentTokens;
+    }
+    const originalPart = content[entry.partIndex] as {
+      type: string;
+      output?: unknown;
+    };
+    const originalOutput = originalPart.output;
+
+    // For object outputs with .value/.text, use the inner field for truncation math
+    // so that charsToFree targets the actual truncatable content, not the JSON wrapper.
+    const innerFieldText = this.extractInnerFieldText(originalOutput);
+    const originalText =
+      innerFieldText ??
+      (typeof originalOutput === "string"
+        ? originalOutput
+        : JSON.stringify(originalOutput ?? ""));
+    const tokensToFree = currentTokens - hardCeiling;
+    const charsToFree = tokensToFree * TOOL_RESULT_CHARS_PER_TOKEN_INTERNAL;
+
+    let truncatedText: string;
+    if (originalText.length <= charsToFree) {
+      truncatedText = `[truncated: ${entry.tokens} tokens freed for context budget]`;
+    } else {
+      const keepChars = Math.max(200, originalText.length - charsToFree);
+      truncatedText =
+        originalText.slice(0, keepChars) +
+        `\n... [truncated ${originalText.length - keepChars} chars for context budget]`;
+    }
+
+    // Shallow-clone the truncated part and its parent message/content array.
+    // NOTE: Only the truncated part at entry.partIndex is cloned — other parts
+    // in the same content array remain shared references with prior snapshots.
+    const clonedPart = { ...originalPart };
+
+    if (typeof originalOutput === "string") {
+      (clonedPart as Record<string, unknown>).output = truncatedText;
+    } else if (typeof originalOutput === "object" && originalOutput !== null) {
+      const clonedOutput = { ...(originalOutput as Record<string, unknown>) };
+      if (typeof clonedOutput.value === "string") {
+        clonedOutput.value = truncatedText;
+        (clonedPart as Record<string, unknown>).output = clonedOutput;
+      } else if (typeof clonedOutput.text === "string") {
+        clonedOutput.text = truncatedText;
+        (clonedPart as Record<string, unknown>).output = clonedOutput;
+      } else {
+        // No recognized inner field — replace the entire output
+        (clonedPart as Record<string, unknown>).output = truncatedText;
+      }
+    } else {
+      (clonedPart as Record<string, unknown>).output = truncatedText;
+    }
+
+    const clonedContent = content.slice() as typeof content;
+    clonedContent[entry.partIndex] = clonedPart as (typeof content)[number];
+    this.messages[entry.messageIndex] = {
+      ...message,
+      message: {
+        ...message.message,
+        content: clonedContent,
+      } as typeof message.message,
+    };
+
+    // Compute new token count using the same logic as collectToolResultEntries:
+    // extract inner field text first, fall back to JSON.stringify.
+    const finalOutput = (clonedPart as Record<string, unknown>).output;
+    const finalInnerText = this.extractInnerFieldText(finalOutput);
+    const finalText =
+      finalInnerText ??
+      (typeof finalOutput === "string"
+        ? finalOutput
+        : JSON.stringify(finalOutput ?? ""));
+    const newTokens = Math.ceil(
+      finalText.length / TOOL_RESULT_CHARS_PER_TOKEN_INTERNAL
+    );
+    return currentTokens - (entry.tokens - newTokens);
+  }
+
+  private extractInnerFieldText(output: unknown): string | null {
+    if (typeof output !== "object" || output === null) {
+      return null;
+    }
+    const obj = output as Record<string, unknown>;
+    if (typeof obj.value === "string") {
+      return obj.value;
+    }
+    if (typeof obj.text === "string") {
+      return obj.text;
+    }
+    return null;
   }
 
   private getCurrentUsageTokens(): number {
@@ -1022,6 +1628,22 @@ export class CheckpointHistory {
     return (
       this.compactionConfig.maxTokens ?? DEFAULT_COMPACTION_CONFIG.maxTokens
     );
+  }
+
+  private getCompactionPolicyContextLimit(): number {
+    const rawContextLimit = this.getActiveContextLimit();
+    if (rawContextLimit <= 0) {
+      return rawContextLimit;
+    }
+
+    const budget = computeContextBudget({
+      contextLimit: rawContextLimit,
+      maxOutputTokens: this.compactionConfig.maxTokens,
+      reserveTokens: this.compactionConfig.reserveTokens,
+      thresholdRatio: this.compactionConfig.thresholdRatio,
+    });
+
+    return Math.max(1, budget.effectiveContextWindow);
   }
 
   private getEffectiveReserveTokens(options?: {
@@ -1043,10 +1665,24 @@ export class CheckpointHistory {
 
   private resolveCompactionSplitIndex(
     activeMessages: CheckpointMessage[],
-    forceAggressive: boolean
+    forceAggressive: boolean,
+    direction: CompactionDirection
   ): number | null {
+    if (direction === "keep-prefix") {
+      return this.resolveKeepPrefixSplitIndex(activeMessages, forceAggressive);
+    }
+
     if (forceAggressive) {
-      return activeMessages.length - 1;
+      const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+        activeMessages,
+        activeMessages.length - 1
+      );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        splitIndex
+      );
+
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
     }
 
     const defaultSplitIndex = calculateCompactionSplitIndex({
@@ -1058,10 +1694,19 @@ export class CheckpointHistory {
       messages: activeMessages,
     });
     if (defaultSplitIndex !== null) {
-      return defaultSplitIndex;
+      const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+        activeMessages,
+        defaultSplitIndex
+      );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        splitIndex
+      );
+
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
     }
 
-    return calculateCompactionSplitIndex({
+    const aggressiveSplitIndex = calculateCompactionSplitIndex({
       adjustSplitIndex: (index) => index,
       aggressive: true,
       estimateMessageTokens: (message: CheckpointMessage) =>
@@ -1069,10 +1714,146 @@ export class CheckpointHistory {
       keepRecentTokens: this.compactionConfig.keepRecentTokens ?? 2000,
       messages: activeMessages,
     });
+
+    if (aggressiveSplitIndex === null) {
+      return null;
+    }
+
+    const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+      activeMessages,
+      aggressiveSplitIndex
+    );
+    const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+      activeMessages,
+      splitIndex
+    );
+
+    return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
+  }
+
+  private adjustSplitIndexToApiRoundBoundary(
+    activeMessages: CheckpointMessage[],
+    rawSplitIndex: number
+  ): number {
+    const messageCount = activeMessages.length;
+    if (
+      messageCount === 0 ||
+      rawSplitIndex <= 0 ||
+      rawSplitIndex > messageCount
+    ) {
+      return rawSplitIndex;
+    }
+
+    const maxShiftDistance = messageCount * 0.2;
+    let nearestBoundaryIndex: number | null = null;
+    let nearestBoundaryDistance = Number.POSITIVE_INFINITY;
+
+    for (let i = 1; i < messageCount; i += 1) {
+      const previousMessage = activeMessages[i - 1];
+      const currentMessage = activeMessages[i];
+
+      if (!(previousMessage && currentMessage)) {
+        continue;
+      }
+
+      if (
+        previousMessage.message.role !== "assistant" ||
+        currentMessage.message.role !== "user"
+      ) {
+        continue;
+      }
+
+      const distance = Math.abs(rawSplitIndex - i);
+      if (distance < nearestBoundaryDistance) {
+        nearestBoundaryDistance = distance;
+        nearestBoundaryIndex = i;
+      }
+    }
+
+    if (
+      nearestBoundaryIndex === null ||
+      !(nearestBoundaryDistance < maxShiftDistance)
+    ) {
+      return rawSplitIndex;
+    }
+
+    return nearestBoundaryIndex;
+  }
+
+  private resolveKeepPrefixSplitIndex(
+    activeMessages: CheckpointMessage[],
+    forceAggressive: boolean
+  ): number | null {
+    if (activeMessages.length <= 1) {
+      return null;
+    }
+
+    if (forceAggressive) {
+      const splitIndex = this.adjustSplitIndexToApiRoundBoundary(
+        activeMessages,
+        1
+      );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        splitIndex
+      );
+
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
+    }
+
+    const keepPrefixTokens = this.compactionConfig.keepRecentTokens ?? 2000;
+    let keptTokens = 0;
+    let splitIndex = activeMessages.length;
+
+    for (let i = 0; i < activeMessages.length; i += 1) {
+      const message = activeMessages[i];
+      if (!message) {
+        continue;
+      }
+
+      const messageTokens = estimateTokens(extractMessageText(message.message));
+      if (keptTokens + messageTokens > keepPrefixTokens) {
+        splitIndex = i;
+        break;
+      }
+
+      keptTokens += messageTokens;
+      if (i === activeMessages.length - 1) {
+        splitIndex = activeMessages.length;
+      }
+    }
+
+    if (splitIndex >= activeMessages.length) {
+      return null;
+    }
+
+    if (splitIndex <= 0) {
+      const adjustedToBoundary = this.adjustSplitIndexToApiRoundBoundary(
+        activeMessages,
+        1
+      );
+      const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+        activeMessages,
+        adjustedToBoundary
+      );
+      return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
+    }
+
+    const adjustedToBoundary = this.adjustSplitIndexToApiRoundBoundary(
+      activeMessages,
+      splitIndex
+    );
+    const adjustedSplitIndex = adjustSplitIndexForToolPairs(
+      activeMessages,
+      adjustedToBoundary
+    );
+
+    return adjustedSplitIndex > 0 ? adjustedSplitIndex : null;
   }
 
   private async buildCompactionSummaryText(params: {
     activeMessages: CheckpointMessage[];
+    compactionDirection: CompactionDirection;
     previousSummary?: string;
     splitIndex: number;
     summarizeFn: (
@@ -1083,11 +1864,19 @@ export class CheckpointHistory {
   }): Promise<string> {
     const {
       activeMessages,
+      compactionDirection,
       previousSummary,
       splitIndex,
       summarizeFn,
       toSummarizeForSummary,
     } = params;
+
+    if (compactionDirection === "keep-prefix") {
+      return summarizeFn(
+        toSummarizeForSummary.map((message) => message.message),
+        previousSummary
+      );
+    }
 
     const splitTurnStart = this.findSplitTurnStartIndex({
       messagesToSummarize: toSummarizeForSummary,
@@ -1222,19 +2011,140 @@ export class CheckpointHistory {
     return Math.floor(contextLimit * 0.95);
   }
 
-  private evaluateRecoveryAttempt(params: {
+  private evaluateCompactionAcceptance(params: {
     contextLimit: number;
+    minSavingsRatio?: number;
     tokensAfter: number;
     tokensBefore: number;
-  }): boolean {
-    const { contextLimit, tokensAfter, tokensBefore } = params;
-    // Unlimited context: success = any reduction achieved
+  }): CompactionEffectiveness {
+    const {
+      contextLimit,
+      minSavingsRatio = DEFAULT_MIN_SAVINGS_RATIO,
+      tokensAfter,
+      tokensBefore,
+    } = params;
+
+    const savedTokens = tokensBefore - tokensAfter;
+    const savingsRatio = computeSavingsRatio(savedTokens, tokensBefore);
+
+    // Unlimited context: any reduction counts as fitting and below-threshold;
+    // only require minimum savings to reject degenerate summaries.
     if (contextLimit <= 0) {
-      return tokensAfter < tokensBefore;
+      const meetsMinSavings = savingsRatio >= minSavingsRatio;
+      return {
+        belowTriggerThreshold: savedTokens > 0,
+        fitsBudget: savedTokens > 0,
+        meetsMinSavings,
+        savedTokens,
+        savingsRatio,
+        triggerThresholdTokens: 0,
+      };
     }
-    // Budget-based: must be under contextLimit (after reserve)
+
     const budget = this.getRecoveryBudget();
-    return tokensAfter < budget;
+    const thresholdRatio =
+      this.compactionConfig.thresholdRatio ??
+      DEFAULT_COMPACTION_CONFIG.thresholdRatio;
+    const triggerThresholdTokens = Math.floor(contextLimit * thresholdRatio);
+
+    const fitsBudget = tokensAfter < budget;
+    const belowTriggerThreshold = tokensAfter < triggerThresholdTokens;
+    const meetsMinSavings = savingsRatio >= minSavingsRatio;
+
+    return {
+      belowTriggerThreshold,
+      fitsBudget,
+      meetsMinSavings,
+      savedTokens,
+      savingsRatio,
+      triggerThresholdTokens,
+    };
+  }
+
+  private resolveRejectionReason(
+    effectiveness: CompactionEffectiveness
+  ): CompactionRejectionReason | null {
+    if (!effectiveness.fitsBudget) {
+      return "exceeds-budget";
+    }
+    // belowTriggerThreshold and meetsMinSavings are observability signals only.
+    // Rejecting on those causes false negatives with real LLM summaries that
+    // land just above the trigger ratio, leading to emergency blocking
+    // compaction when tokens eventually hit the hard limit. The per-turn cap
+    // in the orchestrator prevents degenerate retry loops.
+    return null;
+  }
+
+  private isCompactionAccepted(
+    effectiveness: CompactionEffectiveness
+  ): boolean {
+    return this.resolveRejectionReason(effectiveness) === null;
+  }
+
+  private isAutoCompactWarranted(tokensBefore: number): boolean {
+    const contextLimit = this.compactionConfig.contextLimit;
+    if (contextLimit <= 0) {
+      return false;
+    }
+
+    const thresholdRatio =
+      this.compactionConfig.thresholdRatio ??
+      DEFAULT_COMPACTION_CONFIG.thresholdRatio;
+    const triggerTokens = Math.floor(contextLimit * thresholdRatio);
+    return tokensBefore >= triggerTokens;
+  }
+
+  private maybeRejectCompaction(params: {
+    autoCompact: boolean;
+    compactionMethod: CompactionResult["compactionMethod"];
+    effectiveness: CompactionEffectiveness;
+    snapshot: {
+      actualUsage: ActualTokenUsage | null;
+      messages: CheckpointMessage[];
+      messageRevision: number;
+      revision: number;
+      summaryMessageId: string | null;
+    };
+    tokensAfter: number;
+    tokensBefore: number;
+  }): CompactionResult | null {
+    if (!params.autoCompact) {
+      return null;
+    }
+
+    // Gate only applies when compaction was actually warranted. If the
+    // pre-compaction token count is still below the auto-compact trigger, the
+    // caller is force-compacting at a tiny scale (tests, warm-up, etc.) and
+    // the gate would produce false rejections because overhead dominates.
+    if (!this.isAutoCompactWarranted(params.tokensBefore)) {
+      return null;
+    }
+
+    const rejectionReason = this.resolveRejectionReason(params.effectiveness);
+    if (!rejectionReason) {
+      return null;
+    }
+
+    this.messages = params.snapshot.messages;
+    this.summaryMessageId = params.snapshot.summaryMessageId;
+    this.actualUsage = params.snapshot.actualUsage;
+    this.revision = params.snapshot.revision;
+    this.messageRevision = params.snapshot.messageRevision;
+    this.refreshEstimatedUsage();
+
+    this.logCompactionDebug(
+      `compact rejected: ${rejectionReason} (saved=${params.effectiveness.savedTokens}, ratio=${params.effectiveness.savingsRatio.toFixed(3)})`
+    );
+
+    return {
+      success: false,
+      compactionMethod: params.compactionMethod,
+      effectiveness: params.effectiveness,
+      reason: INEFFECTIVE_COMPACTION_REASON,
+      rejectionReason,
+      tokensAfter: params.tokensAfter,
+      tokensBefore: params.tokensBefore,
+    };
   }
 
   private tryPruneRecovery(
@@ -1267,18 +2177,17 @@ export class CheckpointHistory {
     } else {
       this.messages = pruneResult.messages;
     }
-    this.actualUsage = null;
+    this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
 
     const tokensAfter = this.getEstimatedTokens();
-    if (
-      !this.evaluateRecoveryAttempt({
-        contextLimit,
-        tokensAfter,
-        tokensBefore,
-      })
-    ) {
+    const pruneEffectiveness = this.evaluateCompactionAcceptance({
+      contextLimit,
+      tokensAfter,
+      tokensBefore,
+    });
+    if (!pruneEffectiveness.fitsBudget) {
       return null;
     }
 
@@ -1330,24 +2239,19 @@ export class CheckpointHistory {
       actualUsage: this.actualUsage,
     };
 
-    let messagesToSummarize: CheckpointMessage[];
-    let messagesToKeep: CheckpointMessage[];
+    const compactionDirection = this.resolveCompactionDirection();
     const replayMessage = findReplayableUserMessage(activeMessages);
 
-    if (aggressive) {
-      messagesToSummarize = activeMessages;
-      messagesToKeep = [];
-    } else {
-      const splitIndex = this.resolveCompactionSplitIndex(
-        activeMessages,
-        false
-      );
-      if (splitIndex === null || splitIndex <= 0) {
-        return null;
-      }
-      messagesToSummarize = activeMessages.slice(0, splitIndex);
-      messagesToKeep = activeMessages.slice(splitIndex);
+    const overflowSplit = this.resolveOverflowCompactionSegments(
+      activeMessages,
+      aggressive,
+      compactionDirection
+    );
+    if (!overflowSplit) {
+      return null;
     }
+
+    const { messagesToKeep, messagesToSummarize } = overflowSplit;
 
     if (messagesToSummarize.length === 0) {
       return null;
@@ -1406,18 +2310,23 @@ export class CheckpointHistory {
       this.messages.push(replayMessageCopy);
     }
     this.summaryMessageId = summaryMessage.id;
-    this.actualUsage = null;
+    this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
 
     const tokensAfter = this.getEstimatedTokens();
-    if (
-      !this.evaluateRecoveryAttempt({
-        contextLimit,
-        tokensAfter,
-        tokensBefore,
-      })
-    ) {
+    const effectiveness = this.evaluateCompactionAcceptance({
+      contextLimit,
+      tokensAfter,
+      tokensBefore,
+    });
+    // Aggressive overflow recovery is a last-resort strategy; only require that
+    // the result fits within the recovery budget. Non-aggressive overflow must
+    // pass the full acceptance gate to avoid pathological re-compaction loops.
+    const accepted = aggressive
+      ? effectiveness.fitsBudget
+      : this.isCompactionAccepted(effectiveness);
+    if (!accepted) {
       this.messages = snapshot.messages;
       this.summaryMessageId = snapshot.summaryMessageId;
       this.actualUsage = snapshot.actualUsage;
@@ -1442,6 +2351,44 @@ export class CheckpointHistory {
       strategy: aggressive ? "aggressive-compact" : "compact",
       tokensBefore,
       tokensAfter,
+    };
+  }
+
+  private resolveOverflowCompactionSegments(
+    activeMessages: CheckpointMessage[],
+    aggressive: boolean,
+    direction: CompactionDirection
+  ): {
+    messagesToKeep: CheckpointMessage[];
+    messagesToSummarize: CheckpointMessage[];
+  } | null {
+    if (aggressive) {
+      return {
+        messagesToSummarize: activeMessages,
+        messagesToKeep: [],
+      };
+    }
+
+    const splitIndex = this.resolveCompactionSplitIndex(
+      activeMessages,
+      false,
+      direction
+    );
+
+    if (splitIndex === null || splitIndex <= 0) {
+      return null;
+    }
+
+    if (direction === "keep-prefix") {
+      return {
+        messagesToSummarize: activeMessages.slice(splitIndex),
+        messagesToKeep: activeMessages.slice(0, splitIndex),
+      };
+    }
+
+    return {
+      messagesToSummarize: activeMessages.slice(0, splitIndex),
+      messagesToKeep: activeMessages.slice(splitIndex),
     };
   }
 
@@ -1493,7 +2440,7 @@ export class CheckpointHistory {
       this.messageRevision += 1;
     }
 
-    this.actualUsage = null;
+    this.refreshEstimatedUsage();
     const tokensAfter = this.getEstimatedTokens();
 
     if (tokensAfter >= contextLimit) {
@@ -1506,13 +2453,12 @@ export class CheckpointHistory {
       };
     }
 
-    if (
-      !this.evaluateRecoveryAttempt({
-        contextLimit,
-        tokensAfter,
-        tokensBefore,
-      })
-    ) {
+    const truncateEffectiveness = this.evaluateCompactionAcceptance({
+      contextLimit,
+      tokensAfter,
+      tokensBefore,
+    });
+    if (!truncateEffectiveness.fitsBudget) {
       return null;
     }
 

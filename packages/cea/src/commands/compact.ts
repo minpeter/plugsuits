@@ -1,38 +1,28 @@
 import type {
+  CheckpointHistory,
   Command,
   CommandResult,
-  CompactionOrchestrator,
 } from "@ai-sdk-tool/harness";
 
+interface CompactCommandOptions {
+  messageHistory: CheckpointHistory;
+}
+
 export const createCompactCommand = (
-  getOrchestrator: () => CompactionOrchestrator
+  options: CompactCommandOptions
 ): Command => ({
   name: "compact",
-  description: "Force conversation compaction",
+  description: "Manually compact conversation history",
   aliases: ["summarize"],
   execute: async (): Promise<CommandResult> => {
-    const orchestrator = getOrchestrator();
-
-    const result = await orchestrator.manualCompact();
-
-    if (!result.success) {
+    try {
+      await options.messageHistory.compact();
+      return { success: true, message: "Compaction completed." };
+    } catch (error) {
       return {
         success: false,
-        message: result.reason || "Compaction failed",
+        message: `Compaction failed: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-
-    const reduction =
-      result.tokensBefore > 0
-        ? Math.max(
-            0,
-            Math.round((1 - result.tokensAfter / result.tokensBefore) * 100)
-          )
-        : 0;
-
-    return {
-      success: true,
-      message: `Compacted: ${result.tokensBefore.toLocaleString()} → ${result.tokensAfter.toLocaleString()} tokens (${reduction}% reduction)`,
-    };
   },
 });

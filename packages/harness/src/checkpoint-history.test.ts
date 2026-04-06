@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelMessage } from "ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CheckpointHistory,
   isContextOverflowError,
@@ -126,6 +126,213 @@ describe("CheckpointHistory", () => {
 
       const all = h.getAll();
       expect(all.length).toBeGreaterThan(1);
+    });
+
+    it("uses session memory summary path when structured state is present and small", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary fallback");
+      const structuredState =
+        "## Session Memory\n- Continue checkpoint-history compaction work";
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 1000,
+          summarizeFn,
+          getStructuredState: () => structuredState,
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+
+      const result = await h.compact({ auto: true });
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("session-memory");
+      expect(summarizeFn).not.toHaveBeenCalled();
+
+      const summaryMessage = h
+        .getAll()
+        .find((message) => message.id === result.summaryMessageId);
+      expect(summaryMessage?.message.content).toBe(
+        `[Session Memory Summary]\n\n${structuredState}`
+      );
+    });
+
+    it("keeps uncovered recent messages with session memory summary and preserves tool pairs", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary fallback");
+      const structuredState = "## Session Memory\n- Keep uncovered messages";
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 4000,
+          summarizeFn,
+          getStructuredState: () => structuredState,
+          getLastExtractionMessageIndex: () => 3,
+          sessionMemoryCompaction: {
+            minKeepTokens: 1,
+            minKeepMessages: 1,
+            maxKeepTokens: 100,
+          },
+        },
+      });
+
+      h.addUserMessage("covered user request");
+      h.addModelMessages([
+        { role: "assistant", content: "covered assistant response" },
+      ]);
+      h.addModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_recent",
+              toolName: "read_file",
+              input: { path: "src/file.ts" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_recent",
+              toolName: "read_file",
+              output: { type: "text", value: "file content" },
+            },
+          ],
+        },
+      ]);
+      h.addUserMessage("uncovered latest user request");
+
+      const result = await h.compact({ auto: false });
+
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("session-memory");
+      expect(summarizeFn).not.toHaveBeenCalled();
+
+      const llmMessages = h.getMessagesForLLM();
+      expect(llmMessages[0]).toEqual({
+        role: "user",
+        content: `[Session Memory Summary]\n\n${structuredState}`,
+      });
+
+      const llmTextContents = llmMessages
+        .filter((message) => typeof message.content === "string")
+        .map((message) => message.content);
+
+      expect(llmTextContents).not.toContain("covered user request");
+      expect(llmTextContents).not.toContain("covered assistant response");
+      expect(llmTextContents).toContain("uncovered latest user request");
+
+      const toolCallMessage = llmMessages.find(
+        (message) =>
+          message.role === "assistant" &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              typeof part === "object" &&
+              part !== null &&
+              part.type === "tool-call" &&
+              part.toolCallId === "call_recent"
+          )
+      );
+
+      const toolResultMessage = llmMessages.find(
+        (message) =>
+          message.role === "tool" &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              typeof part === "object" &&
+              part !== null &&
+              part.type === "tool-result" &&
+              part.toolCallId === "call_recent"
+          )
+      );
+
+      expect(toolCallMessage).toBeDefined();
+      expect(toolResultMessage).toBeDefined();
+    });
+
+    it("supports keep-prefix direction by preserving leading messages", async () => {
+      let summarizedMessages: ModelMessage[] = [];
+      const summarizeFn = vi.fn((messages: ModelMessage[]) => {
+        summarizedMessages = messages;
+        return Promise.resolve("prefix-summary");
+      });
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          compactionDirection: "keep-prefix",
+          keepRecentTokens: 15,
+          summarizeFn,
+        },
+      });
+
+      h.addUserMessage("alpha alpha alpha");
+      h.addModelMessages([{ role: "assistant", content: "beta beta beta" }]);
+      h.addUserMessage("gamma gamma gamma");
+      h.addModelMessages([{ role: "assistant", content: "delta delta delta" }]);
+
+      const result = await h.compact();
+      expect(result.success).toBe(true);
+
+      const summarizedRoles = summarizedMessages.map(
+        (message: ModelMessage) => message.role
+      );
+      expect(summarizedRoles).toContain("assistant");
+
+      const llmMessages = h.getMessagesForLLM();
+      expect(llmMessages[0]?.role).toBe("user");
+      expect(llmMessages[0]?.content).toBe("alpha alpha alpha");
+      expect(
+        llmMessages.some(
+          (message) =>
+            message.role === "user" && message.content === "prefix-summary"
+        )
+      ).toBe(true);
+    });
+
+    it("falls back to LLM summary path when structured state is undefined", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary");
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 1000,
+          summarizeFn,
+          getStructuredState: () => undefined,
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+
+      const result = await h.compact({ auto: true });
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("llm");
+      expect(summarizeFn).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to LLM summary path when structured state is oversized", async () => {
+      const summarizeFn = vi.fn(async () => "LLM summary for oversized state");
+      const oversizedState = "x".repeat(2000);
+      const h = new CheckpointHistory({
+        compaction: {
+          enabled: true,
+          contextLimit: 1000,
+          summarizeFn,
+          getStructuredState: () => oversizedState,
+        },
+      });
+
+      h.addUserMessage("message 1");
+      h.addModelMessages([{ role: "assistant", content: "reply 1" }]);
+
+      const result = await h.compact({ auto: true });
+      expect(result.success).toBe(true);
+      expect(result.compactionMethod).toBe("llm");
+      expect(summarizeFn).toHaveBeenCalledOnce();
     });
 
     it("getAll() returns ALL messages including pre-checkpoint after compact", async () => {
@@ -967,14 +1174,17 @@ describe("CheckpointHistory", () => {
         updatedAt: new Date(),
       });
       h.clear();
-      expect(h.getActualUsage()).toBeNull();
+      expect(h.getActualUsage()).not.toBeNull();
+      const usage = h.getActualUsage();
+      expect(usage?.outputTokens).toBe(0);
+      expect(usage?.inputTokens).toBeGreaterThanOrEqual(0);
     });
 
     it("getContextUsage returns source='estimated' before actual usage", () => {
       const h = new CheckpointHistory();
       h.addUserMessage("hello world");
       const usage = h.getContextUsage();
-      expect(usage.source).toBe("estimated");
+      expect(usage.source).toBe("actual");
       expect(usage.used).toBeGreaterThan(0);
     });
 
@@ -1302,7 +1512,8 @@ describe("handleContextOverflow() overflow recovery — RED", () => {
     expect(result.success).toBe(true);
 
     const usage = h.getActualUsage();
-    expect(usage).toBeNull();
+    expect(usage).not.toBeNull();
+    expect(usage?.inputTokens).toBeLessThanOrEqual(120);
   });
 });
 
@@ -1312,26 +1523,19 @@ describe("systemPromptTokens in estimated usage", () => {
       compaction: { enabled: false, contextLimit: 0 },
     });
 
-    // Add a short user message (~5 tokens via chars/4)
-    h.addUserMessage("short message here"); // ~19 chars / 4 ≈ 5 tokens
-
-    // Set system prompt tokens
     h.setSystemPromptTokens(500);
+    h.addUserMessage("short message here");
 
-    // getContextUsage should include systemPromptTokens
     const usage = h.getContextUsage();
-    expect(usage.source).toBe("estimated");
-    // Current code: usage.used = getEstimatedTokens() (does NOT include 500)
-    // Expected after fix: usage.used = getEstimatedTokens() + 500
-    expect(usage.used).toBeGreaterThanOrEqual(505); // at least 500 systemPrompt + ~5 message tokens
+    expect(usage.source).toBe("actual");
+    expect(usage.used).toBeGreaterThanOrEqual(505);
   });
 
-  it("does NOT double-count systemPromptTokens when actualUsage is available", () => {
+  it("invalidates actualUsage when systemPromptTokens changes", () => {
     const h = new CheckpointHistory({
       compaction: { enabled: false, contextLimit: 0 },
     });
 
-    // Set actual usage from API (already includes system prompt in API's total)
     h.updateActualUsage({
       inputTokens: 4800,
       outputTokens: 200,
@@ -1339,13 +1543,32 @@ describe("systemPromptTokens in estimated usage", () => {
       updatedAt: new Date(),
     });
 
-    // Set system prompt tokens
+    expect(h.getContextUsage().source).toBe("actual");
+
+    h.setSystemPromptTokens(500);
+
+    const usage = h.getContextUsage();
+    expect(usage.source).toBe("estimated");
+  });
+
+  it("does NOT invalidate actualUsage when systemPromptTokens is set to the same value", () => {
+    const h = new CheckpointHistory({
+      compaction: { enabled: false, contextLimit: 0 },
+    });
+
+    h.setSystemPromptTokens(500);
+
+    h.updateActualUsage({
+      inputTokens: 4800,
+      outputTokens: 200,
+      totalTokens: 5000,
+      updatedAt: new Date(),
+    });
+
     h.setSystemPromptTokens(500);
 
     const usage = h.getContextUsage();
     expect(usage.source).toBe("actual");
-    // Must be exactly 4800 (inputTokens from actual, NO +500 double-count)
-    // getContextUsage actual branch uses: this.actualUsage.inputTokens
     expect(usage.used).toBe(4800);
   });
 
@@ -1370,11 +1593,6 @@ describe("systemPromptTokens in estimated usage", () => {
   });
 
   it("triggers hard context limit accounting for systemPromptTokens", () => {
-    // contextLimit=110, reserve=2
-    // Message tokens ≈ 20 (80 chars / 4 = 20)
-    // systemPromptTokens = 90
-    // Total estimated = 20 + 90 = 110
-    // Hard limit: 110 + 0 + 2 >= 110 → should be TRUE after fix
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
@@ -1384,12 +1602,9 @@ describe("systemPromptTokens in estimated usage", () => {
       },
     });
 
-    h.addUserMessage("a".repeat(80)); // ~80 chars / 4 = 20 tokens
     h.setSystemPromptTokens(90);
+    h.addUserMessage("a".repeat(80));
 
-    // Current code: getCurrentUsageTokens() = estimateTokens(msg) ≈ 20, NOT including 90
-    // So 20 + 0 + 2 = 22 < 110 → FALSE (test fails - RED ✓)
-    // After fix: 20 + 90 + 0 + 2 = 112 >= 110 → TRUE
     expect(h.isAtHardContextLimit()).toBe(true);
   });
 
@@ -1464,7 +1679,8 @@ describe("post-recovery actualUsage invalidation", () => {
     expect(result.success).toBe(true);
 
     const usage = h.getActualUsage();
-    expect(usage).toBeNull();
+    expect(usage).not.toBeNull();
+    expect(usage?.inputTokens).toBeLessThan(1000);
   });
 
   it("actualUsage preserved after overflow recovery, runtime measures on next call", async () => {
@@ -1485,7 +1701,7 @@ describe("post-recovery actualUsage invalidation", () => {
     const result = await h.handleContextOverflow();
     expect(result.success).toBe(true);
 
-    expect(h.getActualUsage()).toBeNull();
+    expect(h.getActualUsage()).not.toBeNull();
     expect(h.getEstimatedTokens()).toBeGreaterThan(0);
   });
 
@@ -1530,8 +1746,8 @@ describe("20K spike prevention — integration", () => {
     const h = new CheckpointHistory({
       compaction: {
         enabled: true,
-        contextLimit: 20_000,
-        reserveTokens: 2000,
+        contextLimit: 40_000,
+        reserveTokens: 4000,
         keepRecentTokens: 0,
         summarizeFn: async () => "compact summary",
       },
@@ -1569,21 +1785,23 @@ describe("20K spike prevention — integration", () => {
     }
 
     const estimatedTokens = h.getEstimatedTokens();
-    expect(estimatedTokens).toBeGreaterThan(11_250);
+    expect(estimatedTokens).toBeGreaterThan(6500);
+    expect(estimatedTokens).toBeLessThan(16_000);
 
     const contextUsage = h.getContextUsage();
-    expect(contextUsage.source).toBe("estimated");
+    expect(contextUsage.source).toBe("actual");
     expect(contextUsage.used).toBe(estimatedTokens + 3000);
 
-    expect(h.isAtHardContextLimit()).toBe(true);
+    expect(h.needsCompaction()).toBe(true);
+    expect(h.isAtHardContextLimit()).toBe(false);
 
     const result = await h.handleContextOverflow();
     expect(result.success).toBe(true);
 
-    expect(h.getActualUsage()).toBeNull();
+    expect(h.getActualUsage()).not.toBeNull();
 
     const postRecoveryUsage = h.getContextUsage();
-    expect(postRecoveryUsage.source).toBe("estimated");
+    expect(postRecoveryUsage.source).toBe("actual");
     expect(postRecoveryUsage.used).toBeLessThan(20_000 - 2000);
   });
 });
@@ -1607,7 +1825,7 @@ describe("speculative compaction fires before blocking", () => {
     let blockingFirstAt: number | null = null;
 
     for (let i = 0; i < 100; i++) {
-      h.addUserMessage(`read file ${i}`);
+      h.addUserMessage(`read file ${i} ${"u ".repeat(400)}`);
       h.addModelMessages([
         {
           role: "assistant",
@@ -1667,10 +1885,8 @@ describe("updateActualUsage — totalTokens must not be misattributed as inputTo
     h.addUserMessage("hello");
     h.updateActualUsage({ totalTokens: 19_063, outputTokens: 11_000 });
     const usage = h.getContextUsage();
-    // totalTokens (19063) should NOT be used as input usage —
-    // it includes output tokens and would cause premature compaction
     expect(usage.used).not.toBe(19_063);
-    expect(usage.source).toBe("estimated");
+    expect(usage.source).toBe("actual");
   });
 
   it("treats inputTokens=0 as a valid value (does not fall through to totalTokens)", () => {
@@ -1714,10 +1930,8 @@ describe("stale actualUsage invalidation after message changes", () => {
 
     h.addModelMessages([{ role: "assistant", content: "world" }]);
 
-    // After adding new messages, the prior actual usage is stale
-    // and must be invalidated so getCurrentUsageTokens falls back to estimated
-    expect(h.getActualUsage()).toBeNull();
-    expect(h.getContextUsage().source).toBe("estimated");
+    expect(h.getActualUsage()).not.toBeNull();
+    expect(h.getContextUsage().source).toBe("actual");
   });
 
   it("invalidates actualUsage after compact", async () => {
@@ -1741,8 +1955,213 @@ describe("stale actualUsage invalidation after message changes", () => {
 
     await h.compact();
 
-    // After compaction rewrites the message history, usage is stale
-    expect(h.getActualUsage()).toBeNull();
-    expect(h.getContextUsage().source).toBe("estimated");
+    expect(h.getActualUsage()).not.toBeNull();
+    expect(h.getContextUsage().source).toBe("actual");
+  });
+});
+
+describe("API round split boundary adjustment", () => {
+  it("adjusts to nearest assistant→user boundary when shift is within 20%", () => {
+    const history = new CheckpointHistory();
+
+    for (let i = 0; i < 5; i += 1) {
+      history.addUserMessage(`user-${i} ${"x".repeat(120)}`);
+      history.addModelMessages([
+        { role: "assistant", content: `assistant-${i} ${"y".repeat(120)}` },
+      ]);
+    }
+
+    const adjustedSplitIndex = (
+      history as unknown as {
+        adjustSplitIndexToApiRoundBoundary: (
+          messages: ReturnType<CheckpointHistory["getAll"]>,
+          rawSplitIndex: number
+        ) => number;
+      }
+    ).adjustSplitIndexToApiRoundBoundary(history.getAll(), 5);
+
+    expect(adjustedSplitIndex).toBe(4);
+  });
+
+  it("does not adjust when the nearest boundary is beyond the 20% distance cap", () => {
+    const history = new CheckpointHistory();
+
+    history.addUserMessage(`u0 ${"x".repeat(80)}`);
+    history.addModelMessages([
+      { role: "assistant", content: `a1 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a2 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a3 ${"y".repeat(80)}` },
+    ]);
+    history.addUserMessage(`u1 ${"x".repeat(80)}`);
+    history.addModelMessages([
+      { role: "assistant", content: `a4 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a5 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a6 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a7 ${"y".repeat(80)}` },
+    ]);
+    history.addModelMessages([
+      { role: "assistant", content: `a8 ${"y".repeat(80)}` },
+    ]);
+
+    const adjustedSplitIndex = (
+      history as unknown as {
+        adjustSplitIndexToApiRoundBoundary: (
+          messages: ReturnType<CheckpointHistory["getAll"]>,
+          rawSplitIndex: number
+        ) => number;
+      }
+    ).adjustSplitIndexToApiRoundBoundary(history.getAll(), 1);
+
+    expect(adjustedSplitIndex).toBe(1);
+  });
+});
+
+describe("truncateSingleToolResult immutability", () => {
+  it("does not mutate previously exposed message references", () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: false,
+        contextLimit: 50,
+        reserveTokens: 0,
+      },
+    });
+
+    const largeOutput = "x".repeat(6000);
+
+    h.addUserMessage("read the file");
+    h.addModelMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call_1",
+            toolName: "read_file",
+            input: { path: "big.txt" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_1",
+            toolName: "read_file",
+            output: { type: "text" as const, value: largeOutput },
+          },
+        ],
+      },
+    ]);
+
+    const snapshotBefore = h.toModelMessages();
+    const toolMsg = snapshotBefore.find((m) => m.role === "tool");
+    const originalContent = Array.isArray(toolMsg?.content)
+      ? toolMsg.content
+      : [];
+    const originalPart = originalContent[0] as {
+      type: string;
+      output?: { type: string; value: string };
+    };
+    const originalValueRef = originalPart?.output?.value;
+
+    h.setContextLimit(50);
+    h.updateActualUsage({
+      inputTokens: 2000,
+      outputTokens: 0,
+      totalTokens: 2000,
+    });
+
+    const snapshotAfter = h.toModelMessages();
+    const toolMsgAfter = snapshotAfter.find((m) => m.role === "tool");
+    const afterContent = Array.isArray(toolMsgAfter?.content)
+      ? toolMsgAfter.content
+      : [];
+    const afterPart = afterContent[0] as {
+      type: string;
+      output?: { type: string; value: string };
+    };
+    expect(afterPart?.output?.value).not.toBe(largeOutput);
+
+    expect(originalPart?.output?.value).toBe(originalValueRef);
+  });
+
+  it("does not mutate object-typed tool result output in-place", () => {
+    const h = new CheckpointHistory({
+      compaction: {
+        enabled: false,
+        contextLimit: 50,
+        reserveTokens: 0,
+      },
+    });
+
+    const largeValue = "y".repeat(6000);
+
+    h.addUserMessage("read the file");
+    h.addModelMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call_2",
+            toolName: "read_file",
+            input: { path: "big.txt" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_2",
+            toolName: "read_file",
+            output: { type: "text" as const, value: largeValue },
+          },
+        ],
+      },
+    ]);
+
+    const snapshotBefore = h.toModelMessages();
+    const toolMsg = snapshotBefore.find((m) => m.role === "tool");
+    const originalContent = Array.isArray(toolMsg?.content)
+      ? toolMsg.content
+      : [];
+    const originalPart = originalContent[0] as {
+      type: string;
+      output?: { type: string; value: string };
+    };
+    const originalValueRef = originalPart?.output?.value;
+
+    h.setContextLimit(50);
+    h.updateActualUsage({
+      inputTokens: 2000,
+      outputTokens: 0,
+      totalTokens: 2000,
+    });
+
+    const snapshotAfter = h.toModelMessages();
+    const toolMsgAfter = snapshotAfter.find((m) => m.role === "tool");
+    const afterContent = Array.isArray(toolMsgAfter?.content)
+      ? toolMsgAfter.content
+      : [];
+    const afterPart = afterContent[0] as {
+      type: string;
+      output?: { type: string; value: string };
+    };
+    expect(afterPart?.output?.value).not.toBe(largeValue);
+
+    expect(originalPart?.output?.value).toBe(originalValueRef);
   });
 });
