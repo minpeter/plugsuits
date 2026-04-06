@@ -11,6 +11,9 @@ import type {
   ToolSet,
 } from "ai";
 
+import type { MCPManager } from "./mcp-manager.js";
+import type { MCPServerConfig } from "./mcp-types.js";
+
 export type {
   LanguageModel,
   LanguageModelUsage,
@@ -25,17 +28,41 @@ type StreamTextOptions = Parameters<typeof streamText>[0];
 
 export type AgentInstructions = string | (() => Promise<string>);
 
+/**
+ * Options for configuring MCP (Model Context Protocol) client integration.
+ * Passed to {@link AgentConfig.mcp} to enable automatic MCP tool loading.
+ *
+ * @example `mcp: true` — load from .mcp.json
+ * @example `mcp: [{ url: "https://..." }]` — inline servers
+ * @example `mcp: { config: true, servers: [...] }` — both
+ * @example `mcp: mcpManager` — pre-initialized instance (lifecycle managed by caller)
+ */
+export type MCPOption =
+  | boolean
+  | MCPServerConfig[]
+  | {
+      config?: boolean | string;
+      onError?: (server: string, error: unknown) => void;
+      servers?: MCPServerConfig[];
+      toolsTimeout?: number;
+    }
+  | MCPManager;
+
 /** Configuration for creating an agent via {@link createAgent}. */
 export interface AgentConfig {
   experimental_repairToolCall?: StreamTextOptions["experimental_repairToolCall"];
   instructions?: AgentInstructions;
   maxStepsPerTurn?: number;
+  /** Optional MCP (Model Context Protocol) configuration. When provided, MCP tools are loaded and merged with local tools at agent creation time. */
+  mcp?: MCPOption;
   model: LanguageModel;
   tools?: ToolSet;
 }
 
 /** An agent instance returned by {@link createAgent}. */
 export interface Agent {
+  /** Release MCP connections and resources. Safe to call multiple times (idempotent). No-op if no MCP was configured. */
+  close(): Promise<void>;
   config: AgentConfig;
   stream(opts: AgentStreamOptions): AgentStreamResult;
 }
