@@ -40,12 +40,12 @@ No framework overhead. No abstraction tax. Just the interface between model and 
 
 - Node.js >= 22
 - pnpm >= 10
-- A [FriendliAI](https://friendli.ai) API token (or any Vercel AI SDK-compatible provider)
+- An `ANTHROPIC_API_KEY`
 
 ### Run directly
 
 ```bash
-export FRIENDLI_TOKEN=your_token_here
+export ANTHROPIC_API_KEY=your_token_here
 pnpm dlx plugsuits
 ```
 
@@ -79,7 +79,6 @@ Available commands:
   /model      Switch AI models
   /reasoning  Toggle reasoning mode
   /translate  Toggle translation mode
-  /render     Render raw prompt
   /quit       Exit
 ```
 
@@ -117,7 +116,7 @@ plugsuits/
 | Package | Description |
 |---------|-------------|
 | [`@ai-sdk-tool/harness`](./packages/harness) | Reusable agent harness — model-agnostic loop, tool management, message history |
-| [`@ai-sdk-tool/cea`](./packages/cea) | Code editing agent — full implementation with TUI, tools, and FriendliAI integration |
+| [`@ai-sdk-tool/cea`](./packages/cea) | Code editing agent — full implementation with TUI, tools, and Anthropic integration |
 
 ## Development
 
@@ -155,7 +154,7 @@ Both the TUI footer and the compaction engine will reflect the overridden limit.
 ## Built With
 
 - [Vercel AI SDK](https://sdk.vercel.ai) — Model provider abstraction and streaming
-- [FriendliAI](https://friendli.ai) — Default model provider
+- [Anthropic](https://www.anthropic.com) — Default model provider
 - [pnpm](https://pnpm.io) — Workspace package manager
 - [Turborepo](https://turbo.build/repo) — Task orchestration and caching
 - [TypeScript](https://www.typescriptlang.org) — Strict mode throughout
