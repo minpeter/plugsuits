@@ -94,8 +94,8 @@ describe("Reasoning mode command", () => {
     originalMode = agentManager.getReasoningMode();
     originalProvider = agentManager.getProvider();
     originalModelId = agentManager.getModelId();
-    agentManager.setProvider("friendli");
-    agentManager.setModelId("MiniMaxAI/MiniMax-M2.5");
+    agentManager.setProvider("anthropic");
+    agentManager.setModelId("claude-sonnet-4-6");
     agentManager.setReasoningMode("on");
   });
 
@@ -110,10 +110,10 @@ describe("Reasoning mode command", () => {
       registerCommand(createReasoningModeCommand());
     }
 
-    const result = await executeCommand("/think interleaved");
+    const result = await executeCommand("/think off");
     expect(result).not.toBeNull();
     expect(result?.success).toBe(true);
-    expect(agentManager.getReasoningMode()).toBe("interleaved");
+    expect(agentManager.getReasoningMode()).toBe("off");
   });
 
   it("rejects unsupported mode for current model", async () => {

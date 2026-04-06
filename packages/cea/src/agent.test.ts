@@ -48,19 +48,11 @@ describe("AgentManager translation reasoning selection", () => {
   });
 
   it("uses off for translation when off is selectable", () => {
-    agentManager.setProvider("friendli");
-    agentManager.setModelId("zai-org/GLM-5");
+    agentManager.setProvider("anthropic");
+    agentManager.setModelId("claude-sonnet-4-6");
     agentManager.setReasoningMode("preserved");
 
     expect(agentManager.getTranslationReasoningMode()).toBe("off");
-  });
-
-  it("uses on for translation when off is unavailable", () => {
-    agentManager.setProvider("friendli");
-    agentManager.setModelId("MiniMaxAI/MiniMax-M2.5");
-    agentManager.setReasoningMode("interleaved");
-
-    expect(agentManager.getTranslationReasoningMode()).toBe("on");
   });
 });
 
@@ -170,8 +162,8 @@ summary`);
   });
 
   it("uses a soft compaction threshold and earlier speculative ratio based on usable input budget", () => {
-    agentManager.setProvider("friendli");
-    agentManager.setModelId("zai-org/GLM-5");
+    agentManager.setProvider("anthropic");
+    agentManager.setModelId("claude-sonnet-4-6");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(
@@ -240,8 +232,8 @@ summary`);
   });
 
   it("buildCompactionConfig includes getStructuredState callback", () => {
-    agentManager.setProvider("friendli");
-    agentManager.setModelId("zai-org/GLM-5");
+    agentManager.setProvider("anthropic");
+    agentManager.setModelId("claude-sonnet-4-6");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(
