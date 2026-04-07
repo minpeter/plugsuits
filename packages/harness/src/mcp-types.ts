@@ -53,6 +53,12 @@ export interface MCPConfigFile {
 export interface MCPManagerOptions {
   /** Path to the MCP configuration file (e.g., "./.mcp.json" or "/etc/app/.mcp.json") */
   configPath?: string;
+  /**
+   * When true, always load file-based config even when inline `servers` are provided.
+   * Use this when `configPath` is undefined (default `.mcp.json`) but file servers
+   * should still be merged with inline servers.
+   */
+  loadFileConfig?: boolean;
   /** Optional callback for server errors (connection failures, crashes, etc.) */
   onError?: (server: string, error: unknown) => void;
   /** Inline server configurations merged with any file-based config */

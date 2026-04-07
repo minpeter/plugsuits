@@ -68,6 +68,7 @@ export class MCPManager {
     try {
       const shouldLoadFile =
         this.options.configPath !== undefined ||
+        this.options.loadFileConfig === true ||
         this.options.servers === undefined ||
         Object.keys(this.options.servers).length === 0;
 

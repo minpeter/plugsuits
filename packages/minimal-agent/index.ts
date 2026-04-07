@@ -231,6 +231,7 @@ const main = defineCommand({
         },
         onTurnComplete: handleTurnComplete,
       });
+      await agent.close();
       return;
     }
 

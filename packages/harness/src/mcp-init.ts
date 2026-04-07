@@ -79,6 +79,7 @@ function getOrCreateEntry(
   cacheKey: string,
   options: {
     configPath?: string;
+    loadFileConfig?: boolean;
     onError?: (server: string, error: unknown) => void;
     servers?: Record<string, MCPServerConfig>;
     toolsTimeout?: number;
@@ -92,6 +93,7 @@ function getOrCreateEntry(
 
   const manager = new MCPManager({
     configPath: options.configPath,
+    loadFileConfig: options.loadFileConfig,
     onError: options.onError,
     servers: options.servers,
     toolsTimeout: options.toolsTimeout,
@@ -113,6 +115,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   cacheKey: string;
   options: {
     configPath?: string;
+    loadFileConfig?: boolean;
     onError?: (server: string, error: unknown) => void;
     servers?: Record<string, MCPServerConfig>;
     toolsTimeout?: number;
@@ -146,12 +149,11 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   const allServers = { ...fileServers, ...namedInline };
   const timeoutSuffix =
     mcp.toolsTimeout !== undefined ? `+timeout:${mcp.toolsTimeout}` : "";
-  const onErrorSuffix =
-    mcp.onError !== undefined ? `+onError:${uniqueId()}` : "";
   return {
-    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(sortServers(inlineServers))}${timeoutSuffix}${onErrorSuffix}`,
+    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(sortServers(inlineServers))}${timeoutSuffix}`,
     options: {
       configPath: mcp.config ? configPath : undefined,
+      loadFileConfig: mcp.config ? true : undefined,
       onError: mcp.onError,
       servers: Object.keys(namedInline).length > 0 ? namedInline : undefined,
       toolsTimeout: mcp.toolsTimeout,
@@ -173,11 +175,6 @@ function sortServers(servers: MCPServerConfig[]): MCPServerConfig[] {
   return [...servers].sort((left, right) =>
     stableStringify(left).localeCompare(stableStringify(right))
   );
-}
-
-let _uniqueCounter = 0;
-function uniqueId(): number {
-  return ++_uniqueCounter;
 }
 
 function stableStringify(value: unknown): string {
