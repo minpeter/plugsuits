@@ -4,6 +4,7 @@
  */
 
 import { stepCountIs, streamText } from "ai";
+import { resolveMCPOption } from "./mcp-init.js";
 import type {
   Agent,
   AgentConfig,
@@ -19,16 +20,29 @@ import type {
  *
  * @example
  * ```typescript
- * const agent = createAgent({
+ * const agent = await createAgent({
  *   model: openai('gpt-4o'),
  *   instructions: 'You are a helpful assistant.',
  *   tools: { get_time: tool({ ... }) },
  * });
  * ```
  */
-export function createAgent(config: AgentConfig): Agent {
+export async function createAgent(config: AgentConfig): Promise<Agent> {
+  let mergedTools = config.tools;
+  let closeFn: () => Promise<void> = async () => undefined;
+
+  if (config.mcp !== undefined) {
+    const resolved = await resolveMCPOption(config.mcp, config.tools ?? {});
+    mergedTools = resolved.tools;
+    closeFn = resolved.close;
+  }
+
+  const effectiveConfig: AgentConfig =
+    mergedTools !== config.tools ? { ...config, tools: mergedTools } : config;
+
   return {
-    config,
+    config: effectiveConfig,
+    close: closeFn,
     /**
      * Initiates a single streaming turn with the given messages.
      * Returns a result object with `fullStream`, `finishReason`, and `response`.
@@ -36,28 +50,26 @@ export function createAgent(config: AgentConfig): Agent {
     stream(opts: AgentStreamOptions): AgentStreamResult {
       const system =
         opts.system ??
-        (typeof config.instructions === "string"
-          ? config.instructions
+        (typeof effectiveConfig.instructions === "string"
+          ? effectiveConfig.instructions
           : undefined);
 
       const result = streamText({
-        model: config.model,
-        tools: config.tools,
+        model: effectiveConfig.model,
+        tools: effectiveConfig.tools,
         system,
         messages: opts.messages,
         providerOptions: opts.providerOptions,
         maxOutputTokens: opts.maxOutputTokens,
         seed: opts.seed,
-        stopWhen: stepCountIs(config.maxStepsPerTurn ?? 1),
+        stopWhen: stepCountIs(effectiveConfig.maxStepsPerTurn ?? 1),
         temperature: opts.temperature,
         abortSignal: opts.abortSignal,
-        experimental_repairToolCall: config.experimental_repairToolCall,
+        experimental_repairToolCall:
+          effectiveConfig.experimental_repairToolCall,
       });
 
-      const finishReason = result.finishReason;
-      const response = result.response;
-      const usage = result.usage;
-      const totalUsage = result.totalUsage;
+      const { finishReason, response, usage, totalUsage } = result;
 
       const swallow = () => undefined;
       finishReason.then(undefined, swallow);

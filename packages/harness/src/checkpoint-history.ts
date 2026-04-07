@@ -308,6 +308,7 @@ export class CheckpointHistory {
   private recoveryInProgress = false;
   private contextLimit = 0;
   private systemPromptTokens = 0;
+  private toolSchemasTokens = 0;
   private revision = 0;
   // message-only revision: bumped by add/compact/prune/truncate/clear, NOT metadata ops
   private messageRevision = 0;
@@ -515,6 +516,19 @@ export class CheckpointHistory {
     return this.systemPromptTokens;
   }
 
+  setToolSchemasTokens(tokens: number): void {
+    const prev = this.toolSchemasTokens;
+    this.toolSchemasTokens = tokens;
+    if (prev !== tokens && this.actualUsage) {
+      this.actualUsage = null;
+    }
+    this.revision += 1;
+  }
+
+  getToolSchemasTokens(): number {
+    return this.toolSchemasTokens;
+  }
+
   isCompactionEnabled(): boolean {
     return this.compactionConfig.enabled ?? false;
   }
@@ -646,7 +660,9 @@ export class CheckpointHistory {
         messagesForLLM.reduce(
           (total, message) => total + estimateMessageTokens(message),
           0
-        ) + this.systemPromptTokens;
+        ) +
+        this.systemPromptTokens +
+        this.toolSchemasTokens;
     }
 
     return (
@@ -692,7 +708,10 @@ export class CheckpointHistory {
       };
     }
 
-    const tokensBefore = this.getEstimatedTokens();
+    const tokensBefore =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const summaryIndex = this.summaryMessageId
       ? this.messages.findIndex(
           (message) => message.id === this.summaryMessageId
@@ -853,7 +872,10 @@ export class CheckpointHistory {
     this.revision += 1;
     this.messageRevision += 1;
 
-    const tokensAfter = this.getEstimatedTokens();
+    const tokensAfter =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const effectiveness = this.evaluateCompactionAcceptance({
       contextLimit: this.compactionConfig.contextLimit,
       tokensAfter,
@@ -1423,7 +1445,10 @@ export class CheckpointHistory {
   }
 
   private refreshEstimatedUsage(): void {
-    const estimated = this.getEstimatedTokens() + this.systemPromptTokens;
+    const estimated =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     this.actualUsage = {
       inputTokens: estimated,
       outputTokens: 0,
@@ -1617,7 +1642,11 @@ export class CheckpointHistory {
     if (this.actualUsage) {
       return this.actualUsage.inputTokens;
     }
-    return this.getEstimatedTokens() + this.systemPromptTokens;
+    return (
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens
+    );
   }
 
   private getActiveContextLimit(): number {
@@ -2181,7 +2210,10 @@ export class CheckpointHistory {
     this.revision += 1;
     this.messageRevision += 1;
 
-    const tokensAfter = this.getEstimatedTokens();
+    const tokensAfter =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const pruneEffectiveness = this.evaluateCompactionAcceptance({
       contextLimit,
       tokensAfter,
@@ -2314,7 +2346,10 @@ export class CheckpointHistory {
     this.revision += 1;
     this.messageRevision += 1;
 
-    const tokensAfter = this.getEstimatedTokens();
+    const tokensAfter =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const effectiveness = this.evaluateCompactionAcceptance({
       contextLimit,
       tokensAfter,

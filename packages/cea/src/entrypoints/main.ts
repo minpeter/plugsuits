@@ -9,6 +9,9 @@ import {
   CompactionCircuitBreaker,
   type CompactionResult,
   estimateTokens,
+  estimateToolSchemasTokens,
+  MCPManager,
+  mergeMCPTools,
   PostCompactRestorer,
   parseCommand,
   type RunnableAgent,
@@ -230,6 +233,7 @@ const unregisterSkillLoadListener = registerSkillLoadListener((skill) => {
     type: "skill",
   });
 });
+let mcpManager: MCPManager | undefined;
 const trackedReadToolResultIds = new Set<string>();
 
 const toRecord = (value: unknown): Record<string, unknown> | null => {
@@ -522,6 +526,9 @@ const updateCompactionForCurrentModel = async (): Promise<void> => {
   );
   const instructions = await agentManager.getInstructions();
   messageHistory.setSystemPromptTokens(estimateTokens(instructions));
+  messageHistory.setToolSchemasTokens(
+    estimateToolSchemasTokens(agentManager.getTools())
+  );
 };
 
 const applyCurrentSessionToRuntime = (): void => {
@@ -573,7 +580,13 @@ const createCliCommands = (): Command[] => {
   });
 };
 
-const exitWithCleanup = (code: number): never => {
+const exitWithCleanup = async (code: number): Promise<never> => {
+  if (mcpManager) {
+    await Promise.race([
+      mcpManager.close().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+  }
   cleanup(true);
   process.exit(code);
 };
@@ -584,7 +597,7 @@ const requestSignalShutdown = (code: number): void => {
   }
   signalShutdownRequested = true;
   requestedProcessExitCode = code;
-  exitWithCleanup(code);
+  exitWithCleanup(code).catch(() => process.exit(code));
 };
 
 const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
@@ -614,13 +627,43 @@ process.once("SIGQUIT", () => {
 
 process.once("uncaughtException", (error: unknown) => {
   console.error("Fatal error:", error);
-  exitWithCleanup(1);
+  exitWithCleanup(1).catch(() => process.exit(1));
 });
 
 process.once("unhandledRejection", (reason: unknown) => {
   console.error("Unhandled rejection:", reason);
-  exitWithCleanup(1);
+  exitWithCleanup(1).catch(() => process.exit(1));
 });
+
+const initializeMCPTools = async (): Promise<void> => {
+  mcpManager = new MCPManager({
+    onError: (server, error) => {
+      console.warn(`[MCP] Server "${server}" failed:`, error);
+    },
+  });
+  await mcpManager.init();
+  const perServerTools = mcpManager.toolsByServer();
+  if (Object.keys(perServerTools).length === 0) {
+    return;
+  }
+
+  const localTools = agentManager.getTools();
+  const { tools: mergedTools, conflicts } = mergeMCPTools({
+    localTools,
+    mcpTools: perServerTools,
+    onConflict: (conflict) => {
+      console.warn(
+        `[MCP] Tool name conflict: "${conflict.toolName}" — renamed to avoid collision with local tools`
+      );
+    },
+  });
+  agentManager.setTools(mergedTools as typeof localTools);
+  const addedCount =
+    Object.keys(mergedTools).length - Object.keys(localTools).length;
+  console.warn(
+    `[MCP] Loaded ${addedCount} MCP tools from MCP servers${conflicts.length > 0 ? `, ${conflicts.length} conflict(s) resolved` : ""}`
+  );
+};
 
 const __cliDirname = dirname(fileURLToPath(import.meta.url));
 const __cliVersion: string = JSON.parse(
@@ -655,6 +698,7 @@ const mainCommand = defineCommand({
   async run({ args }) {
     validateProviderConfig();
     await initializeTools();
+    await initializeMCPTools();
     setSpinnerOutputEnabled(false);
     sessionManager.initialize();
     applyCurrentSessionToRuntime();
@@ -750,7 +794,7 @@ const mainCommand = defineCommand({
           type: "error",
           error: error instanceof Error ? error.message : String(error),
         });
-        exitWithCleanup(1);
+        await exitWithCleanup(1);
       }
 
       cleanup();

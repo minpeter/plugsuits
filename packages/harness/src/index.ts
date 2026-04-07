@@ -99,6 +99,20 @@ export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
 export { env as harnessEnv } from "./env";
 export { runAgentLoop } from "./loop";
+export { isRemoteConfig, isStdioConfig, loadMCPConfig } from "./mcp-config";
+// MCP integration
+export { MCPManager } from "./mcp-manager";
+export type { MergeOptions, ToolConflict } from "./mcp-tool-merger";
+export { mergeMCPTools, sanitizeServerName } from "./mcp-tool-merger";
+export type {
+  MCPConfigFile,
+  MCPManagerOptions,
+  MCPRemoteServerConfig,
+  MCPServerConfig,
+  MCPServerStatus,
+  MCPStdioServerConfig,
+  MCPToolMergeResult,
+} from "./mcp-types";
 export { CHAT_MEMORY_PRESET, CODE_MEMORY_PRESET } from "./memory-presets";
 export type { MemoryStore } from "./memory-store";
 export { FileMemoryStore, InMemoryStore } from "./memory-store";
@@ -140,7 +154,12 @@ export type { SkillInfo, SkillsConfig } from "./skills";
 export { SkillsEngine } from "./skills";
 export type { TodoConfig, TodoItem } from "./todo-continuation";
 export { TodoContinuation } from "./todo-continuation";
-export { estimateTokens, extractMessageText } from "./token-utils";
+export {
+  estimateMessageTokens,
+  estimateTokens,
+  estimateToolSchemasTokens,
+  extractMessageText,
+} from "./token-utils";
 export {
   normalizeFinishReason,
   shouldContinueManualToolLoop,

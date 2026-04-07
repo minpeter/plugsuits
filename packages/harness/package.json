@@ -29,6 +29,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^1.0.32",
     "@ai-sdk/provider": "^3.0.8",
     "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",

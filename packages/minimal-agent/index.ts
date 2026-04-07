@@ -9,6 +9,7 @@ import {
   createAgent,
   createModelSummarizer,
   estimateTokens,
+  estimateToolSchemasTokens,
   getContextPressureLevel,
   SessionManager,
   SessionMemoryTracker,
@@ -166,12 +167,21 @@ const main = defineCommand({
     const messageHistory = new CheckpointHistory({
       compaction,
     });
-    messageHistory.setSystemPromptTokens(estimateTokens(DEFAULT_SYSTEM_PROMPT));
-
-    const agent = createAgent({
+    const agent = await createAgent({
       model,
       instructions: DEFAULT_SYSTEM_PROMPT,
+      mcp: [
+        {
+          command: "npx",
+          args: ["-y", "duckduckgo-mcp@latest"],
+        },
+      ],
     });
+
+    messageHistory.setSystemPromptTokens(estimateTokens(DEFAULT_SYSTEM_PROMPT));
+    messageHistory.setToolSchemasTokens(
+      estimateToolSchemasTokens(agent.config.tools ?? {})
+    );
     let lastProcessedMessageCount = 0;
 
     const handleTurnComplete = (
@@ -204,61 +214,64 @@ const main = defineCommand({
     };
 
     const prompt = args.prompt?.trim();
-    if (prompt) {
-      await runHeadless({
+    try {
+      if (prompt) {
+        await runHeadless({
+          agent,
+          circuitBreaker,
+          sessionId: sessionManager.getId(),
+          emitEvent,
+          initialUserMessage: {
+            content: prompt,
+          },
+          messageHistory,
+          maxIterations: 1,
+          modelId: selectedModelId,
+          compactionCallbacks: {
+            onCompactionComplete: handleCompactionComplete,
+          },
+          onTurnComplete: handleTurnComplete,
+        });
+        return;
+      }
+
+      await createAgentTUI({
         agent,
         circuitBreaker,
-        sessionId: sessionManager.getId(),
-        emitEvent,
-        initialUserMessage: {
-          content: prompt,
+        commands: LOCAL_COMMANDS,
+        footer: {
+          get text() {
+            const contextUsage = messageHistory.getContextUsage();
+            if (!contextUsage) {
+              return undefined;
+            }
+
+            return formatContextUsage(contextUsage);
+          },
         },
         messageHistory,
-        maxIterations: 1,
-        modelId: selectedModelId,
         compactionCallbacks: {
           onCompactionComplete: handleCompactionComplete,
         },
         onTurnComplete: handleTurnComplete,
-      });
-      return;
-    }
-
-    await createAgentTUI({
-      agent,
-      circuitBreaker,
-      commands: LOCAL_COMMANDS,
-      footer: {
-        get text() {
-          const contextUsage = messageHistory.getContextUsage();
-          if (!contextUsage) {
-            return undefined;
+        header: {
+          title: "Minimal Agent",
+          get subtitle() {
+            return `${selectedModelId}\nSession: ${sessionManager.getId()}`;
+          },
+        },
+        onCommandAction: (action) => {
+          if (action.type === "new-session") {
+            sessionManager.initialize();
+            circuitBreaker.resetForNewSession();
+            sessionMemoryTracker.clear();
+            lastProcessedMessageCount = 0;
           }
-
-          return formatContextUsage(contextUsage);
         },
-      },
-      messageHistory,
-      compactionCallbacks: {
-        onCompactionComplete: handleCompactionComplete,
-      },
-      onTurnComplete: handleTurnComplete,
-      header: {
-        title: "Minimal Agent",
-        get subtitle() {
-          return `${selectedModelId}\nSession: ${sessionManager.getId()}`;
-        },
-      },
-      onCommandAction: (action) => {
-        if (action.type === "new-session") {
-          sessionManager.initialize();
-          circuitBreaker.resetForNewSession();
-          sessionMemoryTracker.clear();
-          lastProcessedMessageCount = 0;
-        }
-      },
-    });
-
+      });
+    } finally {
+      await agent.close();
+    }
     process.exit(0);
   },
 });

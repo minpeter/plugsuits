@@ -804,7 +804,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       );
     }
 
-    const agent = createAgent({
+    const agent = await createAgent({
       model,
       tools: this.toolRegistry,
       instructions: await this.getInstructions(),
@@ -836,7 +836,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     const { model, providerOptions } = this.buildModel("off");
     const preparedMessages = probeMessages;
 
-    const agent = createAgent({
+    const agent = await createAgent({
       model,
       tools: this.toolRegistry,
       instructions: await this.getInstructions(),
