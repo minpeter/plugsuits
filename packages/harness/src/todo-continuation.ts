@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { SessionManager } from "./session.js";
+import type { SessionManager } from "./session";
 
 export interface TodoItem {
   content: string;

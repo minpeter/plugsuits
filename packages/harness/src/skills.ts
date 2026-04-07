@@ -3,7 +3,7 @@ import { readdir, readFile, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { glob } from "glob";
 import { parse as parseYAML } from "yaml";
-import { parsePromptsCommandName } from "./skill-command-prefix.js";
+import { parsePromptsCommandName } from "./skill-command-prefix";
 
 // ============================================================================
 // Types

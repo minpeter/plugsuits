@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgent } from "./agent";
-import { clearMCPCache } from "./mcp-init.js";
+import { clearMCPCache } from "./mcp-init";
 import type { AgentConfig } from "./types";
 
 const { resolveMCPOptionMock, streamTextMock } = vi.hoisted(() => {

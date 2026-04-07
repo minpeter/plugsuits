@@ -105,6 +105,7 @@ When creating changeset files (`.changeset/*.md`), follow these version bump rul
 - For benchmark work: changing event types without updating trajectory conversion rules in `packages/cea/benchmark/harbor_agent.py`.
 - Importing from `@ai-sdk-tool/cea` inside `harness`, `tui`, or `headless` — dependency direction is one-way.
 - Reading `process.env.X` directly instead of using `@t3-oss/env-core` `createEnv` — all env vars must be validated via Zod schema in the package's `env.ts`.
+- Adding `.js` extensions to relative imports in source files (e.g., `from "./foo.js"` instead of `from "./foo"`). The base `tsconfig.json` uses `moduleResolution: "bundler"` which resolves extensionless imports. The post-build script `scripts/fix-esm-imports.mjs` automatically adds `.js` to compiled output in `dist/`. Source files must use extensionless imports only.
 
 ## UNIQUE STYLES
 

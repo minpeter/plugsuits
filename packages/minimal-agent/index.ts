@@ -25,8 +25,8 @@ import {
   COMPACTION_RESERVE_TOKENS,
   COMPACTION_SPECULATIVE_RATIO,
   COMPACTION_THRESHOLD_RATIO,
-} from "./compaction-config.js";
-import { env } from "./env.js";
+} from "./compaction-config";
+import { env } from "./env";
 
 const DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 const DEFAULT_SYSTEM_PROMPT = `You are a minimal example agent. Be concise and helpful.

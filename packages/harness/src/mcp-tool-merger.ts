@@ -1,5 +1,5 @@
 import type { ToolSet } from "ai";
-import type { MCPToolMergeResult } from "./mcp-types.js";
+import type { MCPToolMergeResult } from "./mcp-types";
 
 export interface ToolConflict {
   sources: string[];
