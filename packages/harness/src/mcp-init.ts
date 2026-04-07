@@ -125,7 +125,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   if (mcp === true) {
     const loaded = await loadMCPConfig();
     return {
-      cacheKey: "file:.mcp.json",
+      cacheKey: `file:${process.cwd()}/.mcp.json`,
       options: {},
       servers: loaded.mcpServers,
     };
@@ -134,7 +134,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   if (Array.isArray(mcp)) {
     const named = arrayToNamedServers(mcp);
     return {
-      cacheKey: `inline:${stableStringify(sortServers(mcp))}`,
+      cacheKey: `inline:${stableStringify(mcp)}`,
       options: { servers: named },
       servers: named,
     };
@@ -150,7 +150,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   const timeoutSuffix =
     mcp.toolsTimeout !== undefined ? `+timeout:${mcp.toolsTimeout}` : "";
   return {
-    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(sortServers(inlineServers))}${timeoutSuffix}`,
+    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(inlineServers)}${timeoutSuffix}`,
     options: {
       configPath: mcp.config ? configPath : undefined,
       loadFileConfig: mcp.config ? true : undefined,
@@ -168,12 +168,6 @@ function arrayToNamedServers(
 ): Record<string, MCPServerConfig> {
   return Object.fromEntries(
     servers.map((server, index) => [`${prefix}-${index + 1}`, server])
-  );
-}
-
-function sortServers(servers: MCPServerConfig[]): MCPServerConfig[] {
-  return [...servers].sort((left, right) =>
-    stableStringify(left).localeCompare(stableStringify(right))
   );
 }
 

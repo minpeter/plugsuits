@@ -708,7 +708,10 @@ export class CheckpointHistory {
       };
     }
 
-    const tokensBefore = this.getEstimatedTokens();
+    const tokensBefore =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const summaryIndex = this.summaryMessageId
       ? this.messages.findIndex(
           (message) => message.id === this.summaryMessageId
