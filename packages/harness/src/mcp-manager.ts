@@ -60,95 +60,26 @@ export class MCPManager {
     return { ...this.mcpToolsByServer };
   }
 
-  private async doInit(): Promise<void> {
+  private throwIfClosed(): void {
     if (this.closed) {
       throw new Error("MCPManager has been closed. Create a new instance.");
     }
+  }
+
+  private async doInit(): Promise<void> {
+    this.throwIfClosed();
 
     try {
-      const shouldLoadFile =
-        this.options.configPath !== undefined ||
-        this.options.loadFileConfig === true ||
-        this.options.servers === undefined ||
-        Object.keys(this.options.servers).length === 0;
-
-      const fileServers = shouldLoadFile
-        ? (
-            await loadMCPConfig(
-              this.options.configPath
-                ? { configPath: this.options.configPath }
-                : undefined
-            )
-          ).mcpServers
-        : {};
-
-      const serverEntries = Object.entries({
-        ...fileServers,
-        ...this.options.servers,
-      });
+      const serverEntries = await this.resolveServerEntries();
       const mcpTools: Record<string, ToolSet> = {};
 
-      const connectionResults = await Promise.allSettled(
-        serverEntries.map(async ([name, serverConfig]) => {
-          const client = await this.connectServer(name, serverConfig);
-          return { name, client };
-        })
-      );
+      await this.connectAllServers(serverEntries);
+      this.throwIfClosed();
 
-      const lateClients: MCPClient[] = [];
+      const toolResults = await this.fetchAllTools();
+      this.throwIfClosed();
 
-      for (const [index, result] of connectionResults.entries()) {
-        const [serverName] = serverEntries[index] ?? [];
-
-        if (!serverName) {
-          continue;
-        }
-
-        if (result.status === "rejected") {
-          this.recordFailure(serverName, result.reason);
-          continue;
-        }
-
-        const { client } = result.value;
-        if (this.closed) {
-          lateClients.push(client);
-        } else {
-          this.clients.push({ name: serverName, client });
-        }
-      }
-
-      if (this.closed) {
-        await Promise.allSettled([
-          ...this.clients.map(({ client }) =>
-            client.close().catch(() => undefined)
-          ),
-          ...lateClients.map((client) => client.close().catch(() => undefined)),
-        ]);
-        this.clients = [];
-        throw new Error("MCPManager has been closed. Create a new instance.");
-      }
-
-      const connectedClients = this.clients;
-      const toolResults = await Promise.allSettled(
-        connectedClients.map(async ({ name, client }) => {
-          const toolSet = await this.getToolsWithTimeout(name, client);
-          return { name, toolSet };
-        })
-      );
-
-      for (const result of toolResults) {
-        if (result.status !== "fulfilled" || !result.value.toolSet) {
-          continue;
-        }
-
-        const { name, toolSet } = result.value;
-        mcpTools[name] = toolSet;
-        this.statuses.set(name, {
-          name,
-          status: "connected",
-          toolCount: Object.keys(toolSet).length,
-        });
-      }
+      this.applyToolResults(toolResults, mcpTools);
 
       const mergeResult = mergeMCPTools({
         localTools: {},
@@ -165,6 +96,106 @@ export class MCPManager {
       this.initialized = true;
     } finally {
       this.initPromise = null;
+    }
+  }
+
+  private async resolveServerEntries(): Promise<[string, MCPServerConfig][]> {
+    const shouldLoadFile =
+      this.options.configPath !== undefined ||
+      this.options.loadFileConfig === true ||
+      this.options.servers === undefined ||
+      Object.keys(this.options.servers).length === 0;
+
+    const fileServers = shouldLoadFile
+      ? (
+          await loadMCPConfig(
+            this.options.configPath
+              ? { configPath: this.options.configPath }
+              : undefined
+          )
+        ).mcpServers
+      : {};
+
+    return Object.entries({
+      ...fileServers,
+      ...this.options.servers,
+    });
+  }
+
+  private async connectAllServers(
+    serverEntries: [string, MCPServerConfig][]
+  ): Promise<void> {
+    const connectionResults = await Promise.allSettled(
+      serverEntries.map(async ([name, serverConfig]) => {
+        const client = await this.connectServer(name, serverConfig);
+        return { name, client };
+      })
+    );
+
+    const lateClients: MCPClient[] = [];
+
+    for (const [index, result] of connectionResults.entries()) {
+      const [serverName] = serverEntries[index] ?? [];
+
+      if (!serverName) {
+        continue;
+      }
+
+      if (result.status === "rejected") {
+        this.recordFailure(serverName, result.reason);
+        continue;
+      }
+
+      const { client } = result.value;
+      if (this.closed) {
+        lateClients.push(client);
+      } else {
+        this.clients.push({ name: serverName, client });
+      }
+    }
+
+    if (this.closed) {
+      await Promise.allSettled([
+        ...this.clients.map(({ client }) =>
+          client.close().catch(() => undefined)
+        ),
+        ...lateClients.map((client) => client.close().catch(() => undefined)),
+      ]);
+      this.clients = [];
+      throw new Error("MCPManager has been closed. Create a new instance.");
+    }
+  }
+
+  private fetchAllTools(): Promise<
+    PromiseSettledResult<{ name: string; toolSet: ToolSet | null }>[]
+  > {
+    return Promise.allSettled(
+      this.clients.map(async ({ name, client }) => {
+        const toolSet = await this.getToolsWithTimeout(name, client);
+        return { name, toolSet };
+      })
+    );
+  }
+
+  private applyToolResults(
+    toolResults: PromiseSettledResult<{
+      name: string;
+      toolSet: ToolSet | null;
+    }>[],
+    mcpTools: Record<string, ToolSet>
+  ): void {
+    for (const result of toolResults) {
+      if (result.status !== "fulfilled" || !result.value.toolSet) {
+        continue;
+      }
+
+      const { name, toolSet } = result.value;
+      mcpTools[name] = toolSet;
+      this.statuses.set(name, {
+        name,
+        status: "connected",
+        toolCount: Object.keys(toolSet).length,
+      });
     }
   }
 

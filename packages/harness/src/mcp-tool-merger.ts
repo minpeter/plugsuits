@@ -42,9 +42,12 @@ export function mergeMCPTools(options: MergeOptions): MCPToolMergeResult {
         conflicts,
         onConflict
       );
-    } else if (!reservedKeys.has(toolName)) {
-      mergedTools[toolName] = tool;
-      reservedKeys.add(toolName);
+    } else {
+      const key = reservedKeys.has(toolName)
+        ? resolveAlias(serverName, toolName, reservedKeys)
+        : toolName;
+      mergedTools[key] = tool;
+      reservedKeys.add(key);
     }
   }
 

@@ -583,7 +583,7 @@ const createCliCommands = (): Command[] => {
 const exitWithCleanup = async (code: number): Promise<never> => {
   if (mcpManager) {
     await Promise.race([
-      mcpManager.close(),
+      mcpManager.close().catch(() => undefined),
       new Promise((resolve) => setTimeout(resolve, 1000)),
     ]);
   }
@@ -794,7 +794,7 @@ const mainCommand = defineCommand({
           type: "error",
           error: error instanceof Error ? error.message : String(error),
         });
-        exitWithCleanup(1);
+        await exitWithCleanup(1);
       }
 
       cleanup();

@@ -869,7 +869,10 @@ export class CheckpointHistory {
     this.revision += 1;
     this.messageRevision += 1;
 
-    const tokensAfter = this.getEstimatedTokens();
+    const tokensAfter =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const effectiveness = this.evaluateCompactionAcceptance({
       contextLimit: this.compactionConfig.contextLimit,
       tokensAfter,
@@ -2204,7 +2207,10 @@ export class CheckpointHistory {
     this.revision += 1;
     this.messageRevision += 1;
 
-    const tokensAfter = this.getEstimatedTokens();
+    const tokensAfter =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const pruneEffectiveness = this.evaluateCompactionAcceptance({
       contextLimit,
       tokensAfter,
@@ -2337,7 +2343,10 @@ export class CheckpointHistory {
     this.revision += 1;
     this.messageRevision += 1;
 
-    const tokensAfter = this.getEstimatedTokens();
+    const tokensAfter =
+      this.getEstimatedTokens() +
+      this.systemPromptTokens +
+      this.toolSchemasTokens;
     const effectiveness = this.evaluateCompactionAcceptance({
       contextLimit,
       tokensAfter,

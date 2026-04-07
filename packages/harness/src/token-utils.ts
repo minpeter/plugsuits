@@ -180,10 +180,12 @@ export function estimateToolSchemasTokens(tools: ToolSet): number {
     if (tool.description) {
       total += estimateTokens(tool.description);
     }
-    const schema =
-      "inputSchema" in tool
-        ? (tool as { inputSchema: unknown }).inputSchema
-        : undefined;
+    let schema: unknown;
+    if ("inputSchema" in tool) {
+      schema = (tool as { inputSchema: unknown }).inputSchema;
+    } else if ("parameters" in tool) {
+      schema = (tool as { parameters: unknown }).parameters;
+    }
     if (schema !== undefined) {
       let schemaJson: string | undefined;
       try {

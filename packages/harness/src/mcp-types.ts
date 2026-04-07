@@ -61,9 +61,17 @@ export interface MCPManagerOptions {
   loadFileConfig?: boolean;
   /** Optional callback for server errors (connection failures, crashes, etc.) */
   onError?: (server: string, error: unknown) => void;
-  /** Inline server configurations merged with any file-based config */
+  /**
+   * Inline server configurations.
+   * By default, providing `servers` does not load `.mcp.json` automatically; file-based
+   * config is only loaded and merged when `loadFileConfig` is true or `configPath` is set.
+   */
   servers?: Record<string, MCPServerConfig>;
-  /** Timeout (in milliseconds) for tool execution requests to MCP servers (default: 30000) */
+  /**
+   * Timeout (in milliseconds) for fetching/listing tool schemas from MCP servers
+   * during initialization (default: 30000).
+   * This option does not apply a timeout to individual tool-call execution.
+   */
   toolsTimeout?: number;
 }
 

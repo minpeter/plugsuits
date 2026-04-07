@@ -20,7 +20,7 @@ import type {
  *
  * @example
  * ```typescript
- * const agent = createAgent({
+ * const agent = await createAgent({
  *   model: openai('gpt-4o'),
  *   instructions: 'You are a helpful assistant.',
  *   tools: { get_time: tool({ ... }) },

@@ -13,7 +13,7 @@ const INVALID_MCP_CONFIG_PREFIX = "Invalid .mcp.json:";
 
 const MCPStdioServerConfigSchema = z
   .object({
-    command: z.string(),
+    command: z.string().min(1, "command must not be empty"),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
   })
