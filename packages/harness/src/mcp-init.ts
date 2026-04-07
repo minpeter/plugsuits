@@ -1,3 +1,5 @@
+import { join, resolve } from "node:path";
+
 import type { ToolSet } from "ai";
 
 import { loadMCPConfig } from "./mcp-config.js";
@@ -141,6 +143,9 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   }
 
   const configPath = typeof mcp.config === "string" ? mcp.config : undefined;
+  const resolvedConfigPath = mcp.config
+    ? resolve(configPath ?? join(process.cwd(), ".mcp.json"))
+    : undefined;
   const fileServers = mcp.config
     ? (await loadMCPConfig(configPath ? { configPath } : undefined)).mcpServers
     : {};
@@ -150,7 +155,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   const timeoutSuffix =
     mcp.toolsTimeout !== undefined ? `+timeout:${mcp.toolsTimeout}` : "";
   return {
-    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(inlineServers)}${timeoutSuffix}`,
+    cacheKey: `combined:${resolvedConfigPath ?? ""}+${stableStringify(inlineServers)}${timeoutSuffix}`,
     options: {
       configPath: mcp.config ? configPath : undefined,
       loadFileConfig: mcp.config ? true : undefined,
