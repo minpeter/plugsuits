@@ -29,7 +29,7 @@
     "test": "vitest run src"
   },
   "peerDependencies": {
-    "@ai-sdk-tool/harness": "^1.2.1",
+    "@ai-sdk-tool/harness": "^1.2.2",
     "@mariozechner/pi-tui": "^0.57.1",
     "ai": "^6.0.116",
     "zod": "^4.3.6"
