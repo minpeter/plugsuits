@@ -66,11 +66,23 @@ export class MCPManager {
     }
 
     try {
-      const config = await loadMCPConfig({
-        configPath: this.options.configPath,
-      });
+      const shouldLoadFile =
+        this.options.configPath !== undefined ||
+        this.options.servers === undefined ||
+        Object.keys(this.options.servers).length === 0;
+
+      const fileServers = shouldLoadFile
+        ? (
+            await loadMCPConfig(
+              this.options.configPath
+                ? { configPath: this.options.configPath }
+                : undefined
+            )
+          ).mcpServers
+        : {};
+
       const serverEntries = Object.entries({
-        ...config.mcpServers,
+        ...fileServers,
         ...this.options.servers,
       });
       const mcpTools: Record<string, ToolSet> = {};
@@ -81,6 +93,8 @@ export class MCPManager {
           return { name, client };
         })
       );
+
+      const lateClients: MCPClient[] = [];
 
       for (const [index, result] of connectionResults.entries()) {
         const [serverName] = serverEntries[index] ?? [];
@@ -96,18 +110,19 @@ export class MCPManager {
 
         const { client } = result.value;
         if (this.closed) {
-          client.close().catch(() => undefined);
+          lateClients.push(client);
         } else {
           this.clients.push({ name: serverName, client });
         }
       }
 
       if (this.closed) {
-        await Promise.allSettled(
-          this.clients.map(({ client }) =>
+        await Promise.allSettled([
+          ...this.clients.map(({ client }) =>
             client.close().catch(() => undefined)
-          )
-        );
+          ),
+          ...lateClients.map((client) => client.close().catch(() => undefined)),
+        ]);
         this.clients = [];
         throw new Error("MCPManager has been closed. Create a new instance.");
       }

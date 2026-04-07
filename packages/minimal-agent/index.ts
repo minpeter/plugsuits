@@ -172,8 +172,8 @@ const main = defineCommand({
       instructions: DEFAULT_SYSTEM_PROMPT,
       mcp: [
         {
-          command: "bunx",
-          args: ["--silent", "duckduckgo-mcp@latest"],
+          command: "npx",
+          args: ["-y", "duckduckgo-mcp@latest"],
         },
       ],
     });

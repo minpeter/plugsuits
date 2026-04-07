@@ -184,11 +184,15 @@ export function estimateToolSchemasTokens(tools: ToolSet): number {
       "inputSchema" in tool
         ? (tool as { inputSchema: unknown }).inputSchema
         : undefined;
-    if (schema) {
+    if (schema !== undefined) {
+      let schemaJson: string | undefined;
       try {
-        total += estimateTokens(JSON.stringify(schema));
+        schemaJson = JSON.stringify(schema);
       } catch {
-        return total;
+        schemaJson = undefined;
+      }
+      if (schemaJson !== undefined) {
+        total += estimateTokens(schemaJson);
       }
     }
   }

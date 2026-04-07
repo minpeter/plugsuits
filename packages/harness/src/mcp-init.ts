@@ -96,10 +96,14 @@ function getOrCreateEntry(
     servers: options.servers,
     toolsTimeout: options.toolsTimeout,
   });
+  const initPromise = manager.init().catch((error) => {
+    cache.delete(cacheKey);
+    throw error;
+  });
   const entry: CacheEntry = {
     manager,
     refCount: 1,
-    initPromise: manager.init(),
+    initPromise,
   };
   cache.set(cacheKey, entry);
   return entry;
@@ -142,8 +146,10 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   const allServers = { ...fileServers, ...namedInline };
   const timeoutSuffix =
     mcp.toolsTimeout !== undefined ? `+timeout:${mcp.toolsTimeout}` : "";
+  const onErrorSuffix =
+    mcp.onError !== undefined ? `+onError:${uniqueId()}` : "";
   return {
-    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(sortServers(inlineServers))}${timeoutSuffix}`,
+    cacheKey: `combined:${configPath ?? (mcp.config ? ".mcp.json" : "")}+${stableStringify(sortServers(inlineServers))}${timeoutSuffix}${onErrorSuffix}`,
     options: {
       configPath: mcp.config ? configPath : undefined,
       onError: mcp.onError,
@@ -167,6 +173,11 @@ function sortServers(servers: MCPServerConfig[]): MCPServerConfig[] {
   return [...servers].sort((left, right) =>
     stableStringify(left).localeCompare(stableStringify(right))
   );
+}
+
+let _uniqueCounter = 0;
+function uniqueId(): number {
+  return ++_uniqueCounter;
 }
 
 function stableStringify(value: unknown): string {
