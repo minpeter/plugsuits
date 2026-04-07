@@ -609,7 +609,6 @@ const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
 };
 
 process.once("exit", () => {
-  mcpManager?.close().catch(() => undefined);
   unregisterSkillLoadListener();
   cleanup();
 });
