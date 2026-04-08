@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 export const extractToolOutput = (
-  output: unknown,
+  output: unknown
 ): { stdout: string; error?: string; exitCode?: number } => {
   if (typeof output === "object" && output !== null && "output" in output) {
     const result = output as {
@@ -63,7 +63,7 @@ export const handleToolInputStart = (
   part: {
     id?: string;
     toolCallId?: string;
-  },
+  }
 ): void => {
   const id = getToolInputId(part);
   if (!id) {
@@ -83,7 +83,7 @@ export const handleToolInputDelta = (
     id?: string;
     inputTextDelta?: unknown;
     toolCallId?: string;
-  },
+  }
 ): void => {
   const toolCallId = getToolInputId(part);
   const toolCallDelta = getToolInputChunk(part);
@@ -110,7 +110,7 @@ export const upsertCompletedToolCall = (
     input?: unknown;
     toolCallId: string;
     toolName: string;
-  },
+  }
 ): void => {
   const existing = pendingToolCalls.get(part.toolCallId);
   if (existing) {
@@ -129,7 +129,7 @@ export const upsertCompletedToolCall = (
 
 export const bufferedToolCallData = (
   pendingToolCalls: Map<string, PendingToolCall>,
-  completedToolCallIds: Set<string>,
+  completedToolCallIds: Set<string>
 ): ToolCallData[] | undefined => {
   const result: ToolCallData[] = [];
   for (const [id, pending] of pendingToolCalls) {
@@ -149,7 +149,7 @@ export const bufferedToolCallData = (
 };
 
 const parseToolArguments = (
-  argumentsStr: string,
+  argumentsStr: string
 ): Record<string, unknown> | null => {
   try {
     return JSON.parse(argumentsStr) as Record<string, unknown>;
@@ -161,7 +161,7 @@ const parseToolArguments = (
 export const emitMalformedToolCallErrors = (
   emitEvent: (event: TrajectoryEvent) => void,
   completedToolCallIds: Set<string>,
-  pendingToolCalls: Map<string, PendingToolCall>,
+  pendingToolCalls: Map<string, PendingToolCall>
 ): void => {
   for (const [id, pending] of pendingToolCalls) {
     if (completedToolCallIds.has(id)) {
@@ -180,7 +180,7 @@ export const emitMalformedToolCallsSummary = (
   emitEvent: (event: TrajectoryEvent) => void,
   completedToolCallIds: Set<string>,
   lastFinishReason: string | undefined,
-  pendingToolCalls: Map<string, PendingToolCall>,
+  pendingToolCalls: Map<string, PendingToolCall>
 ): void => {
   if (
     lastFinishReason !== "tool-calls" ||
@@ -221,7 +221,7 @@ export interface ProcessStreamResult {
 const STREAM_RESPONSE_TIMEOUT_MS = 30_000;
 
 export const processStream = async (
-  opts: ProcessStreamOptions,
+  opts: ProcessStreamOptions
 ): Promise<ProcessStreamResult> => {
   const { stream, stepId, modelId, emitEvent, shouldContinue, onMessages } =
     opts;
@@ -299,13 +299,13 @@ export const processStream = async (
   emitMalformedToolCallErrors(
     emitEvent,
     completedToolCallIds,
-    pendingToolCalls,
+    pendingToolCalls
   );
   emitMalformedToolCallsSummary(
     emitEvent,
     completedToolCallIds,
     lastFinishReason,
-    pendingToolCalls,
+    pendingToolCalls
   );
 
   try {
@@ -314,12 +314,12 @@ export const processStream = async (
       Promise.all([stream.response, stream.finishReason, stream.usage]).finally(
         () => {
           clearTimeout(timeoutId);
-        },
+        }
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
           () => reject(new Error("Stream response timeout")),
-          STREAM_RESPONSE_TIMEOUT_MS,
+          STREAM_RESPONSE_TIMEOUT_MS
         );
       }),
     ]);
