@@ -1,20 +1,9 @@
 {
   "name": "@plugsuits/tgbot",
   "version": "0.1.1",
+  "private": true,
   "description": "Telegram bot powered by Chat SDK + @ai-sdk-tool/harness",
   "type": "module",
-  "main": "dist/main.js",
-  "types": "./dist/main.d.ts",
-  "exports": {
-    ".": {
-      "@ai-sdk-tool/source": "./src/main.ts",
-      "types": "./dist/main.d.ts",
-      "import": "./dist/main.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "dev": "node --watch --env-file=.env --conditions=@ai-sdk-tool/source --import tsx src/main.ts",
     "build": "tsc && node ../../scripts/fix-esm-imports.mjs dist",
