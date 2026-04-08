@@ -4,9 +4,9 @@ import { Agent, setGlobalDispatcher } from "undici";
 setDefaultResultOrder("ipv4first");
 setGlobalDispatcher(new Agent({ connect: { autoSelectFamily: false } }));
 
-import "./env";
-import { closeAgent } from "./agent";
-import { bot, registerCommands } from "./bot";
+await import("./env");
+const { closeAgent } = await import("./agent");
+const { bot, registerCommands } = await import("./bot");
 
 await bot.initialize();
 await registerCommands();

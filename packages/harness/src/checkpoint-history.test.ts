@@ -1295,7 +1295,7 @@ describe("CheckpointHistory", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it("resetForSession persists new messages to the new sessionId", () => {
+    it("resetForSession persists new messages to the new sessionId", async () => {
       const tmpDir = mkdtempSync(join(tmpdir(), "reset-persist-"));
       const store = new SessionStore(tmpDir);
       const h = new CheckpointHistory({
@@ -1310,8 +1310,8 @@ describe("CheckpointHistory", () => {
       const loadedA = store.loadSession("session-a");
       const loadedB = store.loadSession("session-b");
 
-      expect(loadedA).resolves.toBeTruthy();
-      expect(loadedB).resolves.toBeTruthy();
+      await expect(loadedA).resolves.toBeTruthy();
+      await expect(loadedB).resolves.toBeTruthy();
 
       rmSync(tmpDir, { recursive: true, force: true });
     });

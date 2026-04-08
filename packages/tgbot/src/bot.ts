@@ -86,7 +86,7 @@ function isReplyToBot(message: Message): boolean {
   if (botUsername && typeof username === "string") {
     return username.toLowerCase() === botUsername.toLowerCase();
   }
-  return true;
+  return false;
 }
 
 function hasTriggerWord(text: string): boolean {

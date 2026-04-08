@@ -65,6 +65,11 @@ function getHistory(threadId: string): Promise<CheckpointHistory> {
       threadId,
       compactionOptions
     );
+    promise.catch(() => {
+      if (chatHistories.get(threadId) === promise) {
+        chatHistories.delete(threadId);
+      }
+    });
     chatHistories.set(threadId, promise);
   }
   return promise;
