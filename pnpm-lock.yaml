@@ -196,10 +196,10 @@ importers:
         specifier: ^2.0.35
         version: 2.0.35(zod@4.3.6)
       '@chat-adapter/state-redis':
-        specifier: latest
+        specifier: ^4.23.0
         version: 4.23.0
       '@chat-adapter/telegram':
-        specifier: latest
+        specifier: ^4.23.0
         version: 4.23.0
       '@t3-oss/env-core':
         specifier: ^0.13.10
@@ -208,7 +208,7 @@ importers:
         specifier: ^6.0.116
         version: 6.0.116(zod@4.3.6)
       chat:
-        specifier: latest
+        specifier: ^4.23.0
         version: 4.23.0
       undici:
         specifier: ^8.0.2
