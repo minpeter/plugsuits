@@ -98,7 +98,9 @@ function isReplyToBot(message: Message): boolean {
   if (botUsername && typeof username === "string") {
     return username.toLowerCase() === botUsername.toLowerCase();
   }
-  return !botUsername && is_bot;
+  // When botUsername is unknown we cannot verify whether the replied-to bot
+  // is actually *this* bot, so err on the safe side and return false.
+  return false;
 }
 
 function hasTriggerWord(text: string): boolean {
