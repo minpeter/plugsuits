@@ -116,4 +116,30 @@ describe("SessionStore", () => {
     const result = expectSessionData(await store.loadSession(sessionId));
     expect(result.summaryMessageId).toBe("msg-2");
   });
+
+  it("deleteSession removes session file", async () => {
+    const sessionId = "test-session-5";
+
+    await store.appendMessage(sessionId, {
+      type: "message",
+      id: "msg-1",
+      createdAt: Date.now(),
+      isSummary: false,
+      message: { role: "user", content: "hello" },
+    });
+
+    let result = expectSessionData(await store.loadSession(sessionId));
+    expect(result.messages).toHaveLength(1);
+
+    await store.deleteSession(sessionId);
+
+    result = await store.loadSession(sessionId);
+    expect(result).toBeNull();
+  });
+
+  it("deleteSession is no-op for non-existent session", async () => {
+    const sessionId = "nonexistent-session";
+
+    await expect(store.deleteSession(sessionId)).resolves.toBeUndefined();
+  });
 });

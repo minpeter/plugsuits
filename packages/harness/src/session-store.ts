@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { MessageLine, SessionFileLine } from "./compaction-types";
 
@@ -95,5 +95,15 @@ export class SessionStore {
       summaryMessageId,
       messages,
     });
+  }
+
+  deleteSession(sessionId: string): Promise<void> {
+    const filePath = this.getFilePath(sessionId);
+    try {
+      rmSync(filePath, { force: true });
+    } catch {
+      // File already deleted or inaccessible
+    }
+    return Promise.resolve();
   }
 }

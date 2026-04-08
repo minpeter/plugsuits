@@ -95,6 +95,7 @@ export type {
 export { collapseConsecutiveOps } from "./context-collapse";
 export type { ContextSuggestion } from "./context-suggestions";
 export { generateContextSuggestions } from "./context-suggestions";
+export { formatContextUsage, formatTokens } from "./context-usage-format";
 export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
 export { env as harnessEnv } from "./env";
