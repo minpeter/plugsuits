@@ -1,8 +1,8 @@
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionStore } from "./session-store";
+import { encodeSessionId, SessionStore } from "./session-store";
 
 describe("SessionStore", () => {
   let tmpDir: string;
@@ -115,5 +115,107 @@ describe("SessionStore", () => {
 
     const result = expectSessionData(await store.loadSession(sessionId));
     expect(result.summaryMessageId).toBe("msg-2");
+  });
+
+  it("deleteSession removes session file", async () => {
+    const sessionId = "test-session-5";
+
+    await store.appendMessage(sessionId, {
+      type: "message",
+      id: "msg-1",
+      createdAt: Date.now(),
+      isSummary: false,
+      message: { role: "user", content: "hello" },
+    });
+
+    let result = expectSessionData(await store.loadSession(sessionId));
+    expect(result.messages).toHaveLength(1);
+
+    await store.deleteSession(sessionId);
+
+    result = await store.loadSession(sessionId);
+    expect(result).toBeNull();
+  });
+
+  it("deleteSession is no-op for non-existent session", async () => {
+    const sessionId = "nonexistent-session";
+
+    await expect(store.deleteSession(sessionId)).resolves.toBeUndefined();
+  });
+
+  it("accepts namespaced session IDs containing colons", async () => {
+    const sessionId = "telegram:chat:-1001234:topic:5";
+
+    await store.appendMessage(sessionId, {
+      type: "message",
+      id: "msg-1",
+      createdAt: Date.now(),
+      isSummary: false,
+      message: { role: "user", content: "hello from telegram" },
+    });
+
+    const result = expectSessionData(await store.loadSession(sessionId));
+    expect(result.messages).toHaveLength(1);
+    expect(result.sessionId).toBe(sessionId);
+
+    const encoded = encodeSessionId(sessionId);
+    expect(existsSync(join(tmpDir, `${encoded}.jsonl`))).toBe(true);
+
+    await store.deleteSession(sessionId);
+    expect(await store.loadSession(sessionId)).toBeNull();
+  });
+
+  it("encodeSessionId passes through alphanumeric and hyphen only", () => {
+    expect(encodeSessionId("test-session-1")).toBe("test-session-1");
+    expect(encodeSessionId("ABCdef-789")).toBe("ABCdef-789");
+  });
+
+  it("encodeSessionId uses fixed-width 4-digit hex escapes", () => {
+    expect(encodeSessionId("abc_def")).toBe("abc_005fdef");
+    expect(encodeSessionId(":")).toBe("_003a");
+    expect(encodeSessionId("_003a")).toBe("_005f003a");
+    expect(encodeSessionId(":")).not.toBe(encodeSessionId("_003a"));
+  });
+
+  it("encodeSessionId is injective for multi-byte BMP characters", () => {
+    expect(encodeSessionId(":b")).toBe("_003ab");
+    expect(encodeSessionId("\u03AB")).toBe("_03ab");
+    expect(encodeSessionId(":b")).not.toBe(encodeSessionId("\u03AB"));
+  });
+
+  it("encodeSessionId escapes special characters deterministically", () => {
+    expect(encodeSessionId("a:b")).toBe("a_003ab");
+    expect(encodeSessionId("foo/bar")).toBe("foo_002fbar");
+    expect(encodeSessionId("a.b.c")).toBe("a_002eb_002ec");
+  });
+
+  it("encodeSessionId rejects empty string", () => {
+    expect(() => encodeSessionId("")).toThrow("sessionId must not be empty");
+  });
+
+  it("loadSession falls back to legacy (unencoded) filename", async () => {
+    const sessionId = "legacy_session";
+    const legacyPath = join(tmpDir, `${sessionId}.jsonl`);
+    const header = {
+      type: "header",
+      sessionId,
+      createdAt: Date.now(),
+      version: 1,
+    };
+    const msg = {
+      type: "message",
+      id: "msg-1",
+      createdAt: Date.now(),
+      isSummary: false,
+      message: { role: "user", content: "from legacy" },
+    };
+    appendFileSync(
+      legacyPath,
+      `${JSON.stringify(header)}\n${JSON.stringify(msg)}\n`
+    );
+
+    const result = expectSessionData(await store.loadSession(sessionId));
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].id).toBe("msg-1");
   });
 });

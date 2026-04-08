@@ -2,13 +2,13 @@ import { createMCPClient } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { ToolSet } from "ai";
 
-import { isStdioConfig, loadMCPConfig } from "./mcp-config.js";
-import { mergeMCPTools } from "./mcp-tool-merger.js";
+import { isStdioConfig, loadMCPConfig } from "./mcp-config";
+import { mergeMCPTools } from "./mcp-tool-merger";
 import type {
   MCPManagerOptions,
   MCPServerConfig,
   MCPServerStatus,
-} from "./mcp-types.js";
+} from "./mcp-types";
 
 const DEFAULT_TOOLS_TIMEOUT_MS = 30_000;
 

@@ -1,15 +1,15 @@
 import {
-  type ContextUsage,
   computeContextBudget,
   getContextPressureLevel,
-} from "@ai-sdk-tool/harness";
+} from "./compaction-policy";
+import type { ContextUsage } from "./compaction-types";
 
-export const formatTokens = (n: number): string => {
+export function formatTokens(n: number): string {
   if (n >= 1000) {
     return `${(n / 1000).toFixed(1)}k`;
   }
   return String(n);
-};
+}
 
 const PRESSURE_LABELS: Record<string, string> = {
   normal: "",
@@ -18,10 +18,10 @@ const PRESSURE_LABELS: Record<string, string> = {
   critical: " [CRITICAL]",
 };
 
-export const formatContextUsage = (
+export function formatContextUsage(
   contextUsage: ContextUsage,
   opts?: { reserveTokens?: number; thresholdRatio?: number }
-): string => {
+): string {
   if (contextUsage.limit <= 0) {
     return `?/${formatTokens(contextUsage.limit)} (?)`;
   }
@@ -35,4 +35,4 @@ export const formatContextUsage = (
   const label = PRESSURE_LABELS[pressure] ?? "";
 
   return `${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%)${label}`;
-};
+}

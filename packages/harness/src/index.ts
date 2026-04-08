@@ -95,6 +95,7 @@ export type {
 export { collapseConsecutiveOps } from "./context-collapse";
 export type { ContextSuggestion } from "./context-suggestions";
 export { generateContextSuggestions } from "./context-suggestions";
+export { formatContextUsage, formatTokens } from "./context-usage-format";
 export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
 export { env as harnessEnv } from "./env";
@@ -144,7 +145,7 @@ export { SessionManager } from "./session";
 export type { MemoryFact, SessionMemoryConfig } from "./session-memory";
 export { SessionMemoryTracker } from "./session-memory";
 export type { SessionData } from "./session-store";
-export { SessionStore } from "./session-store";
+export { encodeSessionId, SessionStore } from "./session-store";
 export {
   PROMPTS_COMMAND_PREFIX,
   parsePromptsCommandName,

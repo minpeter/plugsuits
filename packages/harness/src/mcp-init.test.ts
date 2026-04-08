@@ -8,17 +8,17 @@ const { managerCloseMock, managerInitMock, managerToolsByServerMock } =
     managerToolsByServerMock: vi.fn(),
   }));
 
-vi.mock("./mcp-config.js", () => ({
+vi.mock("./mcp-config", () => ({
   loadMCPConfig: vi.fn(),
   isRemoteConfig: vi.fn(),
   isStdioConfig: vi.fn(),
 }));
 
-vi.mock("./mcp-tool-merger.js", () => ({
+vi.mock("./mcp-tool-merger", () => ({
   mergeMCPTools: vi.fn(),
 }));
 
-vi.mock("./mcp-manager.js", () => ({
+vi.mock("./mcp-manager", () => ({
   MCPManager: class MockMCPManager {
     close = managerCloseMock;
     init = managerInitMock;
@@ -26,11 +26,11 @@ vi.mock("./mcp-manager.js", () => ({
   },
 }));
 
-import { loadMCPConfig } from "./mcp-config.js";
-import { clearMCPCache, resolveMCPOption } from "./mcp-init.js";
-import { MCPManager } from "./mcp-manager.js";
-import { mergeMCPTools } from "./mcp-tool-merger.js";
-import type { MCPServerConfig } from "./mcp-types.js";
+import { loadMCPConfig } from "./mcp-config";
+import { clearMCPCache, resolveMCPOption } from "./mcp-init";
+import { MCPManager } from "./mcp-manager";
+import { mergeMCPTools } from "./mcp-tool-merger";
+import type { MCPServerConfig } from "./mcp-types";
 
 const loadMCPConfigMock = vi.mocked(loadMCPConfig);
 const mergeMCPToolsMock = vi.mocked(mergeMCPTools);

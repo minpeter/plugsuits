@@ -13,7 +13,8 @@
     "packages/harness/src/**/*",
     "packages/tui/src/**/*",
     "packages/headless/src/**/*",
-    "packages/cea/src/**/*"
+    "packages/cea/src/**/*",
+    "packages/tgbot/src/**/*"
   ],
   "exclude": ["node_modules", "**/dist", "**/*.test.ts"]
 }

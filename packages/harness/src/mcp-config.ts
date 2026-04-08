@@ -7,7 +7,7 @@ import type {
   MCPRemoteServerConfig,
   MCPServerConfig,
   MCPStdioServerConfig,
-} from "./mcp-types.js";
+} from "./mcp-types";
 
 const INVALID_MCP_CONFIG_PREFIX = "Invalid .mcp.json:";
 

@@ -1,5 +1,5 @@
+import { formatContextUsage } from "@ai-sdk-tool/harness";
 import { describe, expect, it } from "vitest";
-import { formatContextUsage } from "./context-usage-format";
 
 describe("formatContextUsage", () => {
   it("shows estimated baseline tokens instead of question marks when limit is known", () => {

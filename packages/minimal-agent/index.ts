@@ -4,13 +4,11 @@ import {
   type Command,
   CompactionCircuitBreaker,
   type CompactionResult,
-  type ContextUsage,
-  computeContextBudget,
   createAgent,
   createModelSummarizer,
   estimateTokens,
   estimateToolSchemasTokens,
-  getContextPressureLevel,
+  formatContextUsage,
   SessionManager,
   SessionMemoryTracker,
 } from "@ai-sdk-tool/harness";
@@ -25,8 +23,8 @@ import {
   COMPACTION_RESERVE_TOKENS,
   COMPACTION_SPECULATIVE_RATIO,
   COMPACTION_THRESHOLD_RATIO,
-} from "./compaction-config.js";
-import { env } from "./env.js";
+} from "./compaction-config";
+import { env } from "./env";
 
 const DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 const DEFAULT_SYSTEM_PROMPT = `You are a minimal example agent. Be concise and helpful.
@@ -112,29 +110,6 @@ function createCompactionConfig(
       prompt: CHATBOT_COMPACTION_PROMPT,
     }),
   } as const;
-}
-
-function formatTokens(tokenCount: number): string {
-  if (tokenCount >= 1000) {
-    return `${(tokenCount / 1000).toFixed(1)}k`;
-  }
-
-  return String(tokenCount);
-}
-
-function formatContextUsage(contextUsage: ContextUsage): string {
-  if (contextUsage.limit <= 0) {
-    return `?/${formatTokens(contextUsage.limit)} (?)`;
-  }
-
-  const budget = computeContextBudget({
-    contextLimit: contextUsage.limit,
-    reserveTokens: COMPACTION_RESERVE_TOKENS,
-    thresholdRatio: COMPACTION_THRESHOLD_RATIO,
-  });
-  const pressure = getContextPressureLevel(contextUsage.used, budget);
-
-  return `${formatTokens(contextUsage.used)}/${formatTokens(contextUsage.limit)} (${contextUsage.percentage}%) [${pressure}]`;
 }
 
 const main = defineCommand({
@@ -246,7 +221,10 @@ const main = defineCommand({
               return undefined;
             }
 
-            return formatContextUsage(contextUsage);
+            return formatContextUsage(contextUsage, {
+              reserveTokens: COMPACTION_RESERVE_TOKENS,
+              thresholdRatio: COMPACTION_THRESHOLD_RATIO,
+            });
           },
         },
         messageHistory,

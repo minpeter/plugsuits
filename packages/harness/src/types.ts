@@ -11,8 +11,8 @@ import type {
   ToolSet,
 } from "ai";
 
-import type { MCPManager } from "./mcp-manager.js";
-import type { MCPServerConfig } from "./mcp-types.js";
+import type { MCPManager } from "./mcp-manager";
+import type { MCPServerConfig } from "./mcp-types";
 
 export type {
   LanguageModel,

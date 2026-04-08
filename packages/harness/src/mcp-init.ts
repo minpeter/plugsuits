@@ -2,11 +2,11 @@ import { join, resolve } from "node:path";
 
 import type { ToolSet } from "ai";
 
-import { loadMCPConfig } from "./mcp-config.js";
-import { MCPManager } from "./mcp-manager.js";
-import { mergeMCPTools } from "./mcp-tool-merger.js";
-import type { MCPServerConfig } from "./mcp-types.js";
-import type { MCPOption } from "./types.js";
+import { loadMCPConfig } from "./mcp-config";
+import { MCPManager } from "./mcp-manager";
+import { mergeMCPTools } from "./mcp-tool-merger";
+import type { MCPServerConfig } from "./mcp-types";
+import type { MCPOption } from "./types";
 
 interface CacheEntry {
   initPromise: Promise<void>;

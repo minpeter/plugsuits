@@ -312,7 +312,9 @@ export class CheckpointHistory {
   private revision = 0;
   // message-only revision: bumped by add/compact/prune/truncate/clear, NOT metadata ops
   private messageRevision = 0;
-  private readonly sessionId: string;
+  private sessionId: string;
+  // biome-ignore lint/style/useReadonlyClassProperties: toggled in fromSession() during hydration
+  private skipPersist = false;
   private readonly sessionStore: SessionStore | null;
   private compactionConfig: NormalizedCompactionConfig;
   private pruningConfig: Required<PruningConfig>;
@@ -329,6 +331,39 @@ export class CheckpointHistory {
       ...DEFAULT_PRUNING_CONFIG,
       ...options?.pruning,
     };
+  }
+
+  static async fromSession(
+    sessionStore: SessionStore,
+    sessionId: string,
+    options?: Omit<CheckpointHistoryOptions, "sessionId" | "sessionStore">
+  ): Promise<CheckpointHistory> {
+    const history = new CheckpointHistory({
+      ...options,
+      sessionId,
+      sessionStore,
+    });
+
+    const data = await sessionStore.loadSession(sessionId);
+    if (data && data.messages.length > 0) {
+      history.skipPersist = true;
+      try {
+        history.hydrateMessages(data.messages);
+
+        if (data.summaryMessageId) {
+          const summaryMsg = history.messages.find(
+            (m) => m.id === data.summaryMessageId
+          );
+          if (summaryMsg) {
+            history.summaryMessageId = data.summaryMessageId;
+          }
+        }
+      } finally {
+        history.skipPersist = false;
+      }
+    }
+
+    return history;
   }
 
   addUserMessage(content: string, originalContent?: string): CheckpointMessage {
@@ -420,6 +455,12 @@ export class CheckpointHistory {
     this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
+  }
+
+  resetForSession(sessionId: string): void {
+    this.sessionId = sessionId;
+    this.clear();
+    this.actualUsage = null;
   }
 
   updateActualUsage(usage: ActualTokenUsageInput): void {
@@ -2520,7 +2561,7 @@ export class CheckpointHistory {
   }
 
   private persistMessage(message: CheckpointMessage): void {
-    if (!this.sessionStore) {
+    if (!this.sessionStore || this.skipPersist) {
       return;
     }
 
@@ -2536,6 +2577,22 @@ export class CheckpointHistory {
     this.sessionStore
       .appendMessage(this.sessionId, line)
       .catch(() => undefined);
+  }
+
+  private hydrateMessages(lines: MessageLine[]): void {
+    const hydrated = lines.map((line) => ({
+      id: line.id,
+      createdAt: line.createdAt,
+      isSummary: line.isSummary,
+      isSummaryMessage: line.isSummary,
+      originalContent: line.originalContent,
+      message: trimTrailingAssistantNewlines(line.message),
+    }));
+
+    this.messages = this.ensureValidToolSequence(hydrated);
+    this.refreshEstimatedUsage();
+    this.revision += 1;
+    this.messageRevision += 1;
   }
 
   private ensureValidToolSequence(

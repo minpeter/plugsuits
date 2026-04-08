@@ -10,6 +10,7 @@ import {
   type CompactionResult,
   estimateTokens,
   estimateToolSchemasTokens,
+  formatContextUsage,
   MCPManager,
   mergeMCPTools,
   PostCompactRestorer,
@@ -67,7 +68,6 @@ import { createTranslateCommand } from "../commands/translate";
 import type { SkillInfo } from "../context/skills";
 import { loadAllSkills } from "../context/skills";
 import { isNonEnglish, translateToEnglish } from "../context/translation";
-import { formatContextUsage } from "../context-usage-format";
 import { env, validateProviderConfig } from "../env";
 import { setSpinnerOutputEnabled } from "../interaction/spinner";
 import { createToolRenderers } from "../interaction/tool-renderers";
@@ -106,48 +106,15 @@ const style = (prefix: string, text: string): string => {
   return `${prefix}${text}${ANSI_RESET}`;
 };
 
-type SessionScopedHistory = CheckpointHistory & {
-  setSession: (sessionId: string) => void;
-};
-
 const createSessionScopedCheckpointHistory = (
   sessionBaseDir: string,
   initialSessionId: string
-): SessionScopedHistory => {
+): CheckpointHistory => {
   mkdirSync(sessionBaseDir, { recursive: true });
   const sessionStore = new SessionStore(sessionBaseDir);
-  let history = new CheckpointHistory({
+  return new CheckpointHistory({
     sessionId: initialSessionId,
     sessionStore,
-  });
-
-  const setSession = (sessionId: string): void => {
-    const compaction = history.getCompactionConfig();
-    const pruning = history.getPruningConfig();
-    const systemPromptTokens = history.getSystemPromptTokens();
-
-    history = new CheckpointHistory({
-      sessionId,
-      sessionStore,
-      compaction,
-      pruning,
-    });
-    history.setSystemPromptTokens(systemPromptTokens);
-  };
-
-  return new Proxy({ setSession } as SessionScopedHistory, {
-    get: (target, property, receiver) => {
-      if (property in target) {
-        return Reflect.get(target, property, receiver);
-      }
-
-      const value = Reflect.get(
-        history as unknown as object,
-        property,
-        history as unknown as object
-      );
-      return typeof value === "function" ? value.bind(history) : value;
-    },
   });
 };
 
@@ -533,7 +500,7 @@ const updateCompactionForCurrentModel = async (): Promise<void> => {
 
 const applyCurrentSessionToRuntime = (): void => {
   const sessionId = sessionManager.getId();
-  messageHistory.setSession(sessionId);
+  messageHistory.resetForSession(sessionId);
   agentManager.setSessionMemoryStorePath(
     resolveSessionMemoryStorePath(sessionId)
   );

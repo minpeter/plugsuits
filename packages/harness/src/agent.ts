@@ -4,7 +4,7 @@
  */
 
 import { stepCountIs, streamText } from "ai";
-import { resolveMCPOption } from "./mcp-init.js";
+import { resolveMCPOption } from "./mcp-init";
 import type {
   Agent,
   AgentConfig,

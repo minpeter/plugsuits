@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { MessageLine, SessionFileLine } from "./compaction-types";
 
@@ -6,6 +6,17 @@ export interface SessionData {
   messages: MessageLine[];
   sessionId: string;
   summaryMessageId: string | null;
+}
+
+// Fixed-width `_xxxx` (4-digit hex) escape. `_` is the escape prefix so it is
+// itself escaped, making the mapping injective across the full BMP range.
+export function encodeSessionId(sessionId: string): string {
+  if (sessionId.length === 0) {
+    throw new Error("sessionId must not be empty");
+  }
+  return sessionId.replace(/[^A-Za-z0-9-]/g, (ch) => {
+    return `_${ch.charCodeAt(0).toString(16).padStart(4, "0")}`;
+  });
 }
 
 export class SessionStore {
@@ -16,7 +27,16 @@ export class SessionStore {
   }
 
   private getFilePath(sessionId: string): string {
-    return join(this.baseDir, `${sessionId}.jsonl`);
+    const encoded = encodeSessionId(sessionId);
+    const primary = join(this.baseDir, `${encoded}.jsonl`);
+    if (existsSync(primary)) {
+      return primary;
+    }
+    const legacy = join(this.baseDir, `${sessionId}.jsonl`);
+    if (existsSync(legacy)) {
+      return legacy;
+    }
+    return primary;
   }
 
   private ensureHeader(sessionId: string): void {
@@ -95,5 +115,17 @@ export class SessionStore {
       summaryMessageId,
       messages,
     });
+  }
+
+  deleteSession(sessionId: string): Promise<void> {
+    const filePath = this.getFilePath(sessionId);
+    try {
+      rmSync(filePath, { force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+    return Promise.resolve();
   }
 }
