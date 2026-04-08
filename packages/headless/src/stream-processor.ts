@@ -330,7 +330,7 @@ export const processStream = async (
       step_id: stepId,
       timestamp: new Date().toISOString(),
       source: "agent",
-      message: currentText || "(no text output)",
+      message: currentText,
       model_name: modelId,
       reasoning_content: currentReasoning || undefined,
       tool_calls: bufferedToolCallData(pendingToolCalls, completedToolCallIds),
