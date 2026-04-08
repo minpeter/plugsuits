@@ -55,23 +55,38 @@ const agent = await createAgent({
   ].join("\n"),
 });
 
+const MAX_CACHED_THREADS = 100;
 const chatHistories = new Map<string, Promise<CheckpointHistory>>();
+
+function evictOldest(): void {
+  if (chatHistories.size <= MAX_CACHED_THREADS) {
+    return;
+  }
+  const oldest = chatHistories.keys().next().value;
+  if (oldest !== undefined) {
+    chatHistories.delete(oldest);
+  }
+}
 
 function getHistory(threadId: string): Promise<CheckpointHistory> {
   let promise = chatHistories.get(threadId);
-  if (!promise) {
-    promise = CheckpointHistory.fromSession(
-      sessionStore,
-      threadId,
-      compactionOptions
-    );
-    promise.catch(() => {
-      if (chatHistories.get(threadId) === promise) {
-        chatHistories.delete(threadId);
-      }
-    });
+  if (promise) {
+    chatHistories.delete(threadId);
     chatHistories.set(threadId, promise);
+    return promise;
   }
+  promise = CheckpointHistory.fromSession(
+    sessionStore,
+    threadId,
+    compactionOptions
+  );
+  promise.catch(() => {
+    if (chatHistories.get(threadId) === promise) {
+      chatHistories.delete(threadId);
+    }
+  });
+  chatHistories.set(threadId, promise);
+  evictOldest();
   return promise;
 }
 

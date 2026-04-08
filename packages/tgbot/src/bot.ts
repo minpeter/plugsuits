@@ -53,7 +53,19 @@ async function registerCommands(): Promise<void> {
 export { registerCommands };
 
 const triggerWords = env.TRIGGER_WORDS;
-const CLEAR_COMMAND = /^\/clear(@\w+)?$/i;
+const CLEAR_COMMAND_RE = /^\/clear(?:@(\w+))?$/i;
+
+function isClearCommand(text: string): boolean {
+  const match = text.match(CLEAR_COMMAND_RE);
+  if (!match) {
+    return false;
+  }
+  const target = match[1];
+  if (!target) {
+    return true;
+  }
+  return !!botUsername && target.toLowerCase() === botUsername.toLowerCase();
+}
 
 /**
  * Check whether `message` is a reply to one of the bot's own messages.
@@ -86,7 +98,7 @@ function isReplyToBot(message: Message): boolean {
   if (botUsername && typeof username === "string") {
     return username.toLowerCase() === botUsername.toLowerCase();
   }
-  return false;
+  return !botUsername && is_bot;
 }
 
 function hasTriggerWord(text: string): boolean {
@@ -113,8 +125,7 @@ async function respond(thread: Thread): Promise<void> {
   } catch (error) {
     console.error("[tgbot] Error handling message:", error);
     try {
-      const errMsg = error instanceof Error ? error.message : "Unknown error";
-      await thread.post(`Error: ${errMsg}`);
+      await thread.post("Sorry, something went wrong. Please try again.");
     } catch (sendError) {
       console.error("[tgbot] Failed to send error message:", sendError);
     }
@@ -122,7 +133,12 @@ async function respond(thread: Thread): Promise<void> {
 }
 
 async function handleIncoming(thread: Thread, message: Message): Promise<void> {
-  if (CLEAR_COMMAND.test(message.text ?? "")) {
+  const text = message.text;
+  if (!text) {
+    return;
+  }
+
+  if (isClearCommand(text)) {
     clearHistory(thread.id);
     await thread.post(
       "History cleared. Mention me to start a new conversation."
@@ -130,13 +146,13 @@ async function handleIncoming(thread: Thread, message: Message): Promise<void> {
     return;
   }
 
-  await recordMessage(thread.id, message.text);
+  const shouldRespond =
+    message.isMention || hasTriggerWord(text) || isReplyToBot(message);
 
-  if (
-    message.isMention ||
-    hasTriggerWord(message.text) ||
-    isReplyToBot(message)
-  ) {
+  await recordMessage(thread.id, text);
+
+  if (shouldRespond) {
+    await thread.subscribe();
     await respond(thread);
   }
 }

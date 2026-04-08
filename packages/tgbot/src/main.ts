@@ -13,23 +13,25 @@ await registerCommands();
 
 console.log("[tgbot] Bot initialized and running.");
 
-process.on("SIGINT", async () => {
-  console.log("\n[tgbot] Shutting down...");
+async function shutdown(): Promise<void> {
   try {
     await closeAgent();
+  } catch (error) {
+    console.error("[tgbot] Error closing agent:", error);
+  }
+  try {
     await bot.shutdown();
   } catch (error) {
-    console.error("[tgbot] Error during shutdown:", error);
+    console.error("[tgbot] Error shutting down bot:", error);
   }
   process.exit(0);
+}
+
+process.on("SIGINT", async () => {
+  console.log("\n[tgbot] Shutting down...");
+  await shutdown();
 });
 
 process.on("SIGTERM", async () => {
-  try {
-    await closeAgent();
-    await bot.shutdown();
-  } catch (error) {
-    console.error("[tgbot] Error during shutdown:", error);
-  }
-  process.exit(0);
+  await shutdown();
 });
