@@ -286,7 +286,7 @@ function logSummarizerUsage(
   sentMessages: number,
   totalMessages: number
 ): void {
-  if (!(usage && env.DEBUG_TOKENS)) {
+  if (!(usage && env.DEBUG_TOKENS && env.COMPACTION_DEBUG)) {
     return;
   }
 
