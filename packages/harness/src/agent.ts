@@ -3,7 +3,7 @@
  * Core agent factory for the harness package.
  */
 
-import { stepCountIs, streamText } from "ai";
+import { stepCountIs, streamText, tool } from "ai";
 import { AgentError, AgentErrorCode } from "./errors";
 import { resolveMCPOption } from "./mcp-init";
 import type {
@@ -14,14 +14,46 @@ import type {
   AgentStreamResult,
   ToolCallPart,
 } from "./types";
+import type { ToolDefinition, ToolSource } from "./tool-source";
 
-type StreamTextConfig = Parameters<typeof streamText>[0];
 type StopConditionInput = {
   steps: Array<{
     toolCalls?: ToolCallPart[];
   }>;
 };
 type StopCondition = (input: StopConditionInput) => boolean;
+
+const toToolSet = async (toolSources: ToolSource[] | undefined) => {
+  if (!toolSources || toolSources.length === 0) {
+    return {};
+  }
+
+  const entries = await Promise.all(
+    toolSources.map(async (source) => {
+      const definitions = await source.listTools();
+      return definitions.map(
+        (definition) =>
+          [
+            definition.name,
+            createToolFromDefinition(source, definition),
+          ] as const
+      );
+    })
+  );
+
+  return Object.fromEntries(entries.flat());
+};
+
+const createToolFromDefinition = (
+  source: ToolSource,
+  definition: ToolDefinition
+) => {
+  return tool({
+    description: definition.description,
+    inputSchema: definition.parameters as never,
+    execute: async (args) => source.callTool(definition.name, args),
+  });
+};
 
 const serializeToolCall = (
   toolCall: Pick<ToolCallPart, "input" | "toolName">
@@ -102,13 +134,24 @@ const createGuardedStopCondition = (
  * ```
  */
 export async function createAgent(config: AgentConfig): Promise<Agent> {
-  let mergedTools = config.tools;
-  let closeFn: () => Promise<void> = async () => undefined;
+  let mergedTools = {
+    ...(config.tools ?? {}),
+    ...(await toToolSet(config.toolSources)),
+  };
+  let closeFn: () => Promise<void> = async () => {
+    await Promise.all(
+      config.toolSources?.map((source) => source.close?.()) ?? []
+    );
+  };
 
   if (config.mcp !== undefined) {
-    const resolved = await resolveMCPOption(config.mcp, config.tools ?? {});
+    const resolved = await resolveMCPOption(config.mcp, mergedTools);
     mergedTools = resolved.tools;
-    closeFn = resolved.close;
+    const previousClose = closeFn;
+    closeFn = async () => {
+      await resolved.close();
+      await previousClose();
+    };
   }
 
   const effectiveConfig: AgentConfig =

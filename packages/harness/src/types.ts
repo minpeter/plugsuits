@@ -13,6 +13,7 @@ import type {
 
 import type { MCPManager } from "./mcp-manager";
 import type { MCPServerConfig } from "./mcp-types";
+import type { ToolSource } from "./tool-source";
 
 export type {
   LanguageModel,
@@ -62,6 +63,7 @@ export interface AgentConfig {
   /** Optional MCP (Model Context Protocol) configuration. When provided, MCP tools are loaded and merged with local tools at agent creation time. */
   mcp?: MCPOption;
   model: LanguageModel;
+  toolSources?: ToolSource[];
   tools?: ToolSet;
 }
 

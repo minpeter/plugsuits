@@ -27,6 +27,32 @@ function isToolResultPart(part: unknown): part is {
 
 export type { PruningConfig } from "./compaction-types";
 
+const DEFAULT_EAGER_PRUNE_TOOL_NAMES = [
+  "read_file",
+  "readFile",
+  "grep",
+  "grep_files",
+  "grepFiles",
+  "list_dir",
+  "listDir",
+  "list_files",
+  "listFiles",
+] as const;
+
+export function createDefaultPruningConfig(): PruningConfig {
+  return {
+    eagerPruneToolNames: [...DEFAULT_EAGER_PRUNE_TOOL_NAMES],
+  };
+}
+
+export function createChatbotPruningConfig(): PruningConfig {
+  return {
+    minSavingsTokens: 500,
+    protectRecentTokens: Number.MAX_SAFE_INTEGER,
+    replacementText: "[output pruned — too large]",
+  };
+}
+
 /**
  * Result of a pruning operation.
  */

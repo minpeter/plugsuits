@@ -1,5 +1,10 @@
 export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
+export type {
+  MemoryAgentConfig,
+  PlatformAgentConfig,
+  SessionAgentConfig,
+} from "./presets";
 export type { BackgroundMemoryExtractorConfig } from "./background-memory-extractor";
 export { BackgroundMemoryExtractor } from "./background-memory-extractor";
 export type {
@@ -145,6 +150,11 @@ export type {
 } from "./post-compact-restoration";
 export { PostCompactRestorer } from "./post-compact-restoration";
 export { SessionManager } from "./session";
+export {
+  createMemoryAgent,
+  createPlatformAgent,
+  createSessionAgent,
+} from "./presets";
 export type { MemoryFact, SessionMemoryConfig } from "./session-memory";
 export { SessionMemoryTracker } from "./session-memory";
 export type { SessionData } from "./session-store";
@@ -160,6 +170,7 @@ export {
 } from "./skill-command-prefix";
 export type { SkillInfo, SkillsConfig } from "./skills";
 export { SkillsEngine } from "./skills";
+export type { ToolDefinition, ToolSource } from "./tool-source";
 export type { TodoConfig, TodoItem } from "./todo-continuation";
 export { TodoContinuation } from "./todo-continuation";
 export {
@@ -178,5 +189,10 @@ export type {
   PruneResult,
   PruningConfig,
 } from "./tool-pruning";
-export { progressivePrune, pruneToolOutputs } from "./tool-pruning";
+export {
+  createChatbotPruningConfig,
+  createDefaultPruningConfig,
+  progressivePrune,
+  pruneToolOutputs,
+} from "./tool-pruning";
 export type * from "./types";

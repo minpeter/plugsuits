@@ -10,7 +10,6 @@ import {
   computeContextBudget,
   estimateTokens,
   executeCommand,
-  getContextPressureLevel,
   harnessEnv,
   isCommand,
   isContextOverflowError,
@@ -69,6 +68,37 @@ const ANSI_BRIGHT_YELLOW = "\x1b[93m";
 const ANSI_RED = "\x1b[31m";
 const CTRL_C_ETX = "\u0003";
 const CTRL_C_EXIT_WINDOW_MS = 500;
+
+const getConfiguredContextPressureLevel = (
+  usedTokens: number,
+  budget: ReturnType<typeof computeContextBudget>,
+  thresholds: {
+    critical: number;
+    elevated: number;
+    warning: number;
+  }
+): "critical" | "elevated" | "normal" | "warning" => {
+  const hardLimit = Math.max(budget.hardLimitAt, 1);
+  const ratio = usedTokens / hardLimit;
+
+  if (ratio >= thresholds.critical) {
+    return "critical";
+  }
+  if (ratio >= thresholds.warning) {
+    return "warning";
+  }
+  if (ratio >= thresholds.elevated) {
+    return "elevated";
+  }
+
+  return "normal";
+};
+
+type ContextPressureThresholds = {
+  critical: number;
+  elevated: number;
+  warning: number;
+};
 
 const style = (prefix: string, text: string): string => {
   return `${prefix}${text}${ANSI_RESET}`;
@@ -543,6 +573,11 @@ export interface AgentTUIConfig {
   circuitBreaker?: CompactionCircuitBreaker;
   commands?: Command[];
   compactionCallbacks?: CompactionOrchestratorCallbacks;
+  contextPressureThresholds?: {
+    critical?: number;
+    elevated?: number;
+    warning?: number;
+  };
   footer?: { text?: string };
   header?: { title: string; subtitle?: string };
   measureUsage?: (messages: ModelMessage[]) => Promise<UsageMeasurement | null>;
@@ -648,6 +683,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const backgroundStatuses = new Map<string, FooterStatusEntry>();
   let blockingCompactionActive = false;
   let commandInputListenerActive = false;
+  const contextPressureThresholds: ContextPressureThresholds = {
+    elevated: config.contextPressureThresholds?.elevated ?? 0.7,
+    warning: config.contextPressureThresholds?.warning ?? 0.85,
+    critical: config.contextPressureThresholds?.critical ?? 0.95,
+  };
 
   const resolveContextPressure = ():
     | "critical"
@@ -669,7 +709,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       thresholdRatio: compactionConfig.thresholdRatio,
     });
 
-    return getContextPressureLevel(usage.used, budget);
+    return getConfiguredContextPressureLevel(
+      usage.used,
+      budget,
+      contextPressureThresholds
+    );
   };
 
   const createStatusSpinner = (message: string): StatusSpinner => {

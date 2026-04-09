@@ -35,6 +35,25 @@ type MaxOutputAwareMessageHistory = HeadlessMessageHistory & {
 
 type ProcessAgentResponseResult = "completed" | "max-iterations-reached";
 
+interface HeadlessCompactionController {
+  applyReady(history: HeadlessMessageHistory): {
+    applied: boolean;
+    stale?: boolean;
+  };
+  blockAtHardLimit(
+    history: HeadlessMessageHistory,
+    additionalTokens: number,
+    phase: "new-turn" | "intermediate-step"
+  ): Promise<boolean>;
+  blockIfNeeded(
+    history: HeadlessMessageHistory,
+    content: string
+  ): Promise<boolean>;
+  checkAndCompact(): Promise<boolean>;
+  notifyNewUserTurn(): void;
+  startSpeculative(history: HeadlessMessageHistory): void;
+}
+
 const MAX_NO_OUTPUT_RETRIES = 3;
 
 async function sleepMs(ms: number): Promise<void> {
@@ -151,6 +170,27 @@ function isStreamTimeoutError(
     error instanceof Error &&
     error.message === `Stream response timeout after ${streamTimeoutMs}ms`
   );
+}
+
+function createNoopCompactionController(): HeadlessCompactionController {
+  return {
+    applyReady: () => ({ applied: false, stale: false }),
+    async blockAtHardLimit() {
+      return false;
+    },
+    async blockIfNeeded() {
+      return false;
+    },
+    async checkAndCompact() {
+      return false;
+    },
+    notifyNewUserTurn() {
+      return;
+    },
+    startSpeculative() {
+      return;
+    },
+  };
 }
 
 async function runTodoReminderLoop(params: {
@@ -400,45 +440,46 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       });
     },
   };
-  const compactionOrchestrator = new CompactionOrchestrator(
-    config.messageHistory,
-    {
-      circuitBreaker: config.circuitBreaker,
-      callbacks: {
-        ...baseCompactionCallbacks,
-        ...metricsCompactionCallbacks,
-        onBlockingChange: (event) => {
-          metricsCompactionCallbacks.onBlockingChange?.(event);
-          userCompactionCallbacks?.onBlockingChange?.(event);
-        },
-        onCompactionComplete: (result) => {
-          metricsCompactionCallbacks.onCompactionComplete?.(result);
-          userCompactionCallbacks?.onCompactionComplete?.(result);
-        },
-        onCompactionError: (error) => {
-          metricsCompactionCallbacks.onCompactionError?.(error);
-          userCompactionCallbacks?.onCompactionError?.(error);
-        },
-        onCompactionStart: () => {
-          metricsCompactionCallbacks.onCompactionStart?.();
-          userCompactionCallbacks?.onCompactionStart?.();
-        },
-        onJobStatus: (id, message, state) => {
-          metricsCompactionCallbacks.onJobStatus?.(id, message, state);
-          userCompactionCallbacks?.onJobStatus?.(id, message, state);
-        },
-        onSpeculativeReady: () => {
-          const result = compactionOrchestrator.applyReady(
-            config.messageHistory
-          );
-          if (result.applied) {
-            measureUsageAfterCompaction().catch(Boolean);
-          }
-          userCompactionCallbacks?.onSpeculativeReady?.();
-        },
-      },
-    }
-  );
+  const compactionOrchestrator = config.disableCompaction
+    ? createNoopCompactionController()
+    : ((() => {
+        const orchestrator = new CompactionOrchestrator(config.messageHistory, {
+          circuitBreaker: config.circuitBreaker,
+          callbacks: {
+            ...baseCompactionCallbacks,
+            ...metricsCompactionCallbacks,
+            onBlockingChange: (event) => {
+              metricsCompactionCallbacks.onBlockingChange?.(event);
+              userCompactionCallbacks?.onBlockingChange?.(event);
+            },
+            onCompactionComplete: (result) => {
+              metricsCompactionCallbacks.onCompactionComplete?.(result);
+              userCompactionCallbacks?.onCompactionComplete?.(result);
+            },
+            onCompactionError: (error) => {
+              metricsCompactionCallbacks.onCompactionError?.(error);
+              userCompactionCallbacks?.onCompactionError?.(error);
+            },
+            onCompactionStart: () => {
+              metricsCompactionCallbacks.onCompactionStart?.();
+              userCompactionCallbacks?.onCompactionStart?.();
+            },
+            onJobStatus: (id, message, state) => {
+              metricsCompactionCallbacks.onJobStatus?.(id, message, state);
+              userCompactionCallbacks?.onJobStatus?.(id, message, state);
+            },
+            onSpeculativeReady: () => {
+              const result = orchestrator.applyReady(config.messageHistory);
+              if (result.applied) {
+                measureUsageAfterCompaction().catch(Boolean);
+              }
+              userCompactionCallbacks?.onSpeculativeReady?.();
+            },
+          },
+        });
+
+        return orchestrator;
+      })() satisfies HeadlessCompactionController);
 
   let stepId = 0;
 

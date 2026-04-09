@@ -128,6 +128,7 @@ export interface HeadlessRunnerConfig {
   atifOutputPath?: string;
   circuitBreaker?: import("@ai-sdk-tool/harness").CompactionCircuitBreaker;
   compactionCallbacks?: import("@ai-sdk-tool/harness").CompactionOrchestratorCallbacks;
+  disableCompaction?: boolean;
   emitEvent?: (event: TrajectoryEvent) => void;
   initialUserMessage?: {
     content: string;
