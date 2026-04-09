@@ -1,0 +1,55 @@
+packages/headless/src/types.ts
+  60b1a63f39fbe456 131
+packages/headless/src/runner.ts
+  60b1a63f39fbe456 38-56,175-193,443-482
+packages/harness/src/tool-source.ts
+  60b1a63f39fbe456 1-15
+packages/harness/src/presets.ts
+  8fcf126ac7bae99d 1-103
+packages/harness/src/tool-pruning.ts
+  60b1a63f39fbe456 30-55
+packages/harness/src/agent.ts
+  60b1a63f39fbe456 6,17,26-57,137-145,148,150-154
+packages/tui/src/agent-tui.ts
+  60b1a63f39fbe456 72-102,576-580,686-690,712-716
+packages/harness/src/index.ts
+  8fcf126ac7bae99d 3-7,153-157
+  60b1a63f39fbe456 173,192-197
+packages/harness/src/presets.test.ts
+  8fcf126ac7bae99d 1-103
+packages/harness/src/types.ts
+  60b1a63f39fbe456 16,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "de45ecb34da9acba1f8948097da2c7ae4c7416bd",
+  "prompts": {
+    "60b1a63f39fbe456": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_28ee8378dffebrMplN5OYcedUv",
+        "model": "minpeter/gpt-latest"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 280,
+      "total_deletions": 102,
+      "accepted_lines": 226,
+      "overriden_lines": 0
+    },
+    "8fcf126ac7bae99d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_28ee8e5feffedMFMPQZh1oQYTY",
+        "model": "minpeter/gpt-latest"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 238,
+      "total_deletions": 22,
+      "accepted_lines": 216,
+      "overriden_lines": 0
+    }
+  }
+}
