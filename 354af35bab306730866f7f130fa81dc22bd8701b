@@ -1,0 +1,23 @@
+packages/harness/src/index.ts
+  0bc0db775a0793b5 109-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "354af35bab306730866f7f130fa81dc22bd8701b",
+  "prompts": {
+    "0bc0db775a0793b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_2919bf818ffel0ldHiJ5KQ8l2W-24935ea0-1d26-432e-8b7d-cc7717c826b6",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 0,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
