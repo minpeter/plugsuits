@@ -1,0 +1,36 @@
+packages/harness/src/compaction-prompts.ts
+  af2f393aa3e71032 289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "1280a4ffa62ef87bdf679d68399432cfba331693",
+  "prompts": {
+    "85a90784a380d3eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28d1739c2ffe20M7QmTZTA7mvf-67c1b472-4961-41f9-8e49-493a25b70142",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 0,
+      "overriden_lines": 3
+    },
+    "af2f393aa3e71032": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28d1739c2ffe20M7QmTZTA7mvf-22cec7de-09bf-4765-82eb-33bea2adee91",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
