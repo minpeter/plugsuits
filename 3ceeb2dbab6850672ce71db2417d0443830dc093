@@ -1,0 +1,23 @@
+packages/cea/src/agent.ts
+  c4367ff26e26db3e 1,7,13,20,446-449,468,659,666-691,834-844,846-850,861,866,873-881
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "3ceeb2dbab6850672ce71db2417d0443830dc093",
+  "prompts": {
+    "c4367ff26e26db3e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_28eddc3e7ffe75djyIkGvdamWJ",
+        "model": "minpeter/gpt-latest"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 82,
+      "total_deletions": 22,
+      "accepted_lines": 65,
+      "overriden_lines": 0
+    }
+  }
+}
