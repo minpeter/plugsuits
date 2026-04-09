@@ -1,0 +1,243 @@
+packages/harness/src/continuation.ts
+  2e4ef1c6e9ba2a85 5,12-13
+packages/harness/src/session-store.test.ts
+  2e4ef1c6e9ba2a85 5-9,196-206
+packages/harness/src/errors.test.ts
+  2e4ef1c6e9ba2a85 1,5-17,22-25,28-32,35-38
+  10fa0091a1eed250 2-4,18-21,26-27,33-34,39-40
+packages/harness/src/compaction-types.ts
+  2e4ef1c6e9ba2a85 236-241
+packages/harness/src/checkpoint-history.ts
+  2e4ef1c6e9ba2a85 28,70-76,873
+packages/harness/src/index.ts
+  2e4ef1c6e9ba2a85 102-103,150-154
+  12d95a85b14978cc 133-134
+packages/tui/src/agent-tui.ts
+  775d64589c92fa98 19
+  2578a81314f317ed 25
+packages/headless/src/runner.ts
+  06f980516dfae8a5 9
+  b346601c97187483 15
+packages/harness/src/session-store.ts
+  2e4ef1c6e9ba2a85 11-18,28-34
+packages/harness/src/errors.ts
+  a277b0c57d5a7c4a 1-12,14-22
+  2e4ef1c6e9ba2a85 13
+packages/harness/src/usage.ts
+  c64c0ba175e58b73 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "4efe2499aeb0f95cd9d958782ff8e892fe0e8eb7",
+  "prompts": {
+    "029b9cf25218ad54": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-62f8c4de-6082-4d24-b7a8-350540a44d4b",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 2,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "06f980516dfae8a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-d0c262e8-c250-4067-a985-767da5a05f6c",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "10fa0091a1eed250": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1c42abffeSp3qBcZ9Tauk7P-0838f209-489a-45f4-8149-37d19877f81d",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 59,
+      "total_deletions": 0,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "12d95a85b14978cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-b41af875-df20-4432-a95b-4a9ec4427e90",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "1bee6d12c369a7bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-3a06d74f-65e5-4587-a325-b68d5251e268",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 49,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "1e9f619243b0277d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-c34e52d0-2ef6-47ef-9310-c85b4f840448",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 12,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "2578a81314f317ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-d12585ce-55b0-4224-9789-3e9408bb4e3f",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "2d8d4a69f863be49": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-8472029d-877e-4a67-a03c-3f2335e338b1",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "2e4ef1c6e9ba2a85": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_28f11a6dbffe4tNbwx84MKYkFC",
+        "model": "minpeter/gpt-latest"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 89,
+      "total_deletions": 86,
+      "accepted_lines": 89,
+      "overriden_lines": 0
+    },
+    "51280c34e148515b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-8cb7b4f4-3cba-4b5c-81d0-366a711a8a50",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 6,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "638f2b8477e79fd0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1c42abffeSp3qBcZ9Tauk7P-8a8dc096-9512-41c8-873a-5dab028a3508",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "775d64589c92fa98": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-1738c0bf-154e-49b9-acce-8ab8d0fdf4b4",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "a277b0c57d5a7c4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1c42abffeSp3qBcZ9Tauk7P-c7e7fd0e-ab0d-4d74-b960-2ca9eab973ef",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 0,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    },
+    "b346601c97187483": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-dd6af29a-e944-47eb-ac84-ff5bee5b4073",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "c001d242ddc1ca33": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-97c6302d-8241-4db4-b1fe-3a9e89a8561c",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 55,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "c64c0ba175e58b73": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28f1bba7effeMV2inLN3xRtlcb-491497d9-6989-4fec-870a-ff0a30750df4",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 0,
+      "accepted_lines": 58,
+      "overriden_lines": 0
+    }
+  }
+}
