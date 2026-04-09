@@ -1,0 +1,38 @@
+docs/MIGRATION.md
+  82d9c685861aee69 1-66
+docs/MCP-GUIDE.md
+  02134b9a7557c522 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "21abe6170d59a95b7e518d8c99656c754c6de026",
+  "prompts": {
+    "02134b9a7557c522": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28e3d4497ffelAT0r26sNyRzzh-fb0bb554-3f69-4bb2-8821-5bc05046ef33",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 72,
+      "total_deletions": 0,
+      "accepted_lines": 72,
+      "overriden_lines": 0
+    },
+    "82d9c685861aee69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_28e3d4497ffelAT0r26sNyRzzh-ef06286c-e919-474a-8937-59053d7d3f42",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 66,
+      "total_deletions": 0,
+      "accepted_lines": 66,
+      "overriden_lines": 0
+    }
+  }
+}
