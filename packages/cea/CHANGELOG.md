@@ -1,5 +1,15 @@
 # plugsuits
 
+## 2.3.3
+
+### Patch Changes
+
+- 5e0768c: Fix review issues: runAgentLoop message retention, isContextOverflowError call sites, setTimeout leak, CEA token estimation, session history separation, per-thread memory tracking, vi.mock hoisting, AgentError export, and lint cleanup
+- Updated dependencies [5e0768c]
+  - @ai-sdk-tool/harness@1.2.4
+  - @ai-sdk-tool/tui@3.0.2
+  - @ai-sdk-tool/headless@3.0.3
+
 ## 2.3.2
 
 ### Patch Changes
