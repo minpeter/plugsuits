@@ -612,10 +612,15 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
             ...(config.abortSignal ? { abortSignal: config.abortSignal } : {}),
           })
         );
+        let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
         const stream = await Promise.race([
-          streamPromise,
+          streamPromise.finally(() => {
+            if (raceTimeoutId !== undefined) {
+              clearTimeout(raceTimeoutId);
+            }
+          }),
           new Promise<never>((_, reject) => {
-            const timeoutId = setTimeout(() => {
+            raceTimeoutId = setTimeout(() => {
               reject(
                 new Error(`Stream response timeout after ${streamTimeoutMs}ms`)
               );
@@ -624,7 +629,9 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
             config.abortSignal?.addEventListener(
               "abort",
               () => {
-                clearTimeout(timeoutId);
+                if (raceTimeoutId !== undefined) {
+                  clearTimeout(raceTimeoutId);
+                }
                 reject(new Error("Aborted by caller"));
               },
               { once: true }

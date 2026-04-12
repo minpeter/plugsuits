@@ -100,8 +100,7 @@ export { formatContextUsage, formatTokens } from "./context-usage-format";
 export type { ContinuationMessageData } from "./continuation";
 export { createContinuationMessage, getContinuationText } from "./continuation";
 export { env as harnessEnv } from "./env";
-export type { AgentError } from "./errors";
-export { AgentErrorCode } from "./errors";
+export { AgentError, AgentErrorCode } from "./errors";
 export { runAgentLoop } from "./loop";
 export { isRemoteConfig, isStdioConfig, loadMCPConfig } from "./mcp-config";
 // MCP integration

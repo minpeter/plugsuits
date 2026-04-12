@@ -859,11 +859,8 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       estimateToolSchemasTokens(this.toolRegistry)
     );
 
-    if (messages.length > 0) {
-      messageHistory.addModelMessages(messages);
-    }
-
-    const preparedMessages = messageHistory.getMessagesForLLM();
+    const preparedMessages =
+      messages.length > 0 ? messages : messageHistory.getMessagesForLLM();
 
     if (preparedMessages.length === 0) {
       throw new Error(
@@ -887,12 +884,14 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       ...getBenchmarkSamplingOverrides(),
     });
 
-    Promise.resolve(result.response).then(
-      (response: Awaited<typeof result.response>) => {
-        messageHistory.addModelMessages(response.messages);
-      },
-      () => undefined
-    );
+    if (messages.length === 0) {
+      Promise.resolve(result.response).then(
+        (response: Awaited<typeof result.response>) => {
+          messageHistory.addModelMessages(response.messages);
+        },
+        () => undefined
+      );
+    }
 
     return result;
   }
