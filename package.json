@@ -9,7 +9,7 @@
     "headless": "node --conditions=@ai-sdk-tool/source --import tsx packages/cea/src/entrypoints/main.ts --prompt",
     "test": "turbo run test",
     "typecheck": "pnpm run typecheck:root && turbo run typecheck",
-    "typecheck:root": "tsc --noEmit -p tsconfig.root.json",
+    "typecheck:root": "pnpm -F @ai-sdk-tool/harness exec tsc --noEmit -p ../../tsconfig.root.json",
     "check": "pnpm exec ultracite check .",
     "lint": "pnpm exec ultracite fix .",
     "test:headless-edit": "node --import tsx scripts/test-headless-edit-ops.ts",
