@@ -46,7 +46,6 @@ export function serializeMessage(
   return {
     id: message.id,
     message: message.message,
-    tokenCount: undefined,
     createdAt: message.createdAt,
     isSummary: message.isSummary,
     originalContent: message.originalContent,
@@ -61,7 +60,6 @@ export function deserializeMessage(
     message: message.message,
     createdAt: message.createdAt ?? Date.now(),
     isSummary: message.isSummary ?? false,
-    isSummaryMessage: message.isSummary ?? false,
     originalContent: message.originalContent,
   };
 }

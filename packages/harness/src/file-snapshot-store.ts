@@ -1,9 +1,5 @@
 import { mkdirSync } from "node:fs";
-import {
-  deserializeMessage,
-  type HistorySnapshot,
-  serializeMessage,
-} from "./history-snapshot";
+import type { HistorySnapshot } from "./history-snapshot";
 import { SessionStore } from "./session-store";
 import type { SnapshotStore } from "./snapshot-store";
 
@@ -23,16 +19,13 @@ export class FileSnapshotStore implements SnapshotStore {
     }
 
     return {
-      messages: session.messages.map((messageLine) =>
-        serializeMessage({
-          id: messageLine.id,
-          message: messageLine.message,
-          createdAt: messageLine.createdAt,
-          isSummary: messageLine.isSummary,
-          isSummaryMessage: messageLine.isSummary,
-          originalContent: messageLine.originalContent,
-        })
-      ),
+      messages: session.messages.map((messageLine) => ({
+        id: messageLine.id,
+        message: messageLine.message,
+        createdAt: messageLine.createdAt,
+        isSummary: messageLine.isSummary,
+        originalContent: messageLine.originalContent,
+      })),
       revision: 0,
       contextLimit: 0,
       systemPromptTokens: 0,
@@ -46,15 +39,14 @@ export class FileSnapshotStore implements SnapshotStore {
   async save(sessionId: string, snapshot: HistorySnapshot): Promise<void> {
     await this.sessionStore.deleteSession(sessionId);
 
-    for (const serializedMessage of snapshot.messages) {
-      const message = deserializeMessage(serializedMessage);
+    for (const msg of snapshot.messages) {
       await this.sessionStore.appendMessage(sessionId, {
         type: "message",
-        id: message.id,
-        message: message.message,
-        createdAt: message.createdAt,
-        isSummary: message.isSummary,
-        originalContent: message.originalContent,
+        id: msg.id,
+        message: msg.message,
+        createdAt: msg.createdAt ?? Date.now(),
+        isSummary: msg.isSummary ?? false,
+        originalContent: msg.originalContent,
       });
     }
 
