@@ -20,3 +20,7 @@ export class AgentError extends Error {
     Object.setPrototypeOf(this, AgentError.prototype);
   }
 }
+
+export function isAgentError(error: unknown): error is AgentError {
+  return error instanceof AgentError;
+}
