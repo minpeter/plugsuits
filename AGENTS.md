@@ -39,6 +39,9 @@ plugsuits/
 | Core agent loop | `packages/harness/src/loop.ts` | `runAgentLoop` — model-agnostic iteration |
 | Agent factory | `packages/harness/src/agent.ts` | `createAgent` — wraps Vercel AI SDK `streamText` |
 | Message history | `packages/harness/src/checkpoint-history.ts` | `CheckpointHistory` — compaction + checkpointing |
+| **Snapshot persistence** | `packages/harness/src/snapshot-store.ts` | `SnapshotStore` interface, `InMemorySnapshotStore` |
+| **File-backed persistence** | `packages/harness/src/file-snapshot-store.ts` | `FileSnapshotStore` — wraps SessionStore, JSONL format |
+| **Snapshot types** | `packages/harness/src/history-snapshot.ts` | `HistorySnapshot`, `SerializedMessage`, converters |
 | Session management | `packages/harness/src/session.ts` | `SessionManager` — UUID-based session IDs |
 | Skills loading | `packages/harness/src/skills.ts` | `SkillsEngine` — bundled/global/project skill discovery |
 | TODO continuation | `packages/harness/src/todo-continuation.ts` | `TodoContinuation` — incomplete-task reminder loop |
@@ -96,6 +99,68 @@ When creating changeset files (`.changeset/*.md`), follow these version bump rul
 - Adding internal utilities not exposed in public API
 
 **If unsure, it's patch.**
+
+## HARNESS v2 — PERSISTENCE PATTERNS
+
+`CheckpointHistory` is the single source of truth for conversation state. `SnapshotStore` is the only persistence abstraction.
+
+### Persistence by use case
+
+```typescript
+// 1. Ephemeral (no persistence)
+const history = new CheckpointHistory({ compaction: {...} });
+
+// 2. File-persisted (recommended for most consumers)
+import { FileSnapshotStore } from "@ai-sdk-tool/harness/sessions";
+const store = new FileSnapshotStore(".plugsuits/sessions");
+const history = await CheckpointHistory.fromSnapshot(store, sessionId, { compaction });
+// After each turn — caller decides when:
+await store.save(sessionId, history.snapshot());
+
+// 3. Custom backend (e.g., Postgres)
+const history = new CheckpointHistory({ compaction: {...} });
+const snap = await postgresStore.load(conversationId);
+if (snap) history.restoreFromSnapshot(snap);
+// After each turn:
+await postgresStore.save(conversationId, history.snapshot());
+```
+
+**Key principle**: `fromSnapshot()` is pure load+restore — no auto-persist. Saving is always explicit by the caller.
+
+### Subpath imports (harness v2)
+
+```typescript
+// Core (always from root)
+import { createAgent, runAgentLoop, CheckpointHistory, AgentError, isAgentError } from "@ai-sdk-tool/harness";
+
+// Persistence
+import { FileSnapshotStore, InMemorySnapshotStore, type SnapshotStore, type HistorySnapshot } from "@ai-sdk-tool/harness/sessions";
+
+// Compaction
+import { CompactionCircuitBreaker, createModelSummarizer, createDefaultPruningConfig } from "@ai-sdk-tool/harness/compaction";
+
+// Memory
+import { SessionMemoryTracker, BackgroundMemoryExtractor } from "@ai-sdk-tool/harness/memory";
+```
+
+### Deprecated (will be removed in next major)
+
+- `SessionStore` → use `FileSnapshotStore`
+- `CheckpointHistory.fromSession(SessionStore, ...)` → use `CheckpointHistory.fromSnapshot(SnapshotStore, ...)`
+- `createSessionAgent`, `createMemoryAgent`, `createPlatformAgent` → deleted; use `fromSnapshot()` directly
+
+### Error handling
+
+```typescript
+import { isAgentError, AgentError, AgentErrorCode } from "@ai-sdk-tool/harness";
+try {
+  await runAgentLoop({ ... });
+} catch (error) {
+  if (isAgentError(error) && error.code === AgentErrorCode.MAX_ITERATIONS) {
+    // hit iteration limit
+  }
+}
+```
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
