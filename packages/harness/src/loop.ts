@@ -71,13 +71,8 @@ export async function runAgentLoop(
 
       lastFinishReason = finishReason;
 
-      // Check whether to continue BEFORE appending messages
-      if (!shouldContinue(lastFinishReason, { iteration, messages })) {
-        // Don't append messages if not continuing
-        iteration += 1;
-        break;
-      }
-
+      // Always append response messages before checking continuation —
+      // the final turn's messages must be captured in the returned history.
       messages.push(...response.messages);
 
       await onStepComplete?.({
@@ -88,6 +83,15 @@ export async function runAgentLoop(
       });
 
       iteration += 1;
+
+      if (
+        !shouldContinue(lastFinishReason, {
+          iteration: iteration - 1,
+          messages,
+        })
+      ) {
+        break;
+      }
     } catch (error) {
       const errorResult = await onError?.(error, context);
 
