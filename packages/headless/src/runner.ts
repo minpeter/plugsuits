@@ -799,7 +799,8 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           .then(() =>
             config.onTurnComplete?.(
               config.messageHistory.getAll(),
-              normalizedUsage
+              normalizedUsage,
+              config.messageHistory.snapshot()
             )
           )
           .catch((error) => {

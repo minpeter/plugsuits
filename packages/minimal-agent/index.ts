@@ -9,6 +9,7 @@ import {
   estimateTokens,
   estimateToolSchemasTokens,
   formatContextUsage,
+  FileSnapshotStore,
   SessionManager,
   SessionMemoryTracker,
 } from "@ai-sdk-tool/harness";
@@ -139,9 +140,12 @@ const main = defineCommand({
     const anthropic = createAnthropicProvider();
     const model = anthropic(selectedModelId);
     const compaction = createCompactionConfig(model, sessionMemoryTracker);
-    const messageHistory = new CheckpointHistory({
-      compaction,
-    });
+    const store = new FileSnapshotStore(".plugsuits/sessions");
+    let messageHistory = await CheckpointHistory.fromSnapshot(
+      store,
+      sessionManager.getId(),
+      { compaction }
+    );
     const agent = await createAgent({
       model,
       instructions: DEFAULT_SYSTEM_PROMPT,
@@ -159,9 +163,9 @@ const main = defineCommand({
     );
     let lastProcessedMessageCount = 0;
 
-    const handleTurnComplete = (
+    const handleTurnComplete = async (
       messages: Array<{ message: { role: string; content: unknown } }>
-    ): void => {
+    ): Promise<void> => {
       const startFrom = Math.min(lastProcessedMessageCount, messages.length);
       for (const { message } of messages.slice(startFrom)) {
         if (message.role === "user" && typeof message.content === "string") {
@@ -170,6 +174,7 @@ const main = defineCommand({
       }
 
       lastProcessedMessageCount = messages.length;
+      await store.save(sessionManager.getId(), messageHistory.snapshot());
     };
 
     const handleCompactionComplete = (result: CompactionResult): void => {
@@ -238,16 +243,28 @@ const main = defineCommand({
             return `${selectedModelId}\nSession: ${sessionManager.getId()}`;
           },
         },
-        onCommandAction: (action) => {
+        onCommandAction: async (action) => {
           if (action.type === "new-session") {
             sessionManager.initialize();
             circuitBreaker.resetForNewSession();
             sessionMemoryTracker.clear();
             lastProcessedMessageCount = 0;
+            messageHistory = await CheckpointHistory.fromSnapshot(
+              store,
+              sessionManager.getId(),
+              { compaction }
+            );
+            messageHistory.setSystemPromptTokens(
+              estimateTokens(DEFAULT_SYSTEM_PROMPT)
+            );
+            messageHistory.setToolSchemasTokens(
+              estimateToolSchemasTokens(agent.config.tools ?? {})
+            );
           }
         },
       });
     } finally {
+      await store.save(sessionManager.getId(), messageHistory.snapshot());
       await agent.close();
     }
     process.exit(0);

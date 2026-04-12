@@ -122,6 +122,8 @@ export interface ErrorEvent {
   type: "error";
 }
 
+export type { HistorySnapshot } from "@ai-sdk-tool/harness";
+
 export interface HeadlessRunnerConfig {
   abortSignal?: AbortSignal;
   agent: import("@ai-sdk-tool/harness").RunnableAgent;
@@ -155,7 +157,8 @@ export interface HeadlessRunnerConfig {
     usage?: {
       inputTokens?: number;
       outputTokens?: number;
-    }
+    },
+    snapshot?: import("@ai-sdk-tool/harness").HistorySnapshot
   ) => Promise<void> | void;
   sessionId: string;
   streamTimeoutMs?: number;

@@ -5,11 +5,11 @@ import {
   createAgent,
   createDefaultPruningConfig,
   createModelSummarizer,
+  FileSnapshotStore,
   getLastMessageText,
   type RunAgentLoopResult,
   runAgentLoop,
   SessionMemoryTracker,
-  SessionStore,
 } from "@ai-sdk-tool/harness";
 import { env } from "./env";
 
@@ -34,7 +34,7 @@ function getTracker(threadId: string): SessionMemoryTracker {
 }
 
 mkdirSync(env.SESSION_DIR, { recursive: true });
-const sessionStore = new SessionStore(env.SESSION_DIR);
+const snapshotStore = new FileSnapshotStore(env.SESSION_DIR);
 
 function buildCompactionOptions(threadId: string) {
   const t = getTracker(threadId);
@@ -88,6 +88,9 @@ function evictOldest(): void {
   if (oldest !== undefined) {
     chatHistories.delete(oldest);
     threadTrackers.delete(oldest);
+    snapshotStore.delete(oldest).catch((error) => {
+      console.warn("[tgbot] Failed to delete snapshot:", oldest, error);
+    });
   }
 }
 
@@ -98,8 +101,8 @@ function getHistory(threadId: string): Promise<CheckpointHistory> {
     chatHistories.set(threadId, promise);
     return promise;
   }
-  promise = CheckpointHistory.fromSession(
-    sessionStore,
+  promise = CheckpointHistory.fromSnapshot(
+    snapshotStore,
     threadId,
     buildCompactionOptions(threadId)
   );
@@ -120,6 +123,7 @@ export async function recordMessage(
   const history = await getHistory(threadId);
   getTracker(threadId).extractFactsFromUserMessage(userText);
   history.addUserMessage(userText);
+  await snapshotStore.save(threadId, history.snapshot());
 }
 
 export async function handleMessage(threadId: string): Promise<string> {
@@ -140,6 +144,9 @@ export async function handleMessage(threadId: string): Promise<string> {
         `[tgbot] Step complete: iteration=${step.iteration}, finishReason=${step.finishReason}, messages=${step.response.messages.length}`
       );
       history.addModelMessages(step.response.messages);
+      snapshotStore.save(threadId, history.snapshot()).catch((error) => {
+        console.warn("[tgbot] Failed to save snapshot:", threadId, error);
+      });
     },
     onError: (error) => {
       console.error("[tgbot] Loop error:", error);
@@ -158,8 +165,8 @@ export async function handleMessage(threadId: string): Promise<string> {
 export function clearHistory(threadId: string): void {
   chatHistories.delete(threadId);
   threadTrackers.delete(threadId);
-  sessionStore.deleteSession(threadId).catch((error) => {
-    console.warn("[tgbot] Failed to delete session:", threadId, error);
+  snapshotStore.delete(threadId).catch((error) => {
+    console.warn("[tgbot] Failed to delete snapshot:", threadId, error);
   });
 }
 
