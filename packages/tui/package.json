@@ -1,6 +1,6 @@
 {
   "name": "@ai-sdk-tool/tui",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -29,7 +29,7 @@
     "test": "vitest run src"
   },
   "peerDependencies": {
-    "@ai-sdk-tool/harness": "^1.2.3",
+    "@ai-sdk-tool/harness": "^1.2.4",
     "@mariozechner/pi-tui": "^0.57.1",
     "ai": "^6.0.116",
     "zod": "^4.3.6"

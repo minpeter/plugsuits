@@ -1,6 +1,6 @@
 {
   "name": "plugsuits",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "description": "A code-editing agent using Vercel AI SDK and Anthropic",
   "type": "module",
   "main": "dist/index.js",

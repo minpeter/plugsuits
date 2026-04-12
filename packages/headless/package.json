@@ -1,6 +1,6 @@
 {
   "name": "@ai-sdk-tool/headless",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -29,7 +29,7 @@
     "test": "vitest run src"
   },
   "peerDependencies": {
-    "@ai-sdk-tool/harness": "^1.2.3",
+    "@ai-sdk-tool/harness": "^1.2.4",
     "ai": "^6.0.116"
   },
   "devDependencies": {
