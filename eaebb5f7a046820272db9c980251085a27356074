@@ -1,0 +1,107 @@
+packages/harness/src/agent.ts
+  d477cdad5204d218 9,19,23,66-69,79-82
+packages/harness/src/index.ts
+  d477cdad5204d218 84,146-150,156,196,198-206
+packages/harness/src/types.ts
+  d477cdad5204d218 134-136
+packages/harness/src/commands.ts
+  d477cdad5204d218 40-41
+packages/harness/src/presets.test.ts
+  d477cdad5204d218 5
+docs/ARCHETYPES.md
+  d477cdad5204d218 43,45,49,55,57,60-62
+packages/harness/src/tool-source.ts
+  d477cdad5204d218 5,12
+packages/harness/src/presets.ts
+  d477cdad5204d218 20-21,28,85-88
+packages/headless/src/runner.ts
+  310c55d3ee285d12 681
+packages/harness/src/mcp-types.ts
+  d477cdad5204d218 3-4
+packages/cea/src/agent.ts
+  d477cdad5204d218 63-68,465-466,486-487,495-496,499-500,688,690,850
+packages/tui/src/agent-tui.ts
+  43eb17774250255f 97,101,468,533-536
+packages/tgbot/src/agent.ts
+  d477cdad5204d218 6,25-34,39-55,90,104,121,160
+packages/harness/src/checkpoint-history.test.ts
+  601af74f3ac7d829 1045-1049,1051
+packages/cea/src/entrypoints/main.ts
+  d477cdad5204d218 507
+packages/harness/src/agent.test.ts
+  d477cdad5204d218 64
+packages/harness/src/loop.ts
+  d477cdad5204d218 103-104,106-108,110-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "eaebb5f7a046820272db9c980251085a27356074",
+  "prompts": {
+    "310c55d3ee285d12": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-31f74158-8a11-4c15-a421-26162326e736",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "43eb17774250255f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-4cc0a5d7-c9fb-47b1-9d4f-9183f51a9c9f",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 4,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    },
+    "601af74f3ac7d829": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-38583730-089b-403d-a843-ff80d96f5df0",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 4,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "d477cdad5204d218": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-c4b30780-f40d-44ad-93b2-e6924c056fa4",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 119,
+      "total_deletions": 77,
+      "accepted_lines": 119,
+      "overriden_lines": 0
+    },
+    "fa535570fa36f050": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f4e3bc2ffeI0ec00RwH4iQJV-25482918-8d9f-4d20-901b-61deb4c4c327",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 0,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    }
+  }
+}
