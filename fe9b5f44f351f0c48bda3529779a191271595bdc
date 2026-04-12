@@ -1,0 +1,37 @@
+AGENTS.md
+  8477bcea2510cb9c 103-164
+  a0b5eeea2e21815d 42-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "fe9b5f44f351f0c48bda3529779a191271595bdc",
+  "prompts": {
+    "8477bcea2510cb9c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-9ac34133-f13f-4795-9b2c-5ecb88534b21",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 62,
+      "total_deletions": 0,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    },
+    "a0b5eeea2e21815d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-9cc309b5-be48-4788-a430-4b67e0adaf50",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
