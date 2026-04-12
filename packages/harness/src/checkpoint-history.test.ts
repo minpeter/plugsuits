@@ -1042,11 +1042,13 @@ describe("CheckpointHistory", () => {
 
   describe("isContextOverflowError()", () => {
     it("detects context length exceeded errors", () => {
-      expect(isContextOverflowError(new Error("context_length_exceeded"))).toBe(
-        true
+      expect(
+        isContextOverflowError(new Error("context_length_exceeded")).detected
+      ).toBe(true);
+      expect(isContextOverflowError(new Error("network error")).detected).toBe(
+        false
       );
-      expect(isContextOverflowError(new Error("network error"))).toBe(false);
-      expect(isContextOverflowError(null)).toBe(false);
+      expect(isContextOverflowError(null).detected).toBe(false);
     });
   });
 

@@ -6,6 +6,7 @@
 import { stepCountIs, streamText, tool } from "ai";
 import { AgentError, AgentErrorCode } from "./errors";
 import { resolveMCPOption } from "./mcp-init";
+import type { ToolDefinition, ToolSource } from "./tool-source";
 import type {
   Agent,
   AgentConfig,
@@ -14,13 +15,12 @@ import type {
   AgentStreamResult,
   ToolCallPart,
 } from "./types";
-import type { ToolDefinition, ToolSource } from "./tool-source";
 
-type StopConditionInput = {
+interface StopConditionInput {
   steps: Array<{
     toolCalls?: ToolCallPart[];
   }>;
-};
+}
 type StopCondition = (input: StopConditionInput) => boolean;
 
 const toToolSet = async (toolSources: ToolSource[] | undefined) => {
@@ -63,8 +63,10 @@ const serializeToolCall = (
 
 const textResponseReceived = (): StopCondition => {
   return ({ steps }: StopConditionInput) => {
-    const lastStep = steps[steps.length - 1];
-    if (!lastStep) return false;
+    const lastStep = steps.at(-1);
+    if (!lastStep) {
+      return false;
+    }
     const hasTools = (lastStep.toolCalls?.length ?? 0) > 0;
     return !hasTools;
   };
@@ -74,8 +76,10 @@ const createGuardedStopCondition = (
   guardrails: AgentGuardrails
 ): StopCondition => {
   return ({ steps }: StopConditionInput) => {
-    const lastStep = steps[steps.length - 1];
-    if (!lastStep) return false;
+    const lastStep = steps.at(-1);
+    if (!lastStep) {
+      return false;
+    }
 
     const lastStepToolCalls = lastStep.toolCalls ?? [];
     if (lastStepToolCalls.length === 0) {

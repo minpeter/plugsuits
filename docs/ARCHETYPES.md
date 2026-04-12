@@ -40,27 +40,26 @@ await runAgentLoop({
 **추천 패키지:** `@ai-sdk-tool/harness`
 
 ```typescript
-import { createSessionAgent, FileMemoryStore } from "@ai-sdk-tool/harness";
+import { createSessionAgent, SessionStore } from "@ai-sdk-tool/harness";
 
-const store = new FileMemoryStore("./sessions");
+const store = new SessionStore("./sessions");
 
 // Webhook 핸들러 내부
 async function handleMessage(userId: string, text: string) {
-  const { agent, history } = await createSessionAgent({
+  const { agent, history, save } = await createSessionAgent({
     model: myModel,
     store,
     sessionId: userId,
   });
 
+  history.addUserMessage(text);
   const result = await agent.stream({
-    messages: history.messages.concat({ role: "user", content: text })
+    messages: history.getMessagesForLLM(),
   });
 
-  const { text: responseText } = await result.response;
-  // 유저에게 메시지 전송 로직...
-  
-  await history.append(result.response.messages);
-  await history.save(store, userId);
+  const response = await result.response;
+  history.addModelMessages(response.messages);
+  await save();
 }
 ```
 

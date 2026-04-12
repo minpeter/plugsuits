@@ -27,7 +27,6 @@ import {
 import { collapseConsecutiveOps } from "./context-collapse";
 import { createContinuationMessage, getContinuationText } from "./continuation";
 import { env } from "./env";
-import { isContextOverflowError } from "./overflow-detection";
 import { microCompactMessages } from "./micro-compact";
 import type { SessionStore } from "./session-store";
 import {

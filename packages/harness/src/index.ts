@@ -1,10 +1,5 @@
 export type { LanguageModelUsage } from "ai";
 export { createAgent } from "./agent";
-export type {
-  MemoryAgentConfig,
-  PlatformAgentConfig,
-  SessionAgentConfig,
-} from "./presets";
 export type { BackgroundMemoryExtractorConfig } from "./background-memory-extractor";
 export { BackgroundMemoryExtractor } from "./background-memory-extractor";
 export type {
@@ -86,6 +81,7 @@ export {
   DEFAULT_COMPACTION_USER_PROMPT,
 } from "./compaction-prompts";
 export type * from "./compaction-types";
+export type { CheckpointMessage } from "./compaction-types";
 export {
   DEFAULT_MIN_SAVINGS_RATIO,
   INEFFECTIVE_COMPACTION_REASON,
@@ -106,14 +102,6 @@ export { createContinuationMessage, getContinuationText } from "./continuation";
 export { env as harnessEnv } from "./env";
 export type { AgentError } from "./errors";
 export { AgentErrorCode } from "./errors";
-export type {
-  AgentConfig,
-  AgentGuardrails,
-  AgentStreamOptions,
-  AgentStreamResult,
-  RunnableAgent,
-} from "./types";
-export type { CheckpointMessage } from "./compaction-types";
 export { runAgentLoop } from "./loop";
 export { isRemoteConfig, isStdioConfig, loadMCPConfig } from "./mcp-config";
 // MCP integration
@@ -144,8 +132,6 @@ export type {
   MicroCompactResult,
 } from "./micro-compact";
 export { microCompactMessages } from "./micro-compact";
-export type { UsageMeasurement } from "./usage";
-export { normalizeUsageMeasurement } from "./usage";
 export {
   isContextOverflowError,
   isUsageSilentOverflow,
@@ -157,12 +143,17 @@ export type {
   RestorationItem,
 } from "./post-compact-restoration";
 export { PostCompactRestorer } from "./post-compact-restoration";
-export { SessionManager } from "./session";
+export type {
+  MemoryAgentConfig,
+  PlatformAgentConfig,
+  SessionAgentConfig,
+} from "./presets";
 export {
   createMemoryAgent,
   createPlatformAgent,
   createSessionAgent,
 } from "./presets";
+export { SessionManager } from "./session";
 export type { MemoryFact, SessionMemoryConfig } from "./session-memory";
 export { SessionMemoryTracker } from "./session-memory";
 export type { SessionData } from "./session-store";
@@ -178,7 +169,6 @@ export {
 } from "./skill-command-prefix";
 export type { SkillInfo, SkillsConfig } from "./skills";
 export { SkillsEngine } from "./skills";
-export type { ToolDefinition, ToolSource } from "./tool-source";
 export type { TodoConfig, TodoItem } from "./todo-continuation";
 export { TodoContinuation } from "./todo-continuation";
 export {
@@ -203,4 +193,14 @@ export {
   progressivePrune,
   pruneToolOutputs,
 } from "./tool-pruning";
+export type { ToolDefinition, ToolSource } from "./tool-source";
 export type * from "./types";
+export type {
+  AgentConfig,
+  AgentGuardrails,
+  AgentStreamOptions,
+  AgentStreamResult,
+  RunnableAgent,
+} from "./types";
+export type { UsageMeasurement } from "./usage";
+export { normalizeUsageMeasurement } from "./usage";

@@ -131,7 +131,9 @@ export interface LoopHooks {
     | void
     | Promise<void>
     | { shouldContinue?: boolean; recovery?: ModelMessage[] }
-    | Promise<{ shouldContinue?: boolean; recovery?: ModelMessage[] } | void>;
+    | Promise<
+        { shouldContinue?: boolean; recovery?: ModelMessage[] } | undefined
+      >;
   onStepComplete?: (step: LoopStepInfo) => void | Promise<void>;
   onToolCall?: (
     call: ToolCallPart,

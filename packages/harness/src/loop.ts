@@ -100,16 +100,15 @@ export async function runAgentLoop(
       if (
         errorResult &&
         typeof errorResult === "object" &&
-        "shouldContinue" in errorResult
+        "shouldContinue" in errorResult &&
+        errorResult.shouldContinue === true
       ) {
-        if (errorResult.shouldContinue === true) {
-          // Add recovery messages if provided
-          if (errorResult.recovery && Array.isArray(errorResult.recovery)) {
-            messages.push(...errorResult.recovery);
-          }
-          iteration += 1;
-          continue;
+        // Add recovery messages if provided
+        if (errorResult.recovery && Array.isArray(errorResult.recovery)) {
+          messages.push(...errorResult.recovery);
         }
+        iteration += 1;
+        continue;
       }
 
       // Default: re-throw

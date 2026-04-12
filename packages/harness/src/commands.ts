@@ -37,8 +37,8 @@ const COMMAND_PREFIX = "/";
 const WHITESPACE_REGEX = /\s+/;
 
 export class CommandRegistry {
-  private commands: Map<string, Command>;
-  private commandAliases: Map<string, string>;
+  private readonly commands: Map<string, Command>;
+  private readonly commandAliases: Map<string, string>;
   private registryConfig: CommandRegistryConfig;
 
   constructor() {

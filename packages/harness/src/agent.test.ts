@@ -61,7 +61,7 @@ function getLastStreamTextCall() {
   if (calls.length === 0) {
     throw new Error("Expected streamText to be called");
   }
-  const lastCall = calls[calls.length - 1];
+  const lastCall = calls.at(-1);
   return lastCall ? lastCall[0] : undefined;
 }
 

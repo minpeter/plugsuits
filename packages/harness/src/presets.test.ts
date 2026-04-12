@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { MemoryAgentConfig } from "./presets";
 import { createMemoryAgent, createSessionAgent } from "./presets";
 import { SessionStore } from "./session-store";
-import type { MemoryAgentConfig } from "./presets";
 
 const streamTextMock = vi.fn(() => {
   const fullStream: AsyncIterable<{ finishReason: string; type: string }> = {

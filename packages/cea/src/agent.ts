@@ -60,6 +60,12 @@ const DEFAULT_SESSION_MEMORY_STORE_PATH = join(
   ".plugsuits",
   "session-memory.md"
 );
+const DEFAULT_SESSION_HISTORY_DIR = join(
+  process.cwd(),
+  ".plugsuits",
+  "session-history"
+);
+const FILE_EXTENSION_REGEX = /\.[^/.]+$/;
 
 type ProviderOptions = AiProviderOptions | undefined;
 
@@ -456,6 +462,8 @@ export class AgentManager {
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private translationEnabled = true;
   private sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
+  private sessionHistoryDir = DEFAULT_SESSION_HISTORY_DIR;
+  private activeSessionId = "default";
   private readonly anthropicClient: ReturnType<typeof createAnthropic> | null;
 
   constructor(anthropicClient?: ReturnType<typeof createAnthropic> | null) {
@@ -475,6 +483,8 @@ export class AgentManager {
     this.toolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
     this.translationEnabled = true;
     this.sessionMemoryStorePath = DEFAULT_SESSION_MEMORY_STORE_PATH;
+    this.sessionHistoryDir = DEFAULT_SESSION_HISTORY_DIR;
+    this.activeSessionId = "default";
     this._memoryExtractor = null;
     this._memoryExtractorStorePath = null;
     this.applyBestReasoningModeForCurrentModel();
@@ -482,6 +492,12 @@ export class AgentManager {
 
   setSessionMemoryStorePath(filePath: string): void {
     this.sessionMemoryStorePath = filePath;
+    const dir = filePath.replace(FILE_EXTENSION_REGEX, "");
+    this.sessionHistoryDir = `${dir}-history`;
+  }
+
+  setActiveSessionId(sessionId: string): void {
+    this.activeSessionId = sessionId;
   }
 
   private applyBestReasoningModeForCurrentModel(): void {
@@ -669,9 +685,9 @@ export class AgentManager {
       return existing;
     }
 
-    mkdirSync(this.sessionMemoryStorePath, { recursive: true });
+    mkdirSync(this.sessionHistoryDir, { recursive: true });
     const historyPromise = CheckpointHistory.fromSession(
-      new SessionStore(this.sessionMemoryStorePath),
+      new SessionStore(this.sessionHistoryDir),
       sessionId,
       {
         compaction: this.buildCompactionConfig(),
@@ -831,8 +847,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
         ? Math.min(options.maxOutputTokens, providerMaxOutputTokens)
         : providerMaxOutputTokens;
 
-    const sessionId = "default";
-    const messageHistory = await this.getSessionHistory(sessionId);
+    const messageHistory = await this.getSessionHistory(this.activeSessionId);
     messageHistory.updateCompaction(this.buildCompactionConfig());
     messageHistory.updatePruning(this.buildPruningConfig());
     messageHistory.setContextLimit(this.getModelTokenLimits().contextLength);

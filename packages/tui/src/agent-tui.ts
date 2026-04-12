@@ -94,11 +94,11 @@ const getConfiguredContextPressureLevel = (
   return "normal";
 };
 
-type ContextPressureThresholds = {
+interface ContextPressureThresholds {
   critical: number;
   elevated: number;
   warning: number;
-};
+}
 
 const style = (prefix: string, text: string): string => {
   return `${prefix}${text}${ANSI_RESET}`;
@@ -465,6 +465,7 @@ export interface ContextAware {
     speculativeStartRatio?: number;
     thresholdRatio?: number;
   };
+  getContextLimit(): number;
   getContextUsage(): {
     limit: number;
     percentage: number;
@@ -472,7 +473,6 @@ export interface ContextAware {
     source: "actual" | "estimated";
     used: number;
   } | null;
-  getContextLimit(): number;
   getEstimatedTokens(): number;
   getRecommendedMaxOutputTokens(
     messagesForLLM?: ModelMessage[]
@@ -530,7 +530,10 @@ export async function retryStreamTurnOnContextOverflow<T>(params: {
   retry: () => Promise<T>;
   runBlockingCompaction: () => Promise<boolean>;
 }): Promise<{ handled: false } | { handled: true; result: T }> {
-  if (params.overflowRetried || !isContextOverflowError(params.error)) {
+  if (
+    params.overflowRetried ||
+    !isContextOverflowError(params.error).detected
+  ) {
     return { handled: false };
   }
 

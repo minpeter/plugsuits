@@ -17,15 +17,15 @@ const DEFAULT_COMPACTION_CONFIG = {
 } as const;
 
 export interface MemoryAgentConfig {
+  guardrails?: AgentGuardrails;
+  instructions?: string;
   model: LanguageModel;
   tools?: ToolSet;
-  instructions?: string;
-  guardrails?: AgentGuardrails;
 }
 
 export interface SessionAgentConfig extends MemoryAgentConfig {
-  store: SessionStore;
   sessionId: string;
+  store: SessionStore;
 }
 
 export interface PlatformAgentConfig extends SessionAgentConfig {
@@ -82,7 +82,10 @@ export async function createSessionAgent(config: SessionAgentConfig): Promise<{
   return {
     agent,
     history,
-    save: async () => undefined,
+    save: async () => {
+      // CheckpointHistory auto-persists on addUserMessage/addModelMessages
+      // when created via fromSession. This is kept for API symmetry.
+    },
   };
 }
 

@@ -504,6 +504,7 @@ const applyCurrentSessionToRuntime = (): void => {
   agentManager.setSessionMemoryStorePath(
     resolveSessionMemoryStorePath(sessionId)
   );
+  agentManager.setActiveSessionId(sessionId);
 };
 
 const wrapCommand = (

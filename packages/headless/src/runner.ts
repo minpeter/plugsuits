@@ -678,7 +678,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           };
         }
 
-        if (!overflowRetried && isContextOverflowError(error)) {
+        if (!overflowRetried && isContextOverflowError(error).detected) {
           overflowRetried = true;
           await blockAtHardContextLimit(0, phase);
           const retryMessages = await getMessagesForLLM(config.messageHistory);
