@@ -19,13 +19,60 @@ pnpm add ai zod
 ## Quick Start
 
 ```typescript
+import { defineAgent, createAgentRuntime } from "@ai-sdk-tool/harness/runtime";
+import { FileSnapshotStore } from "@ai-sdk-tool/harness/sessions";
+import { runAgentSessionTUI } from "@ai-sdk-tool/tui/session";
+
+const assistant = defineAgent({
+  name: "assistant",
+  agent: {
+    model,
+    instructions: "You are a helpful assistant.",
+    tools,
+  },
+  history: {
+    compaction: { enabled: true, contextLimit: 100_000 },
+  },
+});
+
+const runtime = await createAgentRuntime({
+  name: "my-assistant",
+  agents: [assistant],
+  persistence: { snapshotStore: new FileSnapshotStore(".sessions") },
+});
+
+const session = await runtime.openSession();
+await runAgentSessionTUI(session);
+```
+
+See [Low-level API](#low-level-api) for direct `createAgent` / `runAgentLoop` / `CheckpointHistory` usage.
+
+## Subpath Imports
+
+```typescript
+// High-level runtime API (recommended starting point)
+import { defineAgent, createAgentRuntime } from "@ai-sdk-tool/harness/runtime";
+
+// Persistence
+import { FileSnapshotStore, InMemorySnapshotStore } from "@ai-sdk-tool/harness/sessions";
+
+// Compaction utilities
+import { createModelSummarizer, CompactionCircuitBreaker } from "@ai-sdk-tool/harness/compaction";
+
+// Memory tracking
+import { SessionMemoryTracker, BackgroundMemoryExtractor } from "@ai-sdk-tool/harness/memory";
+```
+
+## Low-level API
+
+```typescript
 import { createAgent, runAgentLoop, CheckpointHistory } from "@ai-sdk-tool/harness";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import { tool } from "ai";
 
 // 1. Create an agent with a model and tools
-const agent = createAgent({
+const agent = await createAgent({
   model: openai("gpt-4o"),
   instructions: "You are a helpful assistant.",
   tools: {
@@ -61,11 +108,12 @@ Creates an `Agent` instance that wraps a Vercel AI SDK `streamText` call.
 ```typescript
 import { createAgent } from "@ai-sdk-tool/harness";
 
-const agent = createAgent({
+const agent = await createAgent({
   model,                        // LanguageModel — required
   instructions,                 // string | (() => Promise<string>) — system prompt
   tools,                        // ToolSet — tool definitions
   maxStepsPerTurn,              // number — max tool-call steps per stream (default: 1)
+  extraStopConditions,          // StopCondition[] — additional independent stop triggers
   experimental_repairToolCall,  // repair callback for malformed tool calls
 });
 ```
@@ -88,10 +136,14 @@ const result = await runAgentLoop({
   abortSignal,     // AbortSignal — for cancellation
 
   // Hooks
+  onPrepareStep,   // (context) => partial AgentStreamOptions override, applied before onBeforeTurn
+  onBeforeTurn,    // (context) => partial AgentStreamOptions override
+  onInterrupt,     // ({ iteration, reason }, context) => void | Promise<void>
   shouldContinue,  // (finishReason, context) => boolean — custom continuation logic
+  onToolLifecycle, // (lifecycle, context) => void | Promise<void>
   onToolCall,      // (call, context) => void | Promise<void>
   onStepComplete,  // (step) => void | Promise<void>
-  onError,         // (error, context) => void | Promise<void>
+  onError,         // (error, context) => void | Promise<void> | { shouldContinue?, recovery? }
 });
 ```
 
@@ -434,7 +486,7 @@ import type {
 ### Custom tool-call repair
 
 ```typescript
-const agent = createAgent({
+const agent = await createAgent({
   model,
   experimental_repairToolCall: async ({ toolCall, error, messages, system }) => {
     // Return repaired tool call arguments, or null to skip repair
@@ -458,7 +510,7 @@ const history = new CheckpointHistory({
     },
   },
 });
-```,oldString:
+```
 
 ### Abort signal for cancellation
 
@@ -513,7 +565,7 @@ const todo = new TodoContinuation({
 
 registerCommand(createHelpCommand(getCommands));
 
-const agent = createAgent({ model, instructions: "..." });
+const agent = await createAgent({ model, instructions: "..." });
 ```
 
 ## License

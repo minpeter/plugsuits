@@ -53,6 +53,9 @@ plugsuits/
 | Signal handlers | `packages/headless/src/signals.ts` | `registerSignalHandlers` — SIGINT/SIGTERM/etc. |
 | CEA tools | `packages/cea/src/tools/` | File edit, explore, shell execution tools |
 | Benchmark adapter | `packages/cea/benchmark/AGENTS.md` | Trajectory conversion and validation constraints |
+| **Runtime layer** | `packages/harness/src/runtime/` | `defineAgent`, `createAgentRuntime`, `AgentSession` — high-level DX layer |
+| TUI session adapter | `packages/tui/src/session-tui.ts` | `runAgentSessionTUI` — connect AgentSession to TUI |
+| Headless session adapter | `packages/headless/src/session-headless.ts` | `runAgentSessionHeadless` — connect AgentSession to headless |
 
 ## CODE MAP
 
@@ -71,6 +74,11 @@ plugsuits/
 | `registerSignalHandlers` | function | `packages/headless/src/signals.ts` | Registers SIGINT/SIGTERM/SIGHUP/SIGQUIT/uncaughtException handlers |
 | `AssistantStreamView` | class | `packages/tui/src/stream-views.ts` | Renders streaming assistant text and reasoning in the TUI |
 | `BaseToolCallView` | class | `packages/tui/src/tool-call-view.ts` | Renders tool call input/output in the TUI |
+| `defineAgent` | function | `packages/harness/src/runtime/define-agent.ts` | Declares an agent definition — pure factory, no side effects |
+| `createAgentRuntime` | async function | `packages/harness/src/runtime/create-runtime.ts` | Creates runtime container: bootstraps agent, session manager, persistence |
+| `AgentSession` | interface | `packages/harness/src/runtime/types.ts` | Runtime session unit — owns history, agent, commands, skills, lifecycle |
+| `runAgentSessionTUI` | function | `packages/tui/src/session-tui.ts` | Adapter: connects AgentSession to createAgentTUI |
+| `runAgentSessionHeadless` | function | `packages/headless/src/session-headless.ts` | Adapter: connects AgentSession to runHeadless |
 
 ## CONVENTIONS
 
@@ -130,6 +138,9 @@ await postgresStore.save(conversationId, history.snapshot());
 ### Subpath imports (harness v2)
 
 ```typescript
+// Runtime layer (recommended starting point for new consumers)
+import { defineAgent, createAgentRuntime, type AgentSession } from "@ai-sdk-tool/harness/runtime";
+
 // Core (always from root)
 import { createAgent, runAgentLoop, CheckpointHistory, AgentError, isAgentError } from "@ai-sdk-tool/harness";
 
@@ -142,11 +153,6 @@ import { CompactionCircuitBreaker, createModelSummarizer, createDefaultPruningCo
 // Memory
 import { SessionMemoryTracker, BackgroundMemoryExtractor } from "@ai-sdk-tool/harness/memory";
 ```
-
-### Deprecated (will be removed in next major)
-
-- `SessionStore` → use `FileSnapshotStore`
-- `CheckpointHistory.fromSession(SessionStore, ...)` → use `CheckpointHistory.fromSnapshot(SnapshotStore, ...)`
 - `createSessionAgent`, `createMemoryAgent`, `createPlatformAgent` → deleted; use `fromSnapshot()` directly
 
 ### Error handling
@@ -167,7 +173,7 @@ try {
 - Editing generated outputs (`dist/`, `packages/*/dist/`) as if they were source code.
 - Using shell commands (`cat`, `sed`, `rm`, `find`, `grep`) for file operations that dedicated tools already cover.
 - Stopping at planning/todo updates without executing the concrete actions.
-- For benchmark work: changing event types without updating trajectory conversion rules in `packages/cea/benchmark/harbor_agent.py`.
+- For benchmark work: changing ATIF event shapes or lifecycle annotations without updating the benchmark contract docs and consumers in `packages/cea/benchmark/`.
 - Importing from `@ai-sdk-tool/cea` inside `harness`, `tui`, or `headless` — dependency direction is one-way.
 - Reading `process.env.X` directly instead of using `@t3-oss/env-core` `createEnv` — all env vars must be validated via Zod schema in the package's `env.ts`.
 - Adding `.js` extensions to relative imports in source files (e.g., `from "./foo.js"` instead of `from "./foo"`). The base `tsconfig.json` uses `moduleResolution: "bundler"` which resolves extensionless imports. The post-build script `scripts/fix-esm-imports.mjs` automatically adds `.js` to compiled output in `dist/`. Source files must use extensionless imports only.
@@ -175,8 +181,8 @@ try {
 ## UNIQUE STYLES
 
 - File edits in CEA favor hashline-aware operations (`LINE#HASH` + `expected_file_hash`) for stale-safe modifications.
-- Manual tool-loop continuation is intentionally constrained to finish reasons `tool-calls` and `unknown`.
-- Headless mode emits structured JSONL event types (`user`, `tool_call`, `tool_result`, `assistant`, `error`) consumed by benchmark tooling.
+- Manual tool-loop continuation is intentionally constrained to normalized `tool-calls` finish reasons.
+- Headless mode emits structured ATIF JSONL lifecycle types (`metadata`, `step`, `approval`, `compaction`, `error`, `interrupt`) consumed by benchmark tooling.
 - `SkillsEngine` discovers skills from up to five directories: bundled, global skills, global commands, project skills, project commands.
 
 ## COMMANDS
