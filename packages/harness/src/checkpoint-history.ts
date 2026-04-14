@@ -299,7 +299,6 @@ export class CheckpointHistory {
   // message-only revision: bumped by add/compact/prune/truncate/clear, NOT metadata ops
   private messageRevision = 0;
   private sessionId: string;
-  // biome-ignore lint/style/useReadonlyClassProperties: toggled in fromSession() during hydration
   private skipPersist = false;
   private readonly sessionStore: SessionStore | null;
   private compactionConfig: NormalizedCompactionConfig;
@@ -358,7 +357,10 @@ export class CheckpointHistory {
     sessionId: string,
     options?: CheckpointHistoryOptions
   ): Promise<CheckpointHistory> {
-    const history = new CheckpointHistory(options);
+    const history = new CheckpointHistory({
+      ...options,
+      sessionId,
+    });
     const snapshot = await store.load(sessionId);
     if (snapshot) {
       history.restoreFromSnapshot(snapshot);

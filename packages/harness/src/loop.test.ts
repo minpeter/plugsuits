@@ -116,6 +116,19 @@ describe("runAgentLoop", () => {
     ).rejects.toMatchObject({ code: AgentErrorCode.MAX_ITERATIONS });
   });
 
+  it("does not throw when the final allowed iteration stops normally", async () => {
+    await expect(
+      runAgentLoop({
+        agent: createMockAgent(["stop"]),
+        messages: [{ role: "user", content: "Hello" }],
+        maxIterations: 1,
+      })
+    ).resolves.toMatchObject({
+      iterations: 1,
+      finishReason: "stop",
+    });
+  });
+
   it("default maxIterations is Infinity (loops until stop condition)", async () => {
     // Simulate an agent that makes many tool calls before stopping
     // Without explicit maxIterations, this should run until the agent stops naturally

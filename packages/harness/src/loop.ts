@@ -117,7 +117,10 @@ export async function runAgentLoop(
     }
   }
 
-  if (iteration >= maxIterations) {
+  if (
+    iteration >= maxIterations &&
+    shouldContinue(lastFinishReason, { iteration: iteration - 1, messages })
+  ) {
     throw new AgentError(
       AgentErrorCode.MAX_ITERATIONS,
       `Agent loop exceeded maximum iterations: ${maxIterations}`
