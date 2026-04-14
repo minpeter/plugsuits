@@ -522,8 +522,12 @@ const saveCurrentSessionSnapshot = async (
   await store.save(sessionId, messageHistory.snapshot());
 };
 
-const applyCurrentSessionToRuntime = async (): Promise<void> => {
-  await saveCurrentSessionSnapshot();
+const applyCurrentSessionToRuntime = async (options?: {
+  persistCurrentHistory?: boolean;
+}): Promise<void> => {
+  if (options?.persistCurrentHistory !== false) {
+    await saveCurrentSessionSnapshot();
+  }
   await replaceCurrentSessionHistory(sessionManager.getId());
   await updateCompactionForCurrentModel();
 };
@@ -1345,7 +1349,9 @@ const mainCommand = defineCommand({
             const previousSessionId = sessionManager.getId();
             await saveCurrentSessionSnapshot(previousSessionId);
             sessionManager.initialize();
-            await applyCurrentSessionToRuntime();
+            await applyCurrentSessionToRuntime({
+              persistCurrentHistory: false,
+            });
             compactionCircuitBreaker.resetForNewSession();
             postCompactRestorer.clear();
             trackedReadToolResultIds.clear();
