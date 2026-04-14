@@ -1,0 +1,82 @@
+packages/harness/src/compaction-types.ts
+  c55fff70edaeeeab 2,373-383
+packages/harness/src/file-snapshot-store.test.ts
+  c55fff70edaeeeab 25,33-34,41-54,56-60,67,198-213,215-234
+packages/harness/src/file-snapshot-store.ts
+  c55fff70edaeeeab 21-24,44
+packages/harness/src/session-store.ts
+  543e2fe82639715a 9,115
+  c55fff70edaeeeab 1-8,12,15,110-114,116-157,168,186-190,200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "346ee3150892354d45bf21592817ac33b58ee0a3",
+  "prompts": {
+    "543e2fe82639715a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_279b34d6dffeWskUa5zpaiLMcw-2f4ab649-17e8-480e-a403-2748b75fdc2b",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 1,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "923e250dd1902345": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_27f5b2661ffekS5VAMAEa8Ln19-ae272043-1b84-420a-8415-fa81b28296b1",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "9d3693b23e9f20b9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_279b34d6dffeWskUa5zpaiLMcw-15e76b78-36ed-4ecc-ac18-39165ef13e82",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 1,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "c55fff70edaeeeab": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_279b34d6dffeWskUa5zpaiLMcw",
+        "model": "minpeter/gpt-latest"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 171,
+      "total_deletions": 45,
+      "accepted_lines": 170,
+      "overriden_lines": 0
+    },
+    "dfbd269a3dda35b1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_279b34d6dffeWskUa5zpaiLMcw-1c005d94-5347-4acd-a939-b2f517428c77",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 1,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
