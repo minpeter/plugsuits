@@ -82,6 +82,33 @@ describe("FileSnapshotStore", () => {
     expect(await store.load("session1")).toBeNull();
   });
 
+  it("supports namespaced session IDs end-to-end", async () => {
+    const snapshot: HistorySnapshot = {
+      messages: [
+        {
+          id: "msg",
+          message: { role: "user", content: "hello" },
+          createdAt: 1,
+          isSummary: false,
+        },
+      ],
+      revision: 1,
+      contextLimit: 128,
+      systemPromptTokens: 2,
+      toolSchemasTokens: 3,
+    };
+
+    await store.save("telegram:chat:-1001234:topic:5", snapshot);
+
+    await expect(store.load("telegram:chat:-1001234:topic:5")).resolves.toEqual(
+      snapshot
+    );
+  });
+
+  it("delete is a no-op for unknown sessions", async () => {
+    await expect(store.delete("missing:session")).resolves.toBeUndefined();
+  });
+
   it("second save replaces first (replace semantics)", async () => {
     const firstSnapshot: HistorySnapshot = {
       messages: [

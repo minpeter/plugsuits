@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
@@ -6,7 +7,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { MessageLine, SessionFileLine } from "./compaction-types";
 import type { HistorySnapshot } from "./history-snapshot";

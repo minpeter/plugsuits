@@ -10,6 +10,7 @@ import type { Agent, AgentStreamResult } from "./types";
 function createMockAgent(
   finishReasons: string[],
   options?: {
+    throwOnIteration?: number;
     toolCallsPerIteration?: Array<
       Array<{ toolName: string; args: Record<string, unknown> }>
     >;
@@ -24,6 +25,10 @@ function createMockAgent(
     stream(): AgentStreamResult {
       const currentIndex = callIndex;
       callIndex++;
+
+      if (options?.throwOnIteration === currentIndex) {
+        throw new Error(`boom-${currentIndex}`);
+      }
 
       const finishReason = finishReasons[currentIndex] ?? "stop";
       const toolCallsForThisIteration =
@@ -228,5 +233,43 @@ describe("runAgentLoop", () => {
     expect(toolCalls.length).toBe(2);
     expect(toolCalls[0].toolName).toBe("get_time");
     expect(toolCalls[1].toolName).toBe("get_weather");
+  });
+
+  it("rethrows errors when onError does not request recovery", async () => {
+    await expect(
+      runAgentLoop({
+        agent: createMockAgent(["tool-calls"], { throwOnIteration: 0 }),
+        messages: [{ role: "user", content: "Hello" }],
+        onError: () => undefined,
+      })
+    ).rejects.toThrow("boom-0");
+  });
+
+  it("continues with recovery messages when onError requests it", async () => {
+    const result = await runAgentLoop({
+      agent: createMockAgent(["tool-calls", "stop"], { throwOnIteration: 0 }),
+      messages: [{ role: "user", content: "Hello" }],
+      onError: () => ({
+        shouldContinue: true,
+        recovery: [{ role: "assistant", content: "Recovered" }],
+      }),
+    });
+
+    expect(result.iterations).toBe(2);
+    expect(result.finishReason).toBe("stop");
+    expect(result.messages).toContainEqual({
+      role: "assistant",
+      content: "Recovered",
+    });
+  });
+
+  it("rethrows when onError returns a response without shouldContinue", async () => {
+    await expect(
+      runAgentLoop({
+        agent: createMockAgent(["tool-calls"], { throwOnIteration: 0 }),
+        messages: [{ role: "user", content: "Hello" }],
+        onError: () => ({ recovery: [] }),
+      })
+    ).rejects.toThrow("boom-0");
   });
 });

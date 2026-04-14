@@ -23,6 +23,7 @@ const model = provider.chatModel(env.AI_MODEL_ID);
 
 const summarize = createModelSummarizer(model);
 const threadTrackers = new Map<string, SessionMemoryTracker>();
+const pendingHistoryLoads = new Map<string, Promise<CheckpointHistory>>();
 const threadSaveChains = new Map<string, Promise<void>>();
 
 function getTracker(threadId: string): SessionMemoryTracker {
@@ -137,15 +138,30 @@ async function getHistory(threadId: string): Promise<CheckpointHistory> {
     return existing;
   }
 
-  const history = await CheckpointHistory.fromSnapshot(
+  const pending = pendingHistoryLoads.get(threadId);
+  if (pending) {
+    return pending;
+  }
+
+  const loadPromise = CheckpointHistory.fromSnapshot(
     snapshotStore,
     threadId,
     buildCompactionOptions(threadId)
-  );
+  ).then((history) => {
+    chatHistories.set(threadId, history);
+    evictOldest();
+    return history;
+  });
 
-  chatHistories.set(threadId, history);
-  evictOldest();
-  return history;
+  pendingHistoryLoads.set(threadId, loadPromise);
+
+  try {
+    return await loadPromise;
+  } finally {
+    if (pendingHistoryLoads.get(threadId) === loadPromise) {
+      pendingHistoryLoads.delete(threadId);
+    }
+  }
 }
 
 export async function recordMessage(
@@ -193,6 +209,7 @@ export async function handleMessage(threadId: string): Promise<string> {
 }
 
 export function clearHistory(threadId: string): void {
+  pendingHistoryLoads.delete(threadId);
   chatHistories.delete(threadId);
   threadTrackers.delete(threadId);
   queueSnapshotDelete(threadId).catch(() => {
