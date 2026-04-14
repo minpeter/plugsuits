@@ -1,0 +1,23 @@
+packages/tgbot/src/agent.ts
+  4c837443cd8f6b32 151-153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "cddfabc0c6c172efe0553e6126bf7d81bc3d9333",
+  "prompts": {
+    "4c837443cd8f6b32": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_279b34d6dffeWskUa5zpaiLMcw-e2c943ac-d70b-48cf-8120-9ffc1574f5e8",
+        "model": "unknown"
+      },
+      "human_author": "minpeter",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
