@@ -141,7 +141,7 @@ const main = defineCommand({
     const model = anthropic(selectedModelId);
     const compaction = createCompactionConfig(model, sessionMemoryTracker);
     const store = new FileSnapshotStore(".plugsuits/sessions");
-    let messageHistory = await CheckpointHistory.fromSnapshot(
+    const messageHistory = await CheckpointHistory.fromSnapshot(
       store,
       sessionManager.getId(),
       { compaction }
@@ -162,6 +162,22 @@ const main = defineCommand({
       estimateToolSchemasTokens(agent.config.tools ?? {})
     );
     let lastProcessedMessageCount = 0;
+
+    const replaceCurrentSessionHistory = async (
+      sessionId: string
+    ): Promise<void> => {
+      const restored = await CheckpointHistory.fromSnapshot(store, sessionId, {
+        compaction,
+      });
+      messageHistory.resetForSession(sessionId);
+      messageHistory.restoreFromSnapshot(restored.snapshot());
+      messageHistory.setSystemPromptTokens(
+        estimateTokens(DEFAULT_SYSTEM_PROMPT)
+      );
+      messageHistory.setToolSchemasTokens(
+        estimateToolSchemasTokens(agent.config.tools ?? {})
+      );
+    };
 
     const handleTurnComplete = async (
       messages: Array<{ message: { role: string; content: unknown } }>
@@ -249,17 +265,7 @@ const main = defineCommand({
             circuitBreaker.resetForNewSession();
             sessionMemoryTracker.clear();
             lastProcessedMessageCount = 0;
-            messageHistory = await CheckpointHistory.fromSnapshot(
-              store,
-              sessionManager.getId(),
-              { compaction }
-            );
-            messageHistory.setSystemPromptTokens(
-              estimateTokens(DEFAULT_SYSTEM_PROMPT)
-            );
-            messageHistory.setToolSchemasTokens(
-              estimateToolSchemasTokens(agent.config.tools ?? {})
-            );
+            await replaceCurrentSessionHistory(sessionManager.getId());
           }
         },
       });
