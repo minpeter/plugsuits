@@ -1,5 +1,12 @@
-import type { AgentStreamResult, ModelMessage } from "@ai-sdk-tool/harness";
+import {
+  type AgentStreamResult,
+  getToolLifecycleState,
+  type ModelMessage,
+  getToolInputChunk as sharedGetToolInputChunk,
+  getToolInputId as sharedGetToolInputId,
+} from "@ai-sdk-tool/harness";
 import type {
+  ApprovalEvent,
   AgentStepEvent,
   ErrorEvent,
   ObservationResult,
@@ -26,7 +33,26 @@ export const extractToolOutput = (
   return { stdout: String(output) };
 };
 
-export const getToolInputChunk = (part: {
+export interface PendingToolCall {
+  arguments: string;
+  id: string;
+  input?: unknown;
+  toolName?: string;
+}
+
+export interface PendingToolResult {
+  content: string;
+  sourceCallId: string;
+}
+
+const fallbackGetToolInputId = (part: {
+  id?: string;
+  toolCallId?: string;
+}): string | undefined => {
+  return part.id ?? part.toolCallId;
+};
+
+const fallbackGetToolInputChunk = (part: {
   delta?: unknown;
   inputTextDelta?: unknown;
 }): string | null => {
@@ -41,22 +67,15 @@ export const getToolInputChunk = (part: {
   return null;
 };
 
-export const getToolInputId = (part: {
-  id?: string;
-  toolCallId?: string;
-}): string | undefined => part.id ?? part.toolCallId;
+const getToolInputId =
+  typeof sharedGetToolInputId === "function"
+    ? sharedGetToolInputId
+    : fallbackGetToolInputId;
 
-export interface PendingToolCall {
-  arguments: string;
-  id: string;
-  input?: unknown;
-  toolName?: string;
-}
-
-export interface PendingToolResult {
-  content: string;
-  sourceCallId: string;
-}
+const getToolInputChunk =
+  typeof sharedGetToolInputChunk === "function"
+    ? sharedGetToolInputChunk
+    : fallbackGetToolInputChunk;
 
 export const handleToolInputStart = (
   pendingToolCalls: Map<string, PendingToolCall>,
@@ -198,6 +217,97 @@ export const emitMalformedToolCallsSummary = (
   });
 };
 
+interface ApprovalTransitionHandlerParams {
+  emitEvent: (event: TrajectoryEvent) => void;
+  pendingApprovalToolCalls: Set<string>;
+}
+
+const emitApprovalTransition = (
+  emitEvent: (event: TrajectoryEvent) => void,
+  event: ApprovalEvent
+): void => {
+  emitEvent(event);
+};
+
+const handleApprovalRequested = (
+  part: Extract<
+    { type: "tool-approval-request" },
+    { type: "tool-approval-request" }
+  > & {
+    providerExecuted?: boolean;
+    reason?: string;
+    toolCallId?: string;
+    toolName?: string;
+  },
+  params: ApprovalTransitionHandlerParams
+): void => {
+  const lifecycle = getToolLifecycleState(part);
+  if (lifecycle?.state !== "approval-requested") {
+    return;
+  }
+
+  const approvalEvent: ApprovalEvent = {
+    type: "approval",
+    state: "pending",
+    timestamp: new Date().toISOString(),
+    toolCallId: lifecycle.toolCallId,
+    toolName: lifecycle.toolName,
+    reason: part.reason,
+    providerExecuted: part.providerExecuted,
+  };
+
+  if (lifecycle.toolCallId) {
+    params.pendingApprovalToolCalls.add(lifecycle.toolCallId);
+  }
+
+  emitApprovalTransition(params.emitEvent, approvalEvent);
+};
+
+const handleApprovalResolvedByToolCall = (
+  part: Extract<{ type: "tool-call" }, { type: "tool-call" }> & {
+    toolCallId: string;
+    toolName: string;
+  },
+  params: ApprovalTransitionHandlerParams
+): void => {
+  if (!params.pendingApprovalToolCalls.has(part.toolCallId)) {
+    return;
+  }
+
+  emitApprovalTransition(params.emitEvent, {
+    type: "approval",
+    state: "approved",
+    timestamp: new Date().toISOString(),
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
+  });
+  params.pendingApprovalToolCalls.delete(part.toolCallId);
+};
+
+const handleApprovalResolvedByDenial = (
+  part: Extract<
+    { type: "tool-output-denied" },
+    { type: "tool-output-denied" }
+  > & {
+    toolCallId: string;
+    toolName: string;
+  },
+  params: ApprovalTransitionHandlerParams
+): void => {
+  if (!params.pendingApprovalToolCalls.has(part.toolCallId)) {
+    return;
+  }
+
+  emitApprovalTransition(params.emitEvent, {
+    type: "approval",
+    state: "denied",
+    timestamp: new Date().toISOString(),
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
+  });
+  params.pendingApprovalToolCalls.delete(part.toolCallId);
+};
+
 export interface ProcessStreamOptions {
   emitEvent: (event: TrajectoryEvent) => void;
   modelId: string;
@@ -205,11 +315,13 @@ export interface ProcessStreamOptions {
   shouldContinue: (finishReason: string) => boolean;
   stepId: number;
   stream: AgentStreamResult;
+  streamTimeoutMs?: number;
 }
 
 export interface ProcessStreamResult {
   currentReasoning: string;
   currentText: string;
+  finishReason?: string;
   shouldContinue: boolean;
   usage: {
     inputTokens?: number;
@@ -218,20 +330,30 @@ export interface ProcessStreamResult {
   } | null;
 }
 
-const STREAM_RESPONSE_TIMEOUT_MS = 30_000;
-
 export const processStream = async (
   opts: ProcessStreamOptions
 ): Promise<ProcessStreamResult> => {
-  const { stream, stepId, modelId, emitEvent, shouldContinue, onMessages } =
-    opts;
+  const {
+    stream,
+    stepId,
+    modelId,
+    emitEvent,
+    shouldContinue,
+    onMessages,
+    streamTimeoutMs = 30_000,
+  } = opts;
 
   let currentText = "";
   let currentReasoning = "";
   const pendingToolCalls = new Map<string, PendingToolCall>();
+  const pendingApprovalToolCalls = new Set<string>();
   const completedToolCallIds = new Set<string>();
   const observationResults: ObservationResult[] = [];
   let lastFinishReason: string | undefined;
+  const approvalParams: ApprovalTransitionHandlerParams = {
+    emitEvent,
+    pendingApprovalToolCalls,
+  };
 
   for await (const part of stream.fullStream) {
     switch (part.type) {
@@ -251,6 +373,7 @@ export const processStream = async (
         break;
       case "tool-call": {
         const callPart = part as Extract<typeof part, { type: "tool-call" }>;
+        handleApprovalResolvedByToolCall(callPart, approvalParams);
         completedToolCallIds.add(callPart.toolCallId);
         upsertCompletedToolCall(pendingToolCalls, callPart);
         break;
@@ -273,6 +396,7 @@ export const processStream = async (
       }
       case "tool-error": {
         const errorPart = part as Extract<typeof part, { type: "tool-error" }>;
+        pendingApprovalToolCalls.delete(errorPart.toolCallId);
         const errorMsg =
           errorPart.error instanceof Error
             ? errorPart.error.message
@@ -281,6 +405,28 @@ export const processStream = async (
           source_call_id: errorPart.toolCallId,
           content: JSON.stringify({ error: errorMsg, exit_code: 1 }),
         });
+        break;
+      }
+      case "tool-approval-request": {
+        handleApprovalRequested(
+          part as Extract<typeof part, { type: "tool-approval-request" }> & {
+            providerExecuted?: boolean;
+            reason?: string;
+            toolCallId?: string;
+            toolName?: string;
+          },
+          approvalParams
+        );
+        break;
+      }
+      case "tool-output-denied": {
+        handleApprovalResolvedByDenial(
+          part as Extract<typeof part, { type: "tool-output-denied" }> & {
+            toolCallId: string;
+            toolName: string;
+          },
+          approvalParams
+        );
         break;
       }
       case "finish-step": {
@@ -318,8 +464,11 @@ export const processStream = async (
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
-          () => reject(new Error("Stream response timeout")),
-          STREAM_RESPONSE_TIMEOUT_MS
+          () =>
+            reject(
+              new Error(`Stream response timeout after ${streamTimeoutMs}ms`)
+            ),
+          streamTimeoutMs
         );
       }),
     ]);
@@ -339,12 +488,8 @@ export const processStream = async (
         : undefined,
       metrics: usage
         ? ({
-            prompt_tokens:
-              usage.inputTokens ??
-              (usage as Record<string, unknown>).promptTokens,
-            completion_tokens:
-              usage.outputTokens ??
-              (usage as Record<string, unknown>).completionTokens,
+            prompt_tokens: usage.inputTokens,
+            completion_tokens: usage.outputTokens,
             cached_tokens:
               (usage as Record<string, unknown>).cachedTokens ?? undefined,
             cost_usd: (usage as Record<string, unknown>).costUsd ?? undefined,
@@ -358,6 +503,7 @@ export const processStream = async (
     completedToolCallIds.clear();
 
     return {
+      finishReason,
       shouldContinue: shouldContinue(finishReason),
       currentText,
       currentReasoning,
@@ -372,6 +518,7 @@ export const processStream = async (
     emitEvent(errorEvent);
 
     return {
+      finishReason: lastFinishReason,
       shouldContinue: false,
       currentText,
       currentReasoning,

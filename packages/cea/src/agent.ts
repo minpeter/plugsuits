@@ -1,6 +1,8 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
 import {
+  type AgentModelProfile,
+  addEphemeralCacheControlToLastMessage,
   BackgroundMemoryExtractor,
   type CompactionConfig,
   computeAdaptiveThresholdRatio as computeAdaptiveThresholdRatioFromPolicy,
@@ -13,6 +15,7 @@ import {
   type FileMemoryStore,
   type AgentStreamOptions as HarnessAgentStreamOptions,
   type AgentStreamResult as HarnessAgentStreamResult,
+  mergeAgentModelProfile,
   type PruningConfig,
 } from "@ai-sdk-tool/harness";
 import {
@@ -60,7 +63,13 @@ interface BenchmarkSamplingOverrides {
 
 export type AgentStreamOptions = Pick<
   HarnessAgentStreamOptions,
-  "abortSignal" | "maxOutputTokens"
+  | "abortSignal"
+  | "experimentalContext"
+  | "maxOutputTokens"
+  | "providerOptions"
+  | "seed"
+  | "system"
+  | "temperature"
 >;
 export type AgentStreamResult = HarnessAgentStreamResult;
 
@@ -94,16 +103,8 @@ const normalizeUsageMeasurement = (usage: unknown): UsageMeasurement | null => {
   }
 
   const usageRecord = usage as Record<string, unknown>;
-  const inputTokens = getUsageNumber(
-    usageRecord,
-    "inputTokens",
-    "promptTokens"
-  );
-  const outputTokens = getUsageNumber(
-    usageRecord,
-    "outputTokens",
-    "completionTokens"
-  );
+  const inputTokens = getUsageNumber(usageRecord, "inputTokens");
+  const outputTokens = getUsageNumber(usageRecord, "outputTokens");
   const totalTokens = getUsageNumber(usageRecord, "totalTokens");
 
   if (
@@ -262,6 +263,67 @@ const getProviderOptions = (
     maxOutputTokens: isAnthropicWithReasoning(modelId, provider, reasoningMode)
       ? effectiveMaxTokens - ANTHROPIC_THINKING_BUDGET_TOKENS
       : effectiveMaxTokens,
+  };
+};
+
+const fallbackAddEphemeralCacheControlToLastMessage = (params: {
+  messages: ModelMessage[];
+  model: ReturnType<AgentManager["buildModel"]>["model"];
+}): ModelMessage[] => {
+  const modelRecord = params.model as Record<string, unknown>;
+  const provider = modelRecord.provider;
+  const modelId = modelRecord.modelId;
+  const isAnthropic = [provider, modelId].some((value) => {
+    return (
+      typeof value === "string" &&
+      (value.includes("anthropic") || value.includes("claude"))
+    );
+  });
+
+  if (!isAnthropic || params.messages.length === 0) {
+    return params.messages;
+  }
+
+  return params.messages.map((message, index) => {
+    if (index !== params.messages.length - 1) {
+      return message;
+    }
+
+    return {
+      ...message,
+      providerOptions: {
+        ...(message.providerOptions ?? {}),
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      },
+    } as ModelMessage;
+  });
+};
+
+const applyLastMessageCacheControl = (params: {
+  messages: ModelMessage[];
+  model: ReturnType<AgentManager["buildModel"]>["model"];
+}): ModelMessage[] => {
+  return typeof addEphemeralCacheControlToLastMessage === "function"
+    ? addEphemeralCacheControlToLastMessage(params)
+    : fallbackAddEphemeralCacheControlToLastMessage(params);
+};
+
+export const buildAgentModelProfile = (params: {
+  model: ReturnType<AgentManager["buildModel"]>["model"];
+  providerOptions: ProviderOptions;
+}): AgentModelProfile => {
+  const profileModel = params.model;
+
+  return {
+    streamDefaults: {
+      providerOptions: params.providerOptions,
+    },
+    prepareStep: ({ messages }) => ({
+      messages: applyLastMessageCacheControl({
+        messages,
+        model: profileModel,
+      }),
+    }),
   };
 };
 
@@ -787,6 +849,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       providerOptions,
       maxOutputTokens: providerMaxOutputTokens,
     } = this.buildModel();
+    const modelProfile = buildAgentModelProfile({ model, providerOptions });
 
     // Use the smaller of caller's budget and provider cap.
     // Caller budget comes from harness context-window enforcement;
@@ -809,13 +872,18 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
       instructions,
       maxStepsPerTurn: 1,
       experimental_repairToolCall: repairToolCall,
+      ...mergeAgentModelProfile({ override: modelProfile }),
     });
 
     const result = agent.stream({
       messages,
       abortSignal: options.abortSignal,
-      providerOptions,
+      experimentalContext: options.experimentalContext,
       maxOutputTokens: effectiveMaxOutputTokens,
+      providerOptions: options.providerOptions,
+      seed: options.seed,
+      system: options.system,
+      temperature: options.temperature,
       ...getBenchmarkSamplingOverrides(),
     });
 

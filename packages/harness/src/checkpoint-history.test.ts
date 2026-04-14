@@ -1,15 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ModelMessage } from "ai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CheckpointHistory,
   isContextOverflowError,
 } from "./checkpoint-history";
 import { getContinuationText } from "./continuation";
-import type { HistorySnapshot } from "./history-snapshot";
-import { SessionStore } from "./session-store";
 import { InMemorySnapshotStore } from "./snapshot-store";
 import { estimateTokens } from "./token-utils";
 
@@ -681,29 +676,6 @@ describe("CheckpointHistory", () => {
       expect(afterSecond).toBe(beforeSecond + 1);
     });
 
-    it("persists checkpoint via SessionStore.updateCheckpoint", async () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), "ch-compact-"));
-      const store = new SessionStore(tmpDir);
-      const h = new CheckpointHistory({
-        sessionId: "compact-persist",
-        sessionStore: store,
-        compaction: {
-          enabled: true,
-          summarizeFn: async () => "persisted summary",
-        },
-      });
-
-      h.addUserMessage("hello");
-      h.addUserMessage("world");
-      const result = await h.compact();
-      expect(result.success).toBe(true);
-
-      const loaded = await store.loadSession("compact-persist");
-      expect(loaded?.summaryMessageId).toBe(result.summaryMessageId);
-
-      rmSync(tmpDir, { recursive: true, force: true });
-    });
-
     it("returns false when compact() called with no messages", async () => {
       const h = new CheckpointHistory({
         compaction: { enabled: true, summarizeFn: async () => "" },
@@ -1054,136 +1026,6 @@ describe("CheckpointHistory", () => {
     });
   });
 
-  describe("persistence", () => {
-    let tmpDir: string;
-
-    beforeEach(() => {
-      tmpDir = mkdtempSync(join(tmpdir(), "ch-test-"));
-    });
-
-    afterEach(() => {
-      rmSync(tmpDir, { recursive: true, force: true });
-    });
-
-    it("persists messages to JSONL when SessionStore provided", async () => {
-      const store = new SessionStore(tmpDir);
-      const h = new CheckpointHistory({
-        sessionId: "test-session",
-        sessionStore: store,
-      });
-
-      h.addUserMessage("persist me");
-
-      const loaded = await store.loadSession("test-session");
-      expect(loaded).not.toBeNull();
-      expect(loaded?.messages).toHaveLength(1);
-      expect(loaded?.messages[0]?.message.content).toBe("persist me");
-    });
-
-    it("works without SessionStore (in-memory only)", () => {
-      const h = new CheckpointHistory();
-      h.addUserMessage("in memory");
-      expect(h.getAll()).toHaveLength(1);
-    });
-
-    it("fromSession returns empty history when no session exists", async () => {
-      const store = new SessionStore(tmpDir);
-
-      const history = await CheckpointHistory.fromSession(
-        store,
-        "missing-session"
-      );
-
-      expect(history.getAll()).toEqual([]);
-      expect(history.getSummaryMessageId()).toBeNull();
-    });
-
-    it("fromSession restores messages without double-persisting", async () => {
-      const sessionId = "restore-no-double-persist";
-      const store = new SessionStore(tmpDir);
-      const original = new CheckpointHistory({
-        sessionId,
-        sessionStore: store,
-      });
-
-      original.addUserMessage("persisted user");
-      original.addModelMessages([
-        { role: "assistant", content: "persisted assistant" },
-      ]);
-
-      const filePath = join(tmpDir, `${sessionId}.jsonl`);
-      const beforeLoadLines = readFileSync(filePath, "utf8")
-        .trim()
-        .split("\n")
-        .filter(Boolean);
-      const beforeLoadMessageLines = beforeLoadLines.filter((line) => {
-        const parsed = JSON.parse(line) as { type?: string };
-        return parsed.type === "message";
-      });
-
-      const restored = await CheckpointHistory.fromSession(store, sessionId);
-
-      expect(restored.toModelMessages()).toEqual([
-        { role: "user", content: "persisted user" },
-        { role: "assistant", content: "persisted assistant" },
-      ]);
-
-      const afterLoadLines = readFileSync(filePath, "utf8")
-        .trim()
-        .split("\n")
-        .filter(Boolean);
-      const afterLoadMessageLines = afterLoadLines.filter((line) => {
-        const parsed = JSON.parse(line) as { type?: string };
-        return parsed.type === "message";
-      });
-
-      expect(afterLoadMessageLines).toHaveLength(beforeLoadMessageLines.length);
-    });
-
-    it("fromSession restores summaryMessageId", async () => {
-      const sessionId = "restore-summary-id";
-      const store = new SessionStore(tmpDir);
-      const original = new CheckpointHistory({
-        sessionId,
-        sessionStore: store,
-        compaction: {
-          enabled: true,
-          summarizeFn: async () => "restored summary",
-        },
-      });
-
-      original.addUserMessage("hello");
-      original.addUserMessage("world");
-      const result = await original.compact();
-
-      expect(result.success).toBe(true);
-
-      const restored = await CheckpointHistory.fromSession(store, sessionId);
-
-      expect(restored.getSummaryMessageId()).toBe(result.summaryMessageId);
-    });
-
-    it("fromSession resumes persistence for new messages", async () => {
-      const sessionId = "restore-resume-persist";
-      const store = new SessionStore(tmpDir);
-      const original = new CheckpointHistory({
-        sessionId,
-        sessionStore: store,
-      });
-
-      original.addUserMessage("existing message");
-
-      const restored = await CheckpointHistory.fromSession(store, sessionId);
-      restored.addUserMessage("new persisted message");
-
-      const loaded = await store.loadSession(sessionId);
-      expect(loaded?.messages).toHaveLength(2);
-      expect(loaded?.messages[1]?.message.content).toBe(
-        "new persisted message"
-      );
-    });
-  });
-
   describe("CheckpointHistory token tracking", () => {
     it("clear() resets messages to empty array", () => {
       const h = new CheckpointHistory();
@@ -1246,21 +1088,6 @@ describe("CheckpointHistory", () => {
       expect(h.getContextUsage().used).toBe(1000);
     });
 
-    it("accepts legacy promptTokens/completionTokens aliases as input", () => {
-      const h = new CheckpointHistory({ compaction: { contextLimit: 5000 } });
-      h.updateActualUsage({
-        promptTokens: 1000,
-        completionTokens: 500,
-        totalTokens: 1500,
-      });
-
-      const usage = h.getActualUsage();
-      expect(usage?.inputTokens).toBe(1000);
-      expect(usage?.outputTokens).toBe(500);
-      expect(usage?.totalTokens).toBe(1500);
-      expect(h.getContextUsage().used).toBe(1000);
-    });
-
     it("getActualUsage returns null when no usage recorded", () => {
       const h = new CheckpointHistory();
       expect(h.getActualUsage()).toBeNull();
@@ -1281,13 +1108,8 @@ describe("CheckpointHistory", () => {
       expect(usage?.inputTokens).toBeGreaterThanOrEqual(0);
     });
 
-    it("resetForSession clears messages and changes sessionId", () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), "reset-session-"));
-      const store = new SessionStore(tmpDir);
-      const h = new CheckpointHistory({
-        sessionId: "old-session",
-        sessionStore: store,
-      });
+    it("resetForSession clears messages", () => {
+      const h = new CheckpointHistory({ sessionId: "old-session" });
       h.addUserMessage("hello from old session");
       expect(h.getAll()).toHaveLength(1);
 
@@ -1295,29 +1117,6 @@ describe("CheckpointHistory", () => {
 
       expect(h.getAll()).toHaveLength(0);
       expect(h.getSummaryMessageId()).toBeNull();
-
-      rmSync(tmpDir, { recursive: true, force: true });
-    });
-
-    it("resetForSession persists new messages to the new sessionId", async () => {
-      const tmpDir = mkdtempSync(join(tmpdir(), "reset-persist-"));
-      const store = new SessionStore(tmpDir);
-      const h = new CheckpointHistory({
-        sessionId: "session-a",
-        sessionStore: store,
-      });
-      h.addUserMessage("msg in session-a");
-
-      h.resetForSession("session-b");
-      h.addUserMessage("msg in session-b");
-
-      const loadedA = store.loadSession("session-a");
-      const loadedB = store.loadSession("session-b");
-
-      await expect(loadedA).resolves.toBeTruthy();
-      await expect(loadedB).resolves.toBeTruthy();
-
-      rmSync(tmpDir, { recursive: true, force: true });
     });
 
     it("resetForSession preserves compaction config", () => {
@@ -1423,21 +1222,7 @@ describe("CheckpointHistory context limit methods", () => {
       expect(restored.getSummaryMessageId()).toBeNull();
     });
 
-    it("does not trigger SessionStore persistence during restore", () => {
-      const calls: string[] = [];
-      const mockStore = {
-        appendMessage: () => {
-          calls.push("append");
-          return Promise.resolve();
-        },
-        updateCheckpoint: () => {
-          calls.push("checkpoint");
-          return Promise.resolve();
-        },
-        loadSession: () => Promise.resolve(null),
-        deleteSession: () => Promise.resolve(),
-      };
-
+    it("restoreFromSnapshot updates in-memory history only", () => {
       const history = new CheckpointHistory({
         compaction: { enabled: false },
       });
@@ -1446,11 +1231,10 @@ describe("CheckpointHistory context limit methods", () => {
 
       const restored = new CheckpointHistory({
         compaction: { enabled: false },
-        sessionStore: mockStore as unknown as SessionStore,
       });
       restored.restoreFromSnapshot(snap);
 
-      expect(calls).toEqual([]);
+      expect(restored.getMessagesForLLM()).toEqual(history.getMessagesForLLM());
     });
   });
 

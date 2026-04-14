@@ -578,13 +578,6 @@ describe("compaction-types", () => {
       expect(input).toBeDefined();
     });
 
-    it("should accept completionTokens", () => {
-      const input: ActualTokenUsageInput = {
-        completionTokens: 100,
-      };
-      expect(input.completionTokens).toBe(100);
-    });
-
     it("should accept inputTokens", () => {
       const input: ActualTokenUsageInput = {
         inputTokens: 50,
@@ -597,13 +590,6 @@ describe("compaction-types", () => {
         outputTokens: 100,
       };
       expect(input.outputTokens).toBe(100);
-    });
-
-    it("should accept promptTokens", () => {
-      const input: ActualTokenUsageInput = {
-        promptTokens: 50,
-      };
-      expect(input.promptTokens).toBe(50);
     });
 
     it("should accept totalTokens", () => {
@@ -622,17 +608,13 @@ describe("compaction-types", () => {
 
     it("should accept all fields together", () => {
       const input: ActualTokenUsageInput = {
-        completionTokens: 100,
         inputTokens: 50,
         outputTokens: 100,
-        promptTokens: 50,
         totalTokens: 150,
         updatedAt: new Date(),
       };
-      expect(input.completionTokens).toBe(100);
       expect(input.inputTokens).toBe(50);
       expect(input.outputTokens).toBe(100);
-      expect(input.promptTokens).toBe(50);
       expect(input.totalTokens).toBe(150);
     });
   });
@@ -1345,15 +1327,15 @@ describe("compaction-types", () => {
 
     it("ActualTokenUsageInput should have optional fields", () => {
       const input1: ActualTokenUsageInput = {};
-      const input2: ActualTokenUsageInput = { completionTokens: 100 };
+      const input2: ActualTokenUsageInput = { outputTokens: 100 };
       const input3: ActualTokenUsageInput = {
-        promptTokens: 50,
+        inputTokens: 50,
         totalTokens: 150,
       };
 
       expect(input1.outputTokens).toBeUndefined();
-      expect(input2.completionTokens).toBe(100);
-      expect(input3.promptTokens).toBe(50);
+      expect(input2.outputTokens).toBe(100);
+      expect(input3.inputTokens).toBe(50);
       expect(input3.totalTokens).toBe(150);
     });
 

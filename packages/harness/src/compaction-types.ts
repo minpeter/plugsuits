@@ -316,12 +316,8 @@ export interface ActualTokenUsage {
 }
 
 export interface ActualTokenUsageInput {
-  /** @deprecated Use outputTokens instead. */
-  completionTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
-  /** @deprecated Use inputTokens instead. */
-  promptTokens?: number;
   totalTokens?: number;
   updatedAt?: Date;
 }

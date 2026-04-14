@@ -152,41 +152,9 @@ describe("isUsageSilentOverflow", () => {
     });
   });
 
-  describe("legacy promptTokens alias", () => {
-    it("returns true when legacy promptTokens exceed contextWindow", () => {
-      const usage = { promptTokens: 100_000 };
-      const contextWindow = 50_000;
-      expect(isUsageSilentOverflow(usage, contextWindow)).toBe(true);
-    });
-
-    it("returns false when legacy promptTokens are within contextWindow", () => {
-      const usage = { promptTokens: 40_000 };
-      const contextWindow = 50_000;
-      expect(isUsageSilentOverflow(usage, contextWindow)).toBe(false);
-    });
-
-    it("returns false when legacy promptTokens equal contextWindow", () => {
-      const usage = { promptTokens: 50_000 };
-      const contextWindow = 50_000;
-      expect(isUsageSilentOverflow(usage, contextWindow)).toBe(false);
-    });
-  });
-
   describe("field precedence", () => {
-    it("prioritizes inputTokens over promptTokens", () => {
-      const usage = { inputTokens: 100_000, promptTokens: 10_000 };
-      const contextWindow = 50_000;
-      expect(isUsageSilentOverflow(usage, contextWindow)).toBe(true);
-    });
-
-    it("falls back to promptTokens when inputTokens is undefined", () => {
-      const usage = { inputTokens: undefined, promptTokens: 100_000 };
-      const contextWindow = 50_000;
-      expect(isUsageSilentOverflow(usage, contextWindow)).toBe(true);
-    });
-
-    it("uses default 0 when both fields are missing", () => {
-      const usage = { inputTokens: undefined, promptTokens: undefined };
+    it("uses default 0 when inputTokens is missing", () => {
+      const usage = { inputTokens: undefined };
       const contextWindow: number = 50_000;
       expect(isUsageSilentOverflow(usage, contextWindow)).toBe(false);
     });

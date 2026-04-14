@@ -18,6 +18,11 @@
       "import": "./dist/subpath/sessions.js",
       "types": "./dist/subpath/sessions.d.ts"
     },
+    "./runtime": {
+      "@ai-sdk-tool/source": "./src/subpath/runtime.ts",
+      "types": "./dist/subpath/runtime.d.ts",
+      "import": "./dist/subpath/runtime.js"
+    },
     "./memory": {
       "import": "./dist/subpath/memory.js",
       "types": "./dist/subpath/memory.d.ts"

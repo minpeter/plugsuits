@@ -92,7 +92,7 @@ export function isContextOverflowError(error: unknown): {
  * Silent overflows occur when the input tokens exceed the context window,
  * but the API doesn't explicitly reject the request.
  *
- * @param usage - Token usage object with inputTokens (or legacy promptTokens alias)
+ * @param usage - Token usage object with inputTokens
  * @param contextWindow - The LLM's context window size
  * @returns true if input tokens exceed the context window
  *
@@ -106,9 +106,9 @@ export function isContextOverflowError(error: unknown): {
  * ```
  */
 export function isUsageSilentOverflow(
-  usage: { inputTokens?: number; promptTokens?: number },
+  usage: { inputTokens?: number },
   contextWindow: number
 ): boolean {
-  const tokens = usage.inputTokens ?? usage.promptTokens ?? 0;
+  const tokens = usage.inputTokens ?? 0;
   return tokens > contextWindow;
 }

@@ -1,6 +1,6 @@
 /**
  * Normalize usage measurement from various input formats.
- * Handles different token field names (inputTokens/promptTokens, outputTokens/completionTokens).
+ * Handles canonical token field names.
  */
 export interface UsageMeasurement {
   inputTokens?: number;
@@ -30,16 +30,8 @@ export function normalizeUsageMeasurement(
   }
 
   const usageRecord = usage as Record<string, unknown>;
-  const inputTokens = getUsageNumber(
-    usageRecord,
-    "inputTokens",
-    "promptTokens"
-  );
-  const outputTokens = getUsageNumber(
-    usageRecord,
-    "outputTokens",
-    "completionTokens"
-  );
+  const inputTokens = getUsageNumber(usageRecord, "inputTokens");
+  const outputTokens = getUsageNumber(usageRecord, "outputTokens");
   const totalTokens = getUsageNumber(usageRecord, "totalTokens");
 
   if (

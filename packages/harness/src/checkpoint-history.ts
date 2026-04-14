@@ -33,7 +33,6 @@ import {
   serializeMessage,
 } from "./history-snapshot";
 import { microCompactMessages } from "./micro-compact";
-import type { SessionStore } from "./session-store";
 import type { SnapshotStore } from "./snapshot-store";
 import {
   estimateMessageTokens,
@@ -127,7 +126,6 @@ export interface CheckpointHistoryOptions {
   compaction?: CompactionConfig;
   pruning?: PruningConfig;
   sessionId?: string;
-  sessionStore?: SessionStore;
 }
 
 export interface OverflowRecoveryResult {
@@ -298,15 +296,10 @@ export class CheckpointHistory {
   private revision = 0;
   // message-only revision: bumped by add/compact/prune/truncate/clear, NOT metadata ops
   private messageRevision = 0;
-  private sessionId: string;
-  private skipPersist = false;
-  private readonly sessionStore: SessionStore | null;
   private compactionConfig: NormalizedCompactionConfig;
   private pruningConfig: Required<PruningConfig>;
 
   constructor(options?: CheckpointHistoryOptions) {
-    this.sessionId = options?.sessionId ?? randomUUID();
-    this.sessionStore = options?.sessionStore ?? null;
     this.compactionConfig = {
       ...DEFAULT_COMPACTION_CONFIG,
       ...options?.compaction,
@@ -317,39 +310,6 @@ export class CheckpointHistory {
       ...DEFAULT_PRUNING_CONFIG,
       ...options?.pruning,
     };
-  }
-
-  static async fromSession(
-    sessionStore: SessionStore,
-    sessionId: string,
-    options?: Omit<CheckpointHistoryOptions, "sessionId" | "sessionStore">
-  ): Promise<CheckpointHistory> {
-    const history = new CheckpointHistory({
-      ...options,
-      sessionId,
-      sessionStore,
-    });
-
-    const data = await sessionStore.loadSession(sessionId);
-    if (data && data.messages.length > 0) {
-      history.skipPersist = true;
-      try {
-        history.hydrateMessages(data.messages);
-
-        if (data.summaryMessageId) {
-          const summaryMsg = history.messages.find(
-            (m) => m.id === data.summaryMessageId
-          );
-          if (summaryMsg) {
-            history.summaryMessageId = data.summaryMessageId;
-          }
-        }
-      } finally {
-        history.skipPersist = false;
-      }
-    }
-
-    return history;
   }
 
   static async fromSnapshot(
@@ -378,7 +338,6 @@ export class CheckpointHistory {
     );
 
     this.messages.push(message);
-    this.persistMessage(message);
     this.refreshEstimatedUsage();
     this.revision += 1;
     this.messageRevision += 1;
@@ -401,9 +360,6 @@ export class CheckpointHistory {
     );
 
     this.messages = nextMessages;
-    for (const message of accepted) {
-      this.persistMessage(message);
-    }
 
     if (accepted.length > 0) {
       this.refreshEstimatedUsage();
@@ -489,66 +445,59 @@ export class CheckpointHistory {
   }
 
   restoreFromSnapshot(snapshot: HistorySnapshot): void {
-    this.skipPersist = true;
+    this.messages = [];
+    this.summaryMessageId = null;
+    this.actualUsage = null;
+    this.revision = 0;
+    this.messageRevision = 0;
 
-    try {
-      this.messages = [];
-      this.summaryMessageId = null;
-      this.actualUsage = null;
-      this.revision = 0;
-      this.messageRevision = 0;
-
-      if (snapshot.compactionConfig) {
-        this.updateCompaction(snapshot.compactionConfig);
-      }
-
-      if (snapshot.pruningConfig) {
-        this.updatePruning(snapshot.pruningConfig);
-      }
-
-      this.hydrateMessages(
-        snapshot.messages.map((serializedMessage) => {
-          const message = deserializeMessage(serializedMessage);
-
-          return {
-            type: "message" as const,
-            id: message.id,
-            createdAt: message.createdAt,
-            isSummary: message.isSummary,
-            originalContent: message.originalContent,
-            message: message.message,
-          };
-        })
-      );
-
-      this.setContextLimit(snapshot.contextLimit);
-      this.setSystemPromptTokens(snapshot.systemPromptTokens);
-      this.setToolSchemasTokens(snapshot.toolSchemasTokens);
-
-      const summaryMessageId =
-        snapshot.compactionState?.summaryMessageId ?? null;
-      this.summaryMessageId =
-        summaryMessageId &&
-        this.messages.some((message) => message.id === summaryMessageId)
-          ? summaryMessageId
-          : null;
-
-      if (snapshot.actualUsage?.inputTokens !== undefined) {
-        const outputTokens = snapshot.actualUsage.outputTokens ?? 0;
-        this.actualUsage = {
-          inputTokens: snapshot.actualUsage.inputTokens,
-          outputTokens,
-          totalTokens:
-            snapshot.actualUsage.totalTokens ??
-            snapshot.actualUsage.inputTokens + outputTokens,
-          updatedAt: new Date(),
-        };
-      }
-
-      this.revision = snapshot.revision;
-    } finally {
-      this.skipPersist = false;
+    if (snapshot.compactionConfig) {
+      this.updateCompaction(snapshot.compactionConfig);
     }
+
+    if (snapshot.pruningConfig) {
+      this.updatePruning(snapshot.pruningConfig);
+    }
+
+    this.hydrateMessages(
+      snapshot.messages.map((serializedMessage) => {
+        const message = deserializeMessage(serializedMessage);
+
+        return {
+          type: "message" as const,
+          id: message.id,
+          createdAt: message.createdAt,
+          isSummary: message.isSummary,
+          originalContent: message.originalContent,
+          message: message.message,
+        };
+      })
+    );
+
+    this.setContextLimit(snapshot.contextLimit);
+    this.setSystemPromptTokens(snapshot.systemPromptTokens);
+    this.setToolSchemasTokens(snapshot.toolSchemasTokens);
+
+    const summaryMessageId = snapshot.compactionState?.summaryMessageId ?? null;
+    this.summaryMessageId =
+      summaryMessageId &&
+      this.messages.some((message) => message.id === summaryMessageId)
+        ? summaryMessageId
+        : null;
+
+    if (snapshot.actualUsage?.inputTokens !== undefined) {
+      const outputTokens = snapshot.actualUsage.outputTokens ?? 0;
+      this.actualUsage = {
+        inputTokens: snapshot.actualUsage.inputTokens,
+        outputTokens,
+        totalTokens:
+          snapshot.actualUsage.totalTokens ??
+          snapshot.actualUsage.inputTokens + outputTokens,
+        updatedAt: new Date(),
+      };
+    }
+
+    this.revision = snapshot.revision;
   }
 
   clear(): void {
@@ -559,25 +508,24 @@ export class CheckpointHistory {
     this.messageRevision += 1;
   }
 
-  resetForSession(sessionId: string): void {
-    this.sessionId = sessionId;
+  resetForSession(_sessionId: string): void {
     this.clear();
     this.actualUsage = null;
   }
 
   updateActualUsage(usage: ActualTokenUsageInput): void {
-    const inputTokens = usage.inputTokens ?? usage.promptTokens;
+    const inputTokens = usage.inputTokens;
 
-    if (inputTokens === undefined || inputTokens === null) {
+    if (inputTokens === undefined) {
       if (env.COMPACTION_DEBUG) {
         console.error(
-          `[compaction-debug] updateActualUsage: no inputTokens/promptTokens in usage data, skipping (received keys: ${Object.keys(usage).join(", ")})`
+          `[compaction-debug] updateActualUsage: no inputTokens in usage data, skipping (received keys: ${Object.keys(usage).join(", ")})`
         );
       }
       return;
     }
 
-    const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
+    const outputTokens = usage.outputTokens ?? 0;
     const totalTokens =
       usage.totalTokens ?? Math.max(0, inputTokens + outputTokens);
 
@@ -1037,12 +985,6 @@ export class CheckpointHistory {
       return rejection;
     }
 
-    await this.persistCompactionMessages({
-      continuationMessage,
-      replayMessageCopy,
-      summaryMessage,
-    });
-
     return {
       success: true,
       compactionMethod,
@@ -1471,47 +1413,6 @@ export class CheckpointHistory {
       },
       replayMessage.originalContent
     );
-  }
-
-  private async persistCompactionMessages(params: {
-    continuationMessage: CheckpointMessage;
-    replayMessageCopy: CheckpointMessage | null;
-    summaryMessage: CheckpointMessage;
-  }): Promise<void> {
-    if (!this.sessionStore) {
-      return;
-    }
-
-    const { continuationMessage, replayMessageCopy, summaryMessage } = params;
-    const summaryLine: MessageLine = {
-      type: "message",
-      id: summaryMessage.id,
-      createdAt: summaryMessage.createdAt,
-      isSummary: true,
-      message: summaryMessage.message,
-    };
-
-    await this.sessionStore.appendMessage(this.sessionId, summaryLine);
-    await this.sessionStore.appendMessage(this.sessionId, {
-      type: "message",
-      id: continuationMessage.id,
-      createdAt: continuationMessage.createdAt,
-      isSummary: continuationMessage.isSummary,
-      originalContent: continuationMessage.originalContent,
-      message: continuationMessage.message,
-    });
-    if (replayMessageCopy) {
-      await this.sessionStore.appendMessage(this.sessionId, {
-        type: "message",
-        id: replayMessageCopy.id,
-        createdAt: replayMessageCopy.createdAt,
-        isSummary: replayMessageCopy.isSummary,
-        originalContent: replayMessageCopy.originalContent,
-        message: replayMessageCopy.message,
-      });
-    }
-
-    await this.sessionStore.updateCheckpoint(this.sessionId, summaryMessage.id);
   }
 
   getActiveMessages(): CheckpointMessage[] {
@@ -2513,17 +2414,6 @@ export class CheckpointHistory {
       return null;
     }
 
-    if (this.sessionStore) {
-      try {
-        await this.sessionStore.updateCheckpoint(
-          this.sessionId,
-          summaryMessage.id
-        );
-      } catch (_error) {
-        await Promise.resolve();
-      }
-    }
-
     return {
       success: true,
       strategy: aggressive ? "aggressive-compact" : "compact",
@@ -2660,25 +2550,6 @@ export class CheckpointHistory {
       originalContent,
       message: trimTrailingAssistantNewlines(message),
     };
-  }
-
-  private persistMessage(message: CheckpointMessage): void {
-    if (!this.sessionStore || this.skipPersist) {
-      return;
-    }
-
-    const line: MessageLine = {
-      type: "message",
-      id: message.id,
-      createdAt: message.createdAt,
-      isSummary: message.isSummary,
-      originalContent: message.originalContent,
-      message: message.message,
-    };
-
-    this.sessionStore
-      .appendMessage(this.sessionId, line)
-      .catch(() => undefined);
   }
 
   private hydrateMessages(lines: MessageLine[]): void {
