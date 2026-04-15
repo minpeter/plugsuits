@@ -17,7 +17,7 @@ const agent = defineAgent({
   agent: {
     model,
     instructions: "You are a helpful assistant. Be concise.",
-    mcp: [{ command: "bunx", args: ["duckduckgo-mcp@latest"] }],
+    mcp: [{ command: "npx", args: ["-y", "opensearch-mcp"] }],
   },
   history: {
     compaction: { enabled: true, contextLimit: env.AI_CONTEXT_LIMIT },
