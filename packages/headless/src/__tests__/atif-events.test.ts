@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TrajectoryCollector } from "../trajectory-collector";
 import type {
   ApprovalEvent,
   AgentStepEvent,
@@ -354,5 +355,262 @@ describe("ATIF JSONL shape", () => {
     expect(userEvent).not.toHaveProperty("session_id");
     expect(agentEvent).not.toHaveProperty("session_id");
     expect(errorEvent).not.toHaveProperty("session_id");
+  });
+});
+
+const ATIF_STEP_ALLOWED_FIELDS = new Set([
+  "step_id",
+  "timestamp",
+  "source",
+  "model_name",
+  "reasoning_effort",
+  "message",
+  "reasoning_content",
+  "tool_calls",
+  "observation",
+  "metrics",
+  "is_copied_context",
+  "extra",
+]);
+
+const ATIF_TRAJECTORY_ALLOWED_FIELDS = new Set([
+  "schema_version",
+  "session_id",
+  "agent",
+  "steps",
+  "notes",
+  "final_metrics",
+  "continued_trajectory_ref",
+  "extra",
+]);
+
+const ATIF_AGENT_ALLOWED_FIELDS = new Set([
+  "name",
+  "version",
+  "model_name",
+  "tool_definitions",
+  "extra",
+]);
+
+const ATIF_FINAL_METRICS_ALLOWED_FIELDS = new Set([
+  "total_prompt_tokens",
+  "total_completion_tokens",
+  "total_cached_tokens",
+  "total_cost_usd",
+  "total_steps",
+  "extra",
+]);
+
+describe("TrajectoryCollector ATIF compliance", () => {
+  it("finalize() produces steps without the streaming 'type' discriminator", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-1",
+      agent: { name: "test", version: "1.0", model_name: "m1" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hello",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "hi",
+      model_name: "m1",
+      tool_calls: [
+        {
+          tool_call_id: "c1",
+          function_name: "search",
+          arguments: { q: "test" },
+        },
+      ],
+      observation: {
+        results: [{ source_call_id: "c1", content: "result text" }],
+      },
+      metrics: { prompt_tokens: 100, completion_tokens: 50 },
+    });
+
+    const trajectory = collector.finalize();
+
+    for (const step of trajectory.steps) {
+      expect(step).not.toHaveProperty("type");
+      const keys = Object.keys(step);
+      for (const key of keys) {
+        expect(ATIF_STEP_ALLOWED_FIELDS.has(key)).toBe(true);
+      }
+    }
+  });
+
+  it("finalize() omits empty metrics from steps", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-2",
+      agent: { name: "test", version: "1.0", model_name: "m1" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hi",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "reply",
+      metrics: {},
+    });
+
+    const trajectory = collector.finalize();
+    expect(trajectory.steps[1]).not.toHaveProperty("metrics");
+  });
+
+  it("finalize() preserves non-empty metrics", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-3",
+      agent: { name: "test", version: "1.0", model_name: "m1" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hi",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "reply",
+      metrics: { prompt_tokens: 100 },
+    });
+
+    const trajectory = collector.finalize();
+    expect(trajectory.steps[1]?.metrics).toEqual({ prompt_tokens: 100 });
+  });
+
+  it("finalize() root object contains only ATIF-allowed fields", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-4",
+      agent: { name: "a", version: "1", model_name: "m" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hi",
+    });
+
+    const trajectory = collector.finalize();
+    for (const key of Object.keys(trajectory)) {
+      expect(ATIF_TRAJECTORY_ALLOWED_FIELDS.has(key)).toBe(true);
+    }
+    for (const key of Object.keys(trajectory.agent)) {
+      expect(ATIF_AGENT_ALLOWED_FIELDS.has(key)).toBe(true);
+    }
+    for (const key of Object.keys(trajectory.final_metrics)) {
+      expect(ATIF_FINAL_METRICS_ALLOWED_FIELDS.has(key)).toBe(true);
+    }
+  });
+
+  it("finalize() step_ids are sequential starting from 1", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-5",
+      agent: { name: "a", version: "1", model_name: "m" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "1",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "2",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 3,
+      timestamp,
+      source: "agent",
+      message: "3",
+    });
+
+    const trajectory = collector.finalize();
+    trajectory.steps.forEach((step, i) => {
+      expect(step.step_id).toBe(i + 1);
+    });
+  });
+
+  it("finalize() observation source_call_ids reference valid tool_call_ids", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-6",
+      agent: { name: "a", version: "1", model_name: "m" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "go",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "done",
+      tool_calls: [
+        { tool_call_id: "c1", function_name: "f1", arguments: {} },
+        { tool_call_id: "c2", function_name: "f2", arguments: {} },
+      ],
+      observation: {
+        results: [
+          { source_call_id: "c1", content: "r1" },
+          { source_call_id: "c2", content: "r2" },
+        ],
+      },
+    });
+
+    const trajectory = collector.finalize();
+    for (const step of trajectory.steps) {
+      if (step.observation && step.tool_calls) {
+        const toolCallIds = new Set(
+          step.tool_calls.map((tc) => tc.tool_call_id)
+        );
+        for (const result of step.observation.results) {
+          expect(toolCallIds.has(result.source_call_id)).toBe(true);
+        }
+      }
+    }
   });
 });

@@ -5,9 +5,26 @@ import type {
   CompactionEvent,
   InterruptEvent,
   MetadataEvent,
+  ObservationData,
   StepEvent,
   StepMetrics,
+  ToolCallData,
 } from "./types";
+
+interface AtifStep {
+  extra?: Record<string, unknown>;
+  is_copied_context?: boolean;
+  message: string;
+  metrics?: StepMetrics;
+  model_name?: string;
+  observation?: ObservationData;
+  reasoning_content?: string;
+  reasoning_effort?: string | number;
+  source: "agent" | "system" | "user";
+  step_id: number;
+  timestamp?: string;
+  tool_calls?: ToolCallData[];
+}
 
 export interface TrajectoryJson {
   agent: { name: string; version: string; model_name: string };
@@ -24,7 +41,7 @@ export interface TrajectoryJson {
   };
   schema_version: "ATIF-v1.6";
   session_id: string;
-  steps: StepEvent[];
+  steps: AtifStep[];
 }
 
 interface MetricAccumulator {
@@ -118,12 +135,20 @@ export class TrajectoryCollector {
     };
   }
 
+  private toAtifStep(event: StepEvent): AtifStep {
+    const { type: _type, metrics, ...rest } = event;
+    const hasMetrics =
+      metrics !== undefined &&
+      Object.values(metrics).some((v) => v !== undefined);
+    return hasMetrics ? { ...rest, metrics } : { ...rest };
+  }
+
   finalize(): TrajectoryJson {
     const trajectory: TrajectoryJson = {
       schema_version: "ATIF-v1.6",
       session_id: this.metadata?.session_id ?? "unknown",
       agent: this.metadata?.agent ?? { ...DEFAULT_AGENT },
-      steps: [...this.steps],
+      steps: this.steps.map((s) => this.toAtifStep(s)),
       final_metrics: this.collectFinalMetrics(),
     };
 

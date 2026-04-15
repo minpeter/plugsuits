@@ -15,23 +15,31 @@ import type {
   TrajectoryEvent,
 } from "./types";
 
-export const extractToolOutput = (
-  output: unknown
-): { stdout: string; error?: string; exitCode?: number } => {
-  if (typeof output === "object" && output !== null && "output" in output) {
-    const result = output as {
-      output: string;
-      error?: string;
-      exit_code?: number;
-    };
-    return {
-      stdout: result.output || "",
-      error: result.error,
-      exitCode: result.exit_code,
-    };
+export const extractToolOutput = (output: unknown): string => {
+  if (typeof output === "string") {
+    return output;
   }
-  return { stdout: String(output) };
+  if (output === null || output === undefined) {
+    return "";
+  }
+  if (typeof output === "object" && "output" in output) {
+    const inner = (output as Record<string, unknown>).output;
+    if (typeof inner === "string") {
+      return inner;
+    }
+    return safeStringify(inner);
+  }
+  return safeStringify(output);
 };
+
+function safeStringify(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    return typeof json === "string" ? json : String(value);
+  } catch {
+    return String(value);
+  }
+}
 
 export interface PendingToolCall {
   arguments: string;
@@ -383,14 +391,9 @@ export const processStream = async (
           typeof part,
           { type: "tool-result" }
         >;
-        const toolOutput = extractToolOutput(resultPart.output);
         observationResults.push({
           source_call_id: resultPart.toolCallId,
-          content: JSON.stringify({
-            stdout: toolOutput.stdout,
-            error: toolOutput.error,
-            exit_code: toolOutput.exitCode,
-          }),
+          content: extractToolOutput(resultPart.output),
         });
         break;
       }
@@ -403,7 +406,7 @@ export const processStream = async (
             : String(errorPart.error);
         observationResults.push({
           source_call_id: errorPart.toolCallId,
-          content: JSON.stringify({ error: errorMsg, exit_code: 1 }),
+          content: errorMsg,
         });
         break;
       }

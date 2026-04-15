@@ -1,6 +1,6 @@
 import type { AgentStreamResult } from "@ai-sdk-tool/harness";
 import { describe, expect, it } from "vitest";
-import { processStream } from "./stream-processor";
+import { extractToolOutput, processStream } from "./stream-processor";
 import type { TrajectoryEvent } from "./types";
 
 const createNeverSettlingPromise = <T>(): Promise<T> =>
@@ -166,5 +166,70 @@ describe("processStream", () => {
         toolName: "bash",
       })
     );
+  });
+});
+
+describe("extractToolOutput", () => {
+  it("returns string input as-is", () => {
+    expect(extractToolOutput("hello")).toBe("hello");
+  });
+
+  it("returns empty string for null", () => {
+    expect(extractToolOutput(null)).toBe("");
+  });
+
+  it("returns empty string for undefined", () => {
+    expect(extractToolOutput(undefined)).toBe("");
+  });
+
+  it("extracts string .output from CEA tool results", () => {
+    expect(extractToolOutput({ output: "file contents" })).toBe(
+      "file contents"
+    );
+  });
+
+  it("serializes non-string .output values", () => {
+    expect(extractToolOutput({ output: 42 })).toBe("42");
+    expect(extractToolOutput({ output: { nested: true } })).toBe(
+      '{"nested":true}'
+    );
+  });
+
+  it("returns empty string for { output: '' }", () => {
+    expect(extractToolOutput({ output: "" })).toBe("");
+  });
+
+  it("serializes MCP-style objects with content array", () => {
+    const mcpResult = {
+      content: [{ type: "text", text: "search results" }],
+      structuredContent: { results: [] },
+      isError: false,
+    };
+    const result = extractToolOutput(mcpResult);
+    expect(typeof result).toBe("string");
+    expect(JSON.parse(result)).toEqual(mcpResult);
+  });
+
+  it("handles non-serializable objects gracefully", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const result = extractToolOutput(circular);
+    expect(typeof result).toBe("string");
+  });
+
+  it("handles { output: undefined } without returning non-string", () => {
+    const result = extractToolOutput({ output: undefined });
+    expect(typeof result).toBe("string");
+  });
+
+  it("handles symbol input", () => {
+    const result = extractToolOutput(Symbol("x"));
+    expect(typeof result).toBe("string");
+  });
+
+  it("handles function input", () => {
+    const fn = (): void => undefined;
+    const result = extractToolOutput(fn);
+    expect(typeof result).toBe("string");
   });
 });
