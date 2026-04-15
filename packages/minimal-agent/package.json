@@ -17,11 +17,11 @@
     "@ai-sdk-tool/tui": "workspace:*",
     "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",
-    "citty": "^0.2.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^3.0.58",
+    "citty": "^0.2.1",
     "@types/node": "^25.4.0",
     "typescript": "^5.9.3"
   }

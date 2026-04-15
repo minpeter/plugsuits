@@ -3,7 +3,6 @@ import { FileSnapshotStore, formatContextUsage } from "@ai-sdk-tool/harness";
 import { createAgentRuntime, defineAgent } from "@ai-sdk-tool/harness/runtime";
 import { runAgentSessionHeadless } from "@ai-sdk-tool/headless/session";
 import { runAgentSessionTUI } from "@ai-sdk-tool/tui/session";
-import { defineCommand, runMain } from "citty";
 import { env } from "./env";
 
 const modelId = env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
@@ -43,41 +42,36 @@ const runtime = await createAgentRuntime({
 });
 const session = await runtime.openSession();
 
-runMain(
-  defineCommand({
-    args: { prompt: { type: "string", description: "Headless prompt" } },
-    async run({ args }) {
-      try {
-        if (args.prompt) {
-          await runAgentSessionHeadless(session, {
-            initialUserMessage: { content: args.prompt },
-            modelId,
-          });
-        } else {
-          await runAgentSessionTUI(session, {
-            header: {
-              title: "minimal-agent",
-              get subtitle() {
-                return `session: ${session.sessionId.slice(0, 8)}`;
-              },
-            },
-            footer: {
-              get text() {
-                const u = session.history.getContextUsage();
-                return u ? formatContextUsage(u) : undefined;
-              },
-            },
-            onCommandAction: async (action) => {
-              if (action.type === "new-session") {
-                await session.reset();
-              }
-            },
-          });
+const prompt = process.argv.find((_, i, arr) => arr[i - 1] === "--prompt");
+
+try {
+  if (prompt) {
+    await runAgentSessionHeadless(session, {
+      initialUserMessage: { content: prompt },
+      modelId,
+    });
+  } else {
+    await runAgentSessionTUI(session, {
+      header: {
+        title: "minimal-agent",
+        get subtitle() {
+          return `session: ${session.sessionId.slice(0, 8)}`;
+        },
+      },
+      footer: {
+        get text() {
+          const u = session.history.getContextUsage();
+          return u ? formatContextUsage(u) : undefined;
+        },
+      },
+      onCommandAction: async (action) => {
+        if (action.type === "new-session") {
+          await session.reset();
         }
-      } finally {
-        await session.save();
-        await runtime.close();
-      }
-    },
-  })
-);
+      },
+    });
+  }
+} finally {
+  await session.save();
+  await runtime.close();
+}

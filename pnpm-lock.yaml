@@ -170,9 +170,6 @@ importers:
       ai:
         specifier: ^6.0.116
         version: 6.0.116(zod@4.3.6)
-      citty:
-        specifier: ^0.2.1
-        version: 0.2.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -183,6 +180,9 @@ importers:
       '@types/node':
         specifier: ^25.4.0
         version: 25.4.0
+      citty:
+        specifier: ^0.2.1
+        version: 0.2.1
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
