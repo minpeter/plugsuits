@@ -6,6 +6,7 @@ import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentManager,
+  buildAgentModelProfile,
   buildFileTrackingSummarizeFn,
   computeAdaptiveThresholdRatio,
   computeCompactionMaxTokens,
@@ -53,6 +54,90 @@ describe("AgentManager translation reasoning selection", () => {
     agentManager.setReasoningMode("preserved");
 
     expect(agentManager.getTranslationReasoningMode()).toBe("off");
+  });
+});
+
+describe("buildAgentModelProfile", () => {
+  it("injects anthropic provider defaults and last-message cache control", () => {
+    const profile = buildAgentModelProfile({
+      model: {
+        provider: "anthropic",
+        modelId: "claude-sonnet-4-6",
+      } as never,
+      providerOptions: {
+        anthropic: {
+          thinking: {
+            type: "enabled",
+            budgetTokens: 1000,
+          },
+        },
+      },
+    });
+
+    expect(profile.streamDefaults).toEqual({
+      providerOptions: {
+        anthropic: {
+          thinking: {
+            type: "enabled",
+            budgetTokens: 1000,
+          },
+        },
+      },
+    });
+    expect(
+      profile.prepareStep?.({
+        messages: [{ role: "user", content: "hello" }],
+        model: {
+          provider: "anthropic",
+          modelId: "claude-sonnet-4-6",
+        } as never,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        messages: expect.any(Array),
+      })
+    );
+    const anthropicMessages = profile.prepareStep?.({
+      messages: [{ role: "user", content: "hello" }],
+      model: {
+        provider: "anthropic",
+        modelId: "claude-sonnet-4-6",
+      } as never,
+    })?.messages;
+    expect(anthropicMessages).toHaveLength(1);
+    expect(anthropicMessages?.[0]).toMatchObject({
+      role: "user",
+      content: "hello",
+    });
+    expect(anthropicMessages?.[0]).toMatchObject({
+      providerOptions: {
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      },
+    });
+  });
+
+  it("is effectively a no-op for non-anthropic message caching", () => {
+    const profile = buildAgentModelProfile({
+      model: {
+        provider: "openai",
+        modelId: "gpt-4.1",
+      } as never,
+      providerOptions: undefined,
+    });
+
+    expect(
+      profile.prepareStep?.({
+        messages: [{ role: "user", content: "hello" }],
+        model: {
+          provider: "openai",
+          modelId: "gpt-4.1",
+        } as never,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "hello" }],
+      })
+    );
   });
 });
 

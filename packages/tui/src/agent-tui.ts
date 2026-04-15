@@ -1,4 +1,5 @@
 import {
+  type BeforeTurnResult,
   type CheckpointMessage,
   type Command,
   type CommandAction,
@@ -10,6 +11,7 @@ import {
   computeContextBudget,
   estimateTokens,
   executeCommand,
+  type HistorySnapshot,
   harnessEnv,
   isCommand,
   isContextOverflowError,
@@ -494,7 +496,46 @@ export interface ContextAware {
 export interface AgentTUIMessageHistory
   extends MessageReadable,
     MessageWritable,
-    ContextAware {}
+    ContextAware {
+  snapshot?(): HistorySnapshot;
+}
+
+type TuiTurnOverrides =
+  NonNullable<AgentTUIConfig["onBeforeTurn"]> extends (
+    ...args: never[]
+  ) => infer TResult
+    ? Awaited<TResult>
+    : never;
+
+export function mergeAgentStreamOptions(params: {
+  abortSignal?: AbortSignal;
+  maxOutputTokens?: number;
+  messages: ModelMessage[];
+  turnOverrides?: TuiTurnOverrides;
+}): ModelMessage extends never
+  ? never
+  : {
+      abortSignal?: AbortSignal;
+      experimentalContext?: BeforeTurnResult["experimentalContext"];
+      maxOutputTokens?: number;
+      messages: ModelMessage[];
+      providerOptions?: BeforeTurnResult["providerOptions"];
+      seed?: BeforeTurnResult["seed"];
+      system?: BeforeTurnResult["system"];
+      temperature?: BeforeTurnResult["temperature"];
+    } {
+  const { abortSignal, maxOutputTokens, messages, turnOverrides } = params;
+
+  return {
+    messages: turnOverrides?.messages ?? messages,
+    abortSignal:
+      abortSignal && turnOverrides?.abortSignal
+        ? AbortSignal.any([abortSignal, turnOverrides.abortSignal])
+        : (turnOverrides?.abortSignal ?? abortSignal),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...turnOverrides,
+  };
+}
 
 const getMessageHistoryContextLimit = (
   history: Pick<AgentTUIMessageHistory, "getCompactionConfig"> & {
@@ -585,14 +626,25 @@ export interface AgentTUIConfig {
   header?: { title: string; subtitle?: string };
   measureUsage?: (messages: ModelMessage[]) => Promise<UsageMeasurement | null>;
   messageHistory: AgentTUIMessageHistory;
+  onBeforeTurn?: (
+    phase: "new-turn" | "intermediate-step"
+  ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onCommandAction?: (action: CommandAction) => void | Promise<void>;
   onSetup?: () => void | Promise<void>;
+  onStepComplete?: (step: {
+    finishReason: string;
+    iteration: number;
+    phase: "new-turn" | "intermediate-step";
+  }) => Promise<void> | void;
   onTurnComplete?: (
     messages: CheckpointMessage[],
     usage?: {
       inputTokens?: number;
       outputTokens?: number;
-    }
+      totalTokens?: number;
+    },
+    snapshot?: HistorySnapshot,
+    finishReason?: string
   ) => Promise<void> | void;
   preprocessCommand?: (
     commandInput: string,
@@ -602,6 +654,7 @@ export interface AgentTUIConfig {
     input: string,
     hooks: PreprocessHooks
   ) => Promise<PreprocessResult | undefined>;
+  shouldContinue?: (finishReason: string) => boolean;
   showRawToolIo?: boolean;
   skills?: SkillInfo[];
   theme?: { markdownTheme?: MarkdownTheme; editorTheme?: EditorTheme };
@@ -679,6 +732,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   let shouldExit = false;
   let activeStreamController: AbortController | null = null;
+  let completedTurnCount = 0;
   let streamInterruptRequested = false;
   let inputResolver: null | ((value: string | null) => void) = null;
   let lastCtrlCPressAt = 0;
@@ -1175,7 +1229,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   const prepareMessages = async (
     phase: "new-turn" | "intermediate-step"
-  ): Promise<ModelMessage[]> => {
+  ): Promise<{
+    messages: ModelMessage[];
+    turnOverrides?: BeforeTurnResult;
+  }> => {
+    const turnOverrides = await config.onBeforeTurn?.(phase);
     const readyResult = applyReadySpeculativeCompaction();
     if (readyResult.stale) {
       startSpeculativeCompaction();
@@ -1195,7 +1253,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     messagesForLLM = config.messageHistory.getMessagesForLLM();
 
     startSpeculativeCompaction();
-    return messagesForLLM;
+    return {
+      messages: messagesForLLM,
+      turnOverrides,
+    };
   };
 
   const createStreamingLoaderClearer = (): (() => void) => {
@@ -1322,21 +1383,43 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       ? {
           inputTokens: normalizedUsage.inputTokens,
           outputTokens: normalizedUsage.outputTokens,
+          totalTokens: normalizedUsage.totalTokens,
         }
       : undefined;
+    const snapshot = config.messageHistory.snapshot?.();
     Promise.resolve(
       config.onTurnComplete?.(
         config.messageHistory.getAll(),
-        onTurnCompleteUsage
+        onTurnCompleteUsage,
+        snapshot,
+        params.finishReason
       )
     ).catch((error) => {
       console.error("onTurnComplete callback failed in TUI:", error);
     });
+    const stepPhase =
+      completedTurnCount === 0
+        ? ("new-turn" as const)
+        : ("intermediate-step" as const);
+    Promise.resolve(
+      config.onStepComplete?.({
+        finishReason: params.finishReason,
+        iteration: completedTurnCount,
+        phase: stepPhase,
+      })
+    ).catch((error) => {
+      console.error("onStepComplete callback failed in TUI:", error);
+    });
+    completedTurnCount += 1;
     updateHeader();
     startSpeculativeCompaction();
     await compactBeforeNextTurnIfNeeded();
 
-    if (shouldContinueManualToolLoop(params.finishReason)) {
+    if (
+      (config.shouldContinue ?? shouldContinueManualToolLoop)(
+        params.finishReason
+      )
+    ) {
       return "continue";
     }
 
@@ -1397,7 +1480,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     overflowRetried = false,
     noOutputRetryCount = 0
   ): Promise<"completed" | "continue" | "interrupted"> => {
-    let messagesForLLM = await prepareMessages(phase);
+    const preparedTurn = await prepareMessages(phase);
+    let messagesForLLM = preparedTurn.messages;
+    const turnOverrides = preparedTurn.turnOverrides;
 
     showLoader("Working...");
     const streamAbortController = new AbortController();
@@ -1407,13 +1492,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     try {
       const budget = await resolveTurnBudget(phase, messagesForLLM);
       messagesForLLM = budget.messagesForLLM;
-      const stream = await config.agent.stream({
-        messages: messagesForLLM,
-        abortSignal: streamAbortController.signal,
-        ...(budget.maxOutputTokens !== undefined
-          ? { maxOutputTokens: budget.maxOutputTokens }
-          : {}),
-      });
+      const stream = await config.agent.stream(
+        mergeAgentStreamOptions({
+          abortSignal: streamAbortController.signal,
+          maxOutputTokens: budget.maxOutputTokens,
+          messages: messagesForLLM,
+          turnOverrides,
+        })
+      );
 
       const clearStreamingLoader = createStreamingLoaderClearer();
 

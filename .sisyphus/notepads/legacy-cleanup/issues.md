@@ -7,3 +7,8 @@
 
 - First full `pnpm test` run failed in `compaction-orchestrator.test.ts` (`shouldStartSpeculative()` false) after adding policy-based methods.
 - Resolved by bounding speculative trigger limit with `min(activeContextLimit, compaction.maxTokens)` in `CheckpointHistory.shouldStartSpeculativeCompactionForNextTurn()`.
+
+## 2026-04-15
+
+- `lsp_diagnostics` was not usable for changed TS files because the underlying `biome` executable is missing from the environment.
+- Mitigation: used passing `pnpm run build`, `pnpm run typecheck`, and `pnpm run test` as the verification gate for this wave.

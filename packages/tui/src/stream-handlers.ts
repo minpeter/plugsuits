@@ -1,4 +1,8 @@
 import {
+  getToolInputChunk as sharedGetToolInputChunk,
+  getToolInputId as sharedGetToolInputId,
+} from "@ai-sdk-tool/harness";
+import {
   type Container,
   type Markdown,
   Spacer,
@@ -10,21 +14,43 @@ import type { ToolCallView } from "./tool-call-view";
 
 type StreamPart = TextStreamPart<ToolSet>;
 
+const fallbackGetToolInputId = (part: {
+  id?: string;
+  toolCallId?: string;
+}): string | undefined => {
+  return part.id ?? part.toolCallId;
+};
+
+const fallbackGetToolInputChunk = (part: {
+  delta?: unknown;
+  inputTextDelta?: unknown;
+}): string | null => {
+  if (typeof part.delta === "string") {
+    return part.delta;
+  }
+
+  if (typeof part.inputTextDelta === "string") {
+    return part.inputTextDelta;
+  }
+
+  return null;
+};
+
+const getToolInputId =
+  typeof sharedGetToolInputId === "function"
+    ? sharedGetToolInputId
+    : fallbackGetToolInputId;
+
+const getToolInputChunk =
+  typeof sharedGetToolInputChunk === "function"
+    ? sharedGetToolInputChunk
+    : fallbackGetToolInputChunk;
+
 export interface ToolInputRenderState {
   hasContent: boolean;
   inputBuffer: string;
   renderedInputLength: number;
   toolName: string;
-}
-
-interface ToolInputPart {
-  id?: string;
-  toolCallId?: string;
-}
-
-interface ToolInputDeltaPart extends ToolInputPart {
-  delta?: unknown;
-  inputTextDelta?: unknown;
 }
 
 const safeStringify = (value: unknown): string => {
@@ -51,22 +77,6 @@ export const addChatComponent = (
   }
 
   chatContainer.addChild(component);
-};
-
-export const getToolInputId = (part: ToolInputPart): string | undefined => {
-  return part.id ?? part.toolCallId;
-};
-
-export const getToolInputChunk = (part: ToolInputDeltaPart): string | null => {
-  if (typeof part.delta === "string") {
-    return part.delta;
-  }
-
-  if (typeof part.inputTextDelta === "string") {
-    return part.inputTextDelta;
-  }
-
-  return null;
 };
 
 export const createToolInputState = (
@@ -283,6 +293,42 @@ export const handleToolOutputDenied: StreamPartHandler = (part, state) => {
   view.setOutputDenied();
 };
 
+export const handleToolApprovalRequest: StreamPartHandler = (part, state) => {
+  const approvalPart = part as StreamPart & {
+    providerExecuted?: boolean;
+    reason?: string;
+    toolCallId: string;
+    toolName: string;
+  };
+
+  state.resetAssistantView(true);
+  const view = state.ensureToolView(
+    approvalPart.toolCallId,
+    approvalPart.toolName
+  );
+
+  const lines = [
+    `**Tool** \`${approvalPart.toolName}\` (\`${approvalPart.toolCallId}\`)`,
+    "**Approval required** before this tool can continue.",
+  ];
+
+  if (
+    typeof approvalPart.reason === "string" &&
+    approvalPart.reason.length > 0
+  ) {
+    lines.push(`**Reason** ${approvalPart.reason}`);
+  }
+
+  if (approvalPart.providerExecuted === false) {
+    lines.push("**Status** waiting for user or policy decision");
+  }
+
+  view.setPrettyBlock(
+    `**Approval** \`${approvalPart.toolName}\``,
+    lines.join("\n\n")
+  );
+};
+
 export const handleStartStep: StreamPartHandler = (_part, state) => {
   if (!state.flags.showSteps) {
     return;
@@ -352,6 +398,7 @@ export const STREAM_HANDLERS: Record<string, StreamPartHandler> = {
   "tool-result": handleToolResult,
   "tool-error": handleToolError,
   "tool-output-denied": handleToolOutputDenied,
+  "tool-approval-request": handleToolApprovalRequest,
   "start-step": handleStartStep,
   "finish-step": handleFinishStep,
   source: handleSource,
@@ -364,7 +411,6 @@ export const IGNORE_PART_TYPES = new Set([
   "text-end",
   "reasoning-end",
   "start",
-  "tool-approval-request",
 ]);
 
 export const isVisibleStreamPart = (
@@ -376,7 +422,6 @@ export const isVisibleStreamPart = (
     case "text-end":
     case "reasoning-end":
     case "start":
-    case "tool-approval-request":
     case "text-start":
     case "reasoning-start":
     case "tool-input-end":

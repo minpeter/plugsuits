@@ -121,7 +121,7 @@ if (isDryRun) {
 
   console.log("Output files (will be created on real run):");
   for (const s of SCENARIOS) {
-    console.log(`  results/${s.contextLimit}-trajectory.jsonl`);
+    console.log(`  results/${s.contextLimit}-output.jsonl`);
     console.log(`  results/${s.contextLimit}-metrics.log`);
   }
 
@@ -200,7 +200,7 @@ async function runScenario(scenario: Scenario): Promise<void> {
   );
 
   writeFileSync(
-    `${RESULTS_DIR}/${contextLimit}-trajectory.jsonl`,
+    `${RESULTS_DIR}/${contextLimit}-output.jsonl`,
     output.out,
     "utf-8"
   );
@@ -224,7 +224,7 @@ async function runScenario(scenario: Scenario): Promise<void> {
     `  ✓ Done — metrics: ${metricLines.length} lines, compactions: ${compactionEvents.length}, blocking: ${blockingEvents.length}`
   );
   console.log(
-    `  Saved: results/${contextLimit}-trajectory.jsonl (${output.out.length} bytes)`
+    `  Saved: results/${contextLimit}-output.jsonl (${output.out.length} bytes)`
   );
   console.log(
     `  Saved: results/${contextLimit}-metrics.log (${output.err.length} bytes)`

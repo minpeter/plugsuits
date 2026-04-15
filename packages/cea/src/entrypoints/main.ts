@@ -405,7 +405,12 @@ const buildAgentStreamWithTodoContinuation = (): RunnableAgent => {
     stream: async (opts) => {
       const stream = await agentManager.stream(opts.messages, {
         abortSignal: opts.abortSignal,
+        experimentalContext: opts.experimentalContext,
         maxOutputTokens: opts.maxOutputTokens,
+        providerOptions: opts.providerOptions,
+        seed: opts.seed,
+        system: opts.system,
+        temperature: opts.temperature,
       });
 
       const continuationDecision = (async (): Promise<{
@@ -750,7 +755,12 @@ const mainCommand = defineCommand({
           agent: {
             stream: (opts) =>
               agentManager.stream(opts.messages, {
+                experimentalContext: opts.experimentalContext,
                 maxOutputTokens: opts.maxOutputTokens,
+                providerOptions: opts.providerOptions,
+                seed: opts.seed,
+                system: opts.system,
+                temperature: opts.temperature,
               }),
           },
           circuitBreaker: compactionCircuitBreaker,

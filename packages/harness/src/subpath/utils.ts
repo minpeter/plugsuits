@@ -20,6 +20,7 @@ export {
   extractMessageText,
 } from "../token-utils";
 export {
+  composeStopPredicates,
   normalizeFinishReason,
   shouldContinueManualToolLoop,
 } from "../tool-loop-control";

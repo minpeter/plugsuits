@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
+  ApprovalEvent,
   CompactionEvent,
+  InterruptEvent,
   MetadataEvent,
   StepEvent,
   StepMetrics,
@@ -9,7 +11,11 @@ import type {
 
 export interface TrajectoryJson {
   agent: { name: string; version: string; model_name: string };
-  extra?: { compaction_events: CompactionEvent[] };
+  extra?: {
+    approval_events?: ApprovalEvent[];
+    compaction_events?: CompactionEvent[];
+    interrupt_events?: InterruptEvent[];
+  };
   final_metrics: {
     total_prompt_tokens: number | null;
     total_completion_tokens: number | null;
@@ -53,9 +59,15 @@ function toMetricTotal(accumulator: MetricAccumulator): number | null {
 }
 
 export class TrajectoryCollector {
+  private approvalEvents: ApprovalEvent[] = [];
   private steps: StepEvent[] = [];
   private compactionEvents: CompactionEvent[] = [];
+  private interruptEvents: InterruptEvent[] = [];
   private metadata: MetadataEvent | null = null;
+
+  addApproval(event: ApprovalEvent): void {
+    this.approvalEvents.push(event);
+  }
 
   addStep(event: StepEvent): void {
     this.steps.push(event);
@@ -67,6 +79,10 @@ export class TrajectoryCollector {
 
   addMetadata(event: MetadataEvent): void {
     this.metadata = event;
+  }
+
+  addInterrupt(event: InterruptEvent): void {
+    this.interruptEvents.push(event);
   }
 
   private collectFinalMetrics(): {
@@ -111,9 +127,21 @@ export class TrajectoryCollector {
       final_metrics: this.collectFinalMetrics(),
     };
 
-    if (this.compactionEvents.length > 0) {
+    if (
+      this.approvalEvents.length > 0 ||
+      this.compactionEvents.length > 0 ||
+      this.interruptEvents.length > 0
+    ) {
       trajectory.extra = {
-        compaction_events: [...this.compactionEvents],
+        ...(this.approvalEvents.length > 0
+          ? { approval_events: [...this.approvalEvents] }
+          : {}),
+        ...(this.compactionEvents.length > 0
+          ? { compaction_events: [...this.compactionEvents] }
+          : {}),
+        ...(this.interruptEvents.length > 0
+          ? { interrupt_events: [...this.interruptEvents] }
+          : {}),
       };
     }
 
@@ -127,8 +155,10 @@ export class TrajectoryCollector {
   }
 
   reset(): void {
+    this.approvalEvents = [];
     this.steps = [];
     this.compactionEvents = [];
+    this.interruptEvents = [];
     this.metadata = null;
   }
 }

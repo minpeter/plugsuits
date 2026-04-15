@@ -15,9 +15,9 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 
 ### Design Decisions
 - **NO sessionId on individual events**: A single `MetadataEvent` at the start carries the `session_id`.
-- **Bundled Observations**: Tool results are not separate events; they are bundled into the `AgentStepEvent.observation` field of the next step or a `SystemStepEvent`.
+- **Bundled Observations**: Tool results are not separate events; they are bundled into the `AgentStepEvent.observation` field of the next agent step.
 - **Sequential Step IDs**: `step_id` fields are sequential integers starting from 1, strictly increasing across all step events.
-- **Lifecycle Annotations**: `CompactionEvent` and `ErrorEvent` are lifecycle annotations and do not have a `step_id`.
+- **Lifecycle Annotations**: `ApprovalEvent`, `CompactionEvent`, `ErrorEvent`, and `InterruptEvent` are lifecycle annotations and do not have a `step_id`.
 - **Strict Metrics**: Metrics come directly from the SDK `stream.usage` and are never estimated.
 
 ### Event Types
@@ -27,9 +27,10 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 | `metadata` | system | Emitted once at start with session and agent info |
 | `step` | `user` | A user message step |
 | `step` | `agent` | An agent response (text, reasoning, tool calls, observations) |
-| `step` | `system` | A system message, typically containing observations |
+| `approval` | system | Structured tool approval lifecycle (`pending`, `approved`, `denied`) |
 | `compaction` | system | Lifecycle event for history compaction |
 | `error` | system | Fatal or iteration-limit error |
+| `interrupt` | system | Intentional caller interruption (`caller-abort`) |
 
 ### Examples
 
@@ -60,6 +61,17 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 {"type":"compaction","timestamp":"2026-04-03T10:00:15.000Z","event":"blocking_change","tokensBefore":128000,"blocking":true,"reason":"hard_limit"}
 ```
 
+**ApprovalEvent**:
+```json
+{"type":"approval","timestamp":"2026-04-03T10:00:06.000Z","state":"pending","toolCallId":"call_1","toolName":"bash","reason":"Needs confirmation"}
+{"type":"approval","timestamp":"2026-04-03T10:00:07.000Z","state":"approved","toolCallId":"call_1","toolName":"bash"}
+```
+
+**InterruptEvent**:
+```json
+{"type":"interrupt","timestamp":"2026-04-03T10:00:20.000Z","reason":"caller-abort"}
+```
+
 **ErrorEvent**:
 ```json
 {"type":"error","timestamp":"2026-04-03T10:00:20.000Z","error":"Max iterations (50) reached"}
@@ -87,10 +99,11 @@ import type {
   StepEvent,
   UserStepEvent,
   AgentStepEvent,
-  SystemStepEvent,
   MetadataEvent,
   CompactionEvent,
   ErrorEvent,
+  ApprovalEvent,
+  InterruptEvent,
 } from "@ai-sdk-tool/headless";
 ```
 
@@ -108,6 +121,7 @@ import type {
 - This package must not import from `@ai-sdk-tool/cea` or `@ai-sdk-tool/tui`.
 - `step_id` must be sequential and strictly increasing.
 - Tool results must be bundled into `observation.results`.
+- Approval and interruption lifecycle events are additive machine-readable annotations and do not carry `step_id`.
 
 ## ANTI-PATTERNS
 

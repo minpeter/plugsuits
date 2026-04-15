@@ -4,8 +4,8 @@ import { AgentError, AgentErrorCode } from "./errors";
 import { clearMCPCache } from "./mcp-init";
 import type { AgentConfig } from "./types";
 
-const { streamTextMock, resolveMCPOptionMock, stepCountIsMock } = vi.hoisted(
-  () => {
+const { streamTextMock, resolveMCPOptionMock, stepCountIsMock, toolMock } =
+  vi.hoisted(() => {
     const streamTextMock = vi.fn(() => {
       const fullStream: AsyncIterable<{ finishReason: string; type: string }> =
         {
@@ -40,15 +40,16 @@ const { streamTextMock, resolveMCPOptionMock, stepCountIsMock } = vi.hoisted(
     });
 
     const stepCountIsMock = vi.fn(() => undefined);
+    const toolMock = vi.fn((config) => config);
 
-    return { streamTextMock, resolveMCPOptionMock, stepCountIsMock };
-  }
-);
+    return { streamTextMock, resolveMCPOptionMock, stepCountIsMock, toolMock };
+  });
 
 vi.mock("ai", () => {
   return {
     stepCountIs: stepCountIsMock,
     streamText: streamTextMock,
+    tool: toolMock,
   };
 });
 
@@ -90,6 +91,7 @@ describe("createAgent", () => {
     resolveMCPOptionMock.mockClear();
     streamTextMock.mockClear();
     stepCountIsMock.mockClear();
+    toolMock.mockClear();
   });
 
   it("returns an agent with config, stream method, and close method", async () => {
@@ -233,7 +235,7 @@ describe("createAgent", () => {
     ).toBe(true);
   });
 
-  it("does not apply guardrails when maxStepsPerTurn is explicitly set", async () => {
+  it("composes maxStepsPerTurn with guardrails instead of replacing them", async () => {
     const agent = await createAgent({
       guardrails: { maxToolCallsPerTurn: 1, repeatedToolCallThreshold: 1 },
       maxStepsPerTurn: 4,
@@ -242,12 +244,71 @@ describe("createAgent", () => {
 
     agent.stream({ messages: [] });
 
-    expect(stepCountIsMock).toHaveBeenCalledWith(4);
-    expect(streamTextMock).toHaveBeenCalledWith(
+    const stopWhen = getStopWhen();
+    expect(stopWhen).toHaveLength(2);
+
+    expect(() =>
+      stopWhen[0]({
+        steps: [
+          { toolCalls: [{ input: { q: 1 }, toolName: "search" }] },
+          { toolCalls: [{ input: { q: 2 }, toolName: "search" }] },
+        ],
+      })
+    ).toThrowError(
       expect.objectContaining({
-        stopWhen: undefined,
+        code: AgentErrorCode.MAX_TOOL_CALLS,
       })
     );
+  });
+
+  it("appends extra stop conditions as independent stop triggers", async () => {
+    const extraStopCondition = vi.fn(({ steps }) => {
+      return (steps.at(-1)?.toolCalls?.length ?? 0) >= 2;
+    });
+    const agent = await createAgent({
+      extraStopConditions: [extraStopCondition],
+      model: createMockModel(),
+    });
+
+    agent.stream({ messages: [] });
+
+    const stopWhen = getStopWhen();
+    expect(stopWhen).toHaveLength(2);
+
+    expect(
+      stopWhen[0]({
+        steps: [
+          {
+            toolCalls: [
+              { input: { query: "pizza" }, toolName: "search" },
+              { input: { query: "seoul" }, toolName: "search" },
+            ],
+          },
+        ],
+      })
+    ).toBe(false);
+    expect(
+      stopWhen[1]({
+        steps: [
+          {
+            toolCalls: [
+              { input: { query: "pizza" }, toolName: "search" },
+              { input: { query: "seoul" }, toolName: "search" },
+            ],
+          },
+        ],
+      })
+    ).toBe(true);
+    expect(extraStopCondition).toHaveBeenCalledWith({
+      steps: [
+        {
+          toolCalls: [
+            { input: { query: "pizza" }, toolName: "search" },
+            { input: { query: "seoul" }, toolName: "search" },
+          ],
+        },
+      ],
+    });
   });
 
   it("passes temperature and seed through to streamText", async () => {
@@ -264,6 +325,114 @@ describe("createAgent", () => {
         seed: 42,
         temperature: 0,
       })
+    );
+  });
+
+  it("applies streamDefaults before calling streamText", async () => {
+    const agent = await createAgent({
+      model: createMockModel(),
+      streamDefaults: {
+        providerOptions: { openai: { parallelToolCalls: false } },
+        seed: 11,
+        temperature: 0.2,
+      },
+    });
+
+    agent.stream({ messages: [] });
+
+    expect(streamTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: { openai: { parallelToolCalls: false } },
+        seed: 11,
+        temperature: 0.2,
+      })
+    );
+  });
+
+  it("lets prepareStep rewrite stream options before invoking streamText", async () => {
+    const prepareStep = vi.fn(({ system }) => ({
+      messages: [{ role: "system", content: "prepared" }],
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+      system: `${system ?? ""}-next`,
+    }));
+    const agent = await createAgent({
+      model: createMockModel(),
+      instructions: "base-system",
+      prepareStep,
+    });
+
+    agent.stream({
+      messages: [{ role: "user", content: "Hello" }],
+      providerOptions: { openai: { parallelToolCalls: false } },
+    });
+
+    expect(prepareStep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "Hello" }],
+        system: "base-system",
+      })
+    );
+    expect(streamTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "system", content: "prepared" }],
+        providerOptions: {
+          openai: { parallelToolCalls: false },
+          anthropic: { cacheControl: { type: "ephemeral" } },
+        },
+        system: "base-system-next",
+      })
+    );
+  });
+
+  it("passes tool execution context into ToolSource-backed tools", async () => {
+    const callTool = vi.fn().mockResolvedValue("ok");
+    await createAgent({
+      model: createMockModel(),
+      toolSources: [
+        {
+          callTool,
+          listTools: () => [
+            {
+              name: "read_repo",
+              description: "Read repository files",
+              parameters: {},
+            },
+          ],
+        },
+      ],
+    });
+
+    const readRepoTool = toolMock.mock.calls[0]?.[0] as {
+      execute: (
+        input: unknown,
+        context: Record<string, unknown>
+      ) => Promise<unknown>;
+    };
+
+    await readRepoTool.execute(
+      { path: "src/index.ts" },
+      {
+        abortSignal: undefined,
+        experimental_context: { sessionId: "ses_123" },
+        messages: [{ role: "user", content: "inspect" }],
+        toolCallId: "call_1",
+        toolCall: {
+          toolCallId: "call_1",
+          toolName: "read_repo",
+        },
+      }
+    );
+
+    expect(callTool).toHaveBeenCalledWith(
+      "read_repo",
+      { path: "src/index.ts" },
+      {
+        abortSignal: undefined,
+        experimentalContext: { sessionId: "ses_123" },
+        messages: [{ role: "user", content: "inspect" }],
+        toolCallId: "call_1",
+        toolName: "read_repo",
+      }
     );
   });
 

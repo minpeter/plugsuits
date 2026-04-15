@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type {
+  ApprovalEvent,
   AgentStepEvent,
   CompactionEvent,
   ErrorEvent,
+  InterruptEvent,
   MetadataEvent,
   StepEvent,
   StepMetrics,
-  SystemStepEvent,
   TrajectoryEvent,
   UserStepEvent,
 } from "../types";
@@ -31,7 +32,7 @@ function roundTrip<T>(value: T): T {
 }
 
 describe("ATIF event serialization", () => {
-  it("round-trips all step event variants with expected fields", () => {
+  it("round-trips emitted step event variants with expected fields", () => {
     const userEvent: UserStepEvent = {
       message: "hello",
       source: "user",
@@ -45,18 +46,8 @@ describe("ATIF event serialization", () => {
       model_name: "mock-model",
       reasoning_content: "thinking",
     });
-    const systemEvent: SystemStepEvent = {
-      message: "tool observation",
-      observation: { results: [{ content: "ok", source_call_id: "call_1" }] },
-      source: "system",
-      step_id: 3,
-      timestamp,
-      type: "step",
-    };
-
     expect(roundTrip(userEvent)).toStrictEqual(userEvent);
     expect(roundTrip(agentEvent)).toStrictEqual(agentEvent);
-    expect(roundTrip(systemEvent)).toStrictEqual(systemEvent);
   });
 
   it("round-trips metadata, compaction, and error events without step ids", () => {
@@ -85,6 +76,21 @@ describe("ATIF event serialization", () => {
     expect(metadataEvent).not.toHaveProperty("step_id");
     expect(errorEvent).not.toHaveProperty("step_id");
   });
+
+  it("round-trips approval lifecycle events without step ids", () => {
+    const approvalEvent: ApprovalEvent = {
+      type: "approval",
+      state: "pending",
+      timestamp,
+      toolCallId: "call_approval",
+      toolName: "bash",
+      reason: "Needs confirmation",
+      providerExecuted: false,
+    };
+
+    expect(roundTrip(approvalEvent)).toStrictEqual(approvalEvent);
+    expect(approvalEvent).not.toHaveProperty("step_id");
+  });
 });
 
 describe("ATIF discriminants and sequencing", () => {
@@ -94,14 +100,19 @@ describe("ATIF discriminants and sequencing", () => {
         if (event.source === "agent") {
           return event.model_name ?? event.message;
         }
-        if (event.source === "system") {
-          return event.observation?.results[0]?.content ?? event.message;
-        }
         return event.message;
       }
 
       if (event.type === "metadata") {
         return event.session_id;
+      }
+
+      if (event.type === "approval") {
+        return event.toolName ?? event.state;
+      }
+
+      if (event.type === "interrupt") {
+        return event.reason;
       }
 
       return event.type === "compaction" ? event.event : event.error;
@@ -121,24 +132,39 @@ describe("ATIF discriminants and sequencing", () => {
     );
     expect(
       summarize({
-        message: "system",
-        observation: {
-          results: [{ content: "observed", source_call_id: "call_1" }],
-        },
-        source: "system",
-        step_id: 3,
-        timestamp,
-        type: "step",
-      })
-    ).toBe("observed");
-    expect(
-      summarize({
         agent: { model_name: "gpt-5", name: "plugsuits", version: "1.6.0" },
         session_id: "session-1",
         timestamp,
         type: "metadata",
       })
     ).toBe("session-1");
+    expect(
+      summarize({
+        type: "approval",
+        state: "pending",
+        timestamp,
+        toolCallId: "call_approval",
+        toolName: "bash",
+      })
+    ).toBe("bash");
+    expect(
+      summarize({
+        type: "interrupt",
+        reason: "caller-abort",
+        timestamp,
+      })
+    ).toBe("caller-abort");
+  });
+
+  it("round-trips interrupt lifecycle events without step ids", () => {
+    const interruptEvent: InterruptEvent = {
+      type: "interrupt",
+      reason: "caller-abort",
+      timestamp,
+    };
+
+    expect(roundTrip(interruptEvent)).toStrictEqual(interruptEvent);
+    expect(interruptEvent).not.toHaveProperty("step_id");
   });
 
   it("keeps step ids sequential with no duplicates or gaps", () => {

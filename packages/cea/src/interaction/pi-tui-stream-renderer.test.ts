@@ -1547,4 +1547,20 @@ describe("renderFullStreamWithPiTui", () => {
     expect(output).toContain("command not found");
     expect(output).not.toContain("Tool shell_execute");
   });
+
+  it("renders tool approval requests instead of discarding them", async () => {
+    const { output } = await renderParts([
+      {
+        type: "tool-approval-request",
+        toolCallId: "call_approval",
+        toolName: "bash",
+        reason: "This command may delete files.",
+        providerExecuted: false,
+      } as never,
+    ]);
+
+    expect(output).toContain("Approval required");
+    expect(output).toContain("This command may delete files.");
+    expect(output).toContain("waiting for user or policy decision");
+  });
 });

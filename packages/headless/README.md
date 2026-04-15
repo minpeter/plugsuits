@@ -27,7 +27,7 @@ const session = new SessionManager();
 const sessionId = session.initialize();
 
 const messageHistory = new CheckpointHistory();
-const agent = createAgent({
+const agent = await createAgent({
   model: openai("gpt-4o"),
   instructions: "You are a helpful assistant.",
 });
@@ -38,15 +38,15 @@ registerSignalHandlers({
   onFatalCleanup: (exitCode) => process.exit(exitCode),
 });
 
-// Add the initial user message
-messageHistory.addUserMessage("Fix the type error in src/index.ts");
-
 // Run the agent — emits JSONL events to stdout
 await runHeadless({
+  agent,
+  initialUserMessage: {
+    content: "Fix the type error in src/index.ts",
+  },
+  modelId: "gpt-4o",
   sessionId,
-  stream: (messages) => agent.stream({ messages }),
   messageHistory,
-  getModelId: () => "gpt-4o",
 });
 ```
 
@@ -55,9 +55,8 @@ await runHeadless({
 ```jsonl
 {"type":"metadata","timestamp":"2026-04-03T10:00:00.000Z","session_id":"ses-abc123","agent":{"name":"code-editing-agent","version":"1.0.0","model_name":"gpt-4o"}}
 {"type":"step","step_id":1,"timestamp":"2026-04-03T10:00:00.000Z","source":"user","message":"Fix the type error in src/index.ts"}
-{"type":"step","step_id":2,"timestamp":"2026-04-03T10:00:01.000Z","source":"agent","message":"I'll inspect the file.","model_name":"gpt-4o","tool_calls":[{"tool_call_id":"call_1","function_name":"read_file","arguments":{"path":"src/index.ts"}}],"metrics":{"prompt_tokens":520,"completion_tokens":80}}
-{"type":"step","step_id":3,"timestamp":"2026-04-03T10:00:02.000Z","source":"system","observation":{"results":[{"source_call_id":"call_1","content":"{\"stdout\":\"...file contents...\"}"}]}}
-{"type":"step","step_id":4,"timestamp":"2026-04-03T10:00:03.000Z","source":"agent","message":"I found the issue and fixed it.","model_name":"gpt-4o","metrics":{"prompt_tokens":410,"completion_tokens":65}}
+{"type":"step","step_id":2,"timestamp":"2026-04-03T10:00:01.000Z","source":"agent","message":"I'll inspect the file.","model_name":"gpt-4o","tool_calls":[{"tool_call_id":"call_1","function_name":"read_file","arguments":{"path":"src/index.ts"}}],"observation":{"results":[{"source_call_id":"call_1","content":"{\"stdout\":\"...file contents...\"}"}]},"metrics":{"prompt_tokens":520,"completion_tokens":80}}
+{"type":"step","step_id":3,"timestamp":"2026-04-03T10:00:03.000Z","source":"agent","message":"I found the issue and fixed it.","model_name":"gpt-4o","metrics":{"prompt_tokens":410,"completion_tokens":65}}
 ```
 
 ## API Reference
@@ -70,13 +69,25 @@ Runs the agent loop, emitting JSONL events for each turn. Continues looping whil
 import { runHeadless } from "@ai-sdk-tool/headless";
 
 await runHeadless({
+  agent,           // RunnableAgent — required
   sessionId,       // string — becomes metadata.session_id
-  stream,          // (messages: unknown[]) => Promise<AgentStreamResult>
   messageHistory,  // CheckpointHistory from @ai-sdk-tool/harness
-  getModelId,      // () => string — current model ID for metadata and agent steps
+  modelId,         // string — current model ID for metadata and agent steps
+  initialUserMessage, // optional initial user turn
   maxIterations,   // optional number — safety cap on loop iterations
+  maxTodoReminders, // optional number — cap follow-up TODO reminder turns
+  measureUsage,    // optional async usage probe for tighter budgeting
   emitEvent,       // optional (event: TrajectoryEvent) => void — defaults to stdout JSONL
+  circuitBreaker,  // optional compaction circuit breaker
+  compactionCallbacks, // optional compaction lifecycle callbacks
+  disableCompaction, // optional boolean to skip automatic compaction
+  onBeforeTurn,    // optional async hook before each stream call
+  onInterrupt,     // optional (event: InterruptEvent) => void — caller-abort lifecycle hook
+  onTurnComplete,  // optional receives messages, usage, snapshot, finishReason
   onTodoReminder,  // optional () => Promise<{ hasReminder, message }> — TODO continuation
+  shouldContinue,  // optional override for the default tool-loop continuation gate
+  streamTimeoutMs, // optional stream response timeout override
+  atifOutputPath,  // optional path for writing trajectory.json directly
 });
 ```
 
@@ -84,13 +95,25 @@ await runHeadless({
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `agent` | `RunnableAgent` | yes | Agent with a `stream(opts)` method |
 | `sessionId` | `string` | yes | Unique ID emitted once as `metadata.session_id` |
-| `stream` | `(messages) => Promise<AgentStreamResult>` | yes | Agent stream function |
 | `messageHistory` | `CheckpointHistory` | yes | Conversation history — read and written during the loop |
-| `getModelId` | `() => string` | yes | Returns the current model ID for metadata and `step` events |
+| `modelId` | `string` | yes | Current model ID for metadata and `step` events |
+| `initialUserMessage` | `{ content, eventContent?, originalContent? }` | no | Bootstraps the first user turn without mutating history manually |
 | `maxIterations` | `number` | no | Total iteration budget across the entire headless run, including TODO reminder turns; emits an `error` event and stops if exceeded |
+| `maxTodoReminders` | `number` | no | Caps TODO reminder follow-up turns without lowering the main loop iteration budget |
+| `measureUsage` | `(messages) => Promise<UsageMeasurement \| null>` | no | Optional usage probe used to tighten the next stream budget |
 | `emitEvent` | `(event) => void` | no | Custom event sink; defaults to `console.log(JSON.stringify(event))` |
+| `circuitBreaker` | `CompactionCircuitBreaker` | no | Circuit breaker controlling automatic compaction retries |
+| `compactionCallbacks` | `CompactionOrchestratorCallbacks` | no | Lifecycle callbacks for compaction events |
+| `disableCompaction` | `boolean` | no | Disables automatic compaction entirely |
+| `onBeforeTurn` | `(phase) => BeforeTurnResult \| Promise<BeforeTurnResult \| undefined> \| undefined` | no | Runs before each stream call and can override stream options |
+| `onInterrupt` | `(event: InterruptEvent) => void` | no | Called when the caller aborts the active run |
+| `onTurnComplete` | `(messages, usage?, snapshot?, finishReason?) => void \| Promise<void>` | no | Runs after each completed turn with usage and snapshot metadata |
 | `onTodoReminder` | `() => Promise<{ hasReminder, message }>` | no | Called after the main loop; if `hasReminder` is true, sends `message` as a user turn and continues |
+| `shouldContinue` | `(finishReason) => boolean` | no | Overrides the default continuation predicate |
+| `streamTimeoutMs` | `number` | no | Overrides the default stream response timeout |
+| `atifOutputPath` | `string` | no | Writes the collected ATIF trajectory JSON to disk after the run |
 
 ---
 
@@ -102,12 +125,11 @@ Writes a single `TrajectoryEvent` as a JSONL line to stdout. This is the default
 import { emitEvent } from "@ai-sdk-tool/headless";
 
 emitEvent({
-  type: "user",
-  sessionId: "session-abc123",
+  type: "interrupt",
+  reason: "caller-abort",
   timestamp: new Date().toISOString(),
-  content: "Hello!",
 });
-// stdout: {"type":"user","sessionId":"session-abc123","timestamp":"...","content":"Hello!"}
+// stdout: {"type":"interrupt","reason":"caller-abort","timestamp":"..."}
 ```
 
 ---
@@ -156,9 +178,10 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
 | `metadata` | system | Emitted once at start with `session_id` and agent info |
 | `step` | `user` | A user message step |
 | `step` | `agent` | An agent response, including text, reasoning, tool calls, and optional observations |
-| `step` | `system` | A system step, typically observations detached from the agent message |
+| `approval` | system | Structured tool approval lifecycle (`pending`, `approved`, `denied`) |
 | `compaction` | system | Lifecycle event for history compaction |
 | `error` | system | Fatal error or iteration-limit event |
+| `interrupt` | system | Intentional caller interruption (`caller-abort`) |
 
 ### `metadata`
 
@@ -182,7 +205,7 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
   type: "step",
   step_id: number,
   timestamp: string,
-  source: "user" | "agent" | "system",
+  source: "user" | "agent",
   message?: string,
   model_name?: string,
   tool_calls?: Array<{
@@ -199,6 +222,8 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
   metrics?: {
     prompt_tokens: number,
     completion_tokens: number,
+    cached_tokens?: number,
+    cost_usd?: number,
   },
 }
 ```
@@ -219,6 +244,20 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
 }
 ```
 
+### `approval`
+
+```typescript
+{
+  type: "approval",
+  timestamp: string,
+  state: "pending" | "approved" | "denied",
+  toolCallId?: string,
+  toolName?: string,
+  reason?: string,
+  providerExecuted?: boolean,
+}
+```
+
 ### `error`
 
 ```typescript
@@ -226,6 +265,16 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
   type: "error",
   timestamp: string,
   error: string,
+}
+```
+
+### `interrupt`
+
+```typescript
+{
+  type: "interrupt",
+  timestamp: string,
+  reason: "caller-abort",
 }
 ```
 
@@ -237,10 +286,11 @@ import type {
   StepEvent,
   UserStepEvent,
   AgentStepEvent,
-  SystemStepEvent,
+  ApprovalEvent,
   MetadataEvent,
   CompactionEvent,
   ErrorEvent,
+  InterruptEvent,
 } from "@ai-sdk-tool/headless";
 ```
 
@@ -256,13 +306,13 @@ import type {
 import { runHeadless, type TrajectoryEvent } from "@ai-sdk-tool/headless";
 import { appendFileSync } from "node:fs";
 
-const logFile = "trajectory.jsonl";
+const logFile = "output.jsonl";
 
 await runHeadless({
+  agent,
   sessionId,
-  stream,
   messageHistory,
-  getModelId,
+  modelId,
   emitEvent: (event: TrajectoryEvent) => {
     appendFileSync(logFile, JSON.stringify(event) + "\n");
   },
@@ -283,10 +333,10 @@ const todo = new TodoContinuation({
 });
 
 await runHeadless({
+  agent,
   sessionId,
-  stream,
   messageHistory,
-  getModelId,
+  modelId,
   onTodoReminder: () => todo.getReminder(),
 });
 ```
@@ -295,10 +345,10 @@ await runHeadless({
 
 ```typescript
 await runHeadless({
+  agent,
   sessionId,
-  stream,
   messageHistory,
-  getModelId,
+  modelId,
   maxIterations: 50,  // emits an error event and stops after 50 iterations
 });
 ```
@@ -311,12 +361,12 @@ pnpm run headless -- "Fix the bug" | grep '"type":"step"' | jq 'select(.source =
 ```
 
 ```typescript
-// Parse events from a trajectory file
+// Parse events from a JSONL event log
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { TrajectoryEvent } from "@ai-sdk-tool/headless";
 
-const rl = createInterface({ input: createReadStream("trajectory.jsonl") });
+const rl = createInterface({ input: createReadStream("output.jsonl") });
 
 for await (const line of rl) {
   const event = JSON.parse(line) as TrajectoryEvent;

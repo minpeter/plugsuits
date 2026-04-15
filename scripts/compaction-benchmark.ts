@@ -67,7 +67,7 @@ interface ScenarioResult {
   maxTokensUsed: number;
   metricsPath: string;
   timedOut: boolean;
-  trajectoryPath: string;
+  outputLogPath: string;
 }
 
 interface SpawnResult {
@@ -80,12 +80,12 @@ interface SpawnResult {
 
 function getScenarioPaths(contextLimit: number): {
   metricsPath: string;
-  trajectoryPath: string;
+  outputLogPath: string;
 } {
   return {
-    trajectoryPath: resolvePath(
+    outputLogPath: resolvePath(
       RESULTS_DIR,
-      `scenario-${contextLimit}-trajectory.jsonl`
+      `scenario-${contextLimit}-output.jsonl`
     ),
     metricsPath: resolvePath(
       RESULTS_DIR,
@@ -169,7 +169,9 @@ function isCompleted(
 
   const events = parseTrajectoryEvents(trajectoryContent);
   const hasErrorEvent = events.some((event) => event.type === "error");
-  const hasAssistantEvent = events.some((event) => event.type === "assistant");
+  const hasAssistantEvent = events.some(
+    (event) => event.type === "step" && event.source === "agent"
+  );
 
   return !hasErrorEvent && hasAssistantEvent;
 }
@@ -207,7 +209,7 @@ function buildSummary(
         result.exitCode ?? "null",
       ].join(" | ")
     );
-    lines.push(`  trajectory: ${result.trajectoryPath}`);
+    lines.push(`  output_log: ${result.outputLogPath}`);
     lines.push(`  metrics: ${result.metricsPath}`);
   }
 
@@ -302,11 +304,11 @@ async function spawnScenario(contextLimit: number): Promise<SpawnResult> {
 }
 
 async function runScenario(contextLimit: number): Promise<ScenarioResult> {
-  const { trajectoryPath, metricsPath } = getScenarioPaths(contextLimit);
+  const { outputLogPath, metricsPath } = getScenarioPaths(contextLimit);
   console.log(`\n▶ Running scenario ${contextLimit.toLocaleString()} tokens`);
 
   const result = await spawnScenario(contextLimit);
-  writeFileSync(trajectoryPath, result.stdout, "utf-8");
+  writeFileSync(outputLogPath, result.stdout, "utf-8");
   writeFileSync(metricsPath, result.stderr, "utf-8");
 
   const metricEvents = parseMetricsLog(`${result.stdout}\n${result.stderr}`);
@@ -325,7 +327,7 @@ async function runScenario(contextLimit: number): Promise<ScenarioResult> {
     result.timedOut
   );
 
-  console.log(`  ✓ Saved trajectory=${trajectoryPath} metrics=${metricsPath}`);
+  console.log(`  ✓ Saved output_log=${outputLogPath} metrics=${metricsPath}`);
   console.log(
     `  ↳ compactions=${compactionCount}, max_tokens_used=${maxTokensUsed}, blocking=${blockingEventCount}, completed=${completed ? "yes" : "no"}`
   );
@@ -345,7 +347,7 @@ async function runScenario(contextLimit: number): Promise<ScenarioResult> {
     durationMs: result.durationMs,
     exitCode: result.exitCode,
     timedOut: result.timedOut,
-    trajectoryPath,
+    outputLogPath,
     metricsPath,
   };
 }
@@ -360,7 +362,7 @@ async function main(): Promise<void> {
     console.log("\n🔍 Dry run — no agent processes will be started.\n");
 
     for (const contextLimit of CONTEXT_LIMITS) {
-      const { trajectoryPath, metricsPath } = getScenarioPaths(contextLimit);
+      const { outputLogPath, metricsPath } = getScenarioPaths(contextLimit);
       console.log(`Scenario ${contextLimit.toLocaleString()}:`);
       console.log(
         `  env: COMPACTION_DEBUG=1 CONTEXT_LIMIT_OVERRIDE=${contextLimit}`
@@ -368,7 +370,7 @@ async function main(): Promise<void> {
       console.log(
         `  cmd: node --conditions=@ai-sdk-tool/source --import tsx ${HEADLESS_SCRIPT} -p "${PROMPT}" --no-translate --max-iterations ${MAX_ITERATIONS}`
       );
-      console.log(`  trajectory: ${trajectoryPath}`);
+      console.log(`  output_log: ${outputLogPath}`);
       console.log(`  metrics: ${metricsPath}`);
       console.log();
     }
@@ -389,8 +391,8 @@ async function main(): Promise<void> {
       results.push(await runScenario(contextLimit));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const { trajectoryPath, metricsPath } = getScenarioPaths(contextLimit);
-      writeFileSync(trajectoryPath, "", "utf-8");
+      const { outputLogPath, metricsPath } = getScenarioPaths(contextLimit);
+      writeFileSync(outputLogPath, "", "utf-8");
       writeFileSync(metricsPath, `${message}\n`, "utf-8");
       results.push({
         contextLimit,
@@ -401,7 +403,7 @@ async function main(): Promise<void> {
         durationMs: 0,
         exitCode: null,
         timedOut: false,
-        trajectoryPath,
+        outputLogPath,
         metricsPath,
       });
       console.error(

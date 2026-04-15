@@ -739,19 +739,70 @@ interface ToolCallEvent {
   tool_call_id: string;
   tool_input: Record<string, unknown>;
   tool_name: string;
-  type: "tool_call";
 }
 
 interface ToolResultEvent {
   error?: string;
   output: string;
   tool_call_id: string;
-  type: "tool_result";
 }
 
 interface AnyEvent {
   type: string;
   [key: string]: unknown;
+}
+
+interface AgentStepEvent extends AnyEvent {
+  observation?: {
+    results: Array<{
+      content: string;
+      source_call_id: string;
+    }>;
+  };
+  source: "agent";
+  tool_calls?: Array<{
+    arguments: Record<string, unknown>;
+    function_name: string;
+    tool_call_id: string;
+  }>;
+  type: "step";
+}
+
+function isAgentStepEvent(event: AnyEvent): event is AgentStepEvent {
+  return event.type === "step" && event.source === "agent";
+}
+
+function extractToolCalls(events: AnyEvent[]): ToolCallEvent[] {
+  return events.filter(isAgentStepEvent).flatMap((event) =>
+    (event.tool_calls ?? []).map((toolCall) => ({
+      tool_call_id: toolCall.tool_call_id,
+      tool_input: toolCall.arguments,
+      tool_name: toolCall.function_name,
+    }))
+  );
+}
+
+function extractToolResults(events: AnyEvent[]): ToolResultEvent[] {
+  return events.filter(isAgentStepEvent).flatMap((event) =>
+    (event.observation?.results ?? []).map((result) => {
+      const parsed = (() => {
+        try {
+          return JSON.parse(result.content) as {
+            error?: string;
+            stdout?: string;
+          };
+        } catch {
+          return { stdout: result.content };
+        }
+      })();
+
+      return {
+        error: parsed.error,
+        output: String(parsed.stdout ?? result.content),
+        tool_call_id: result.source_call_id,
+      };
+    })
+  );
 }
 
 // ── Run single test case ─────────────────────────────────────
@@ -840,12 +891,8 @@ async function runTestCase(
     }
   }
 
-  const toolCalls = events.filter(
-    (e) => e.type === "tool_call"
-  ) as unknown as ToolCallEvent[];
-  const toolResults = events.filter(
-    (e) => e.type === "tool_result"
-  ) as unknown as ToolResultEvent[];
+  const toolCalls = extractToolCalls(events);
+  const toolResults = extractToolResults(events);
 
   const editCalls = toolCalls.filter((e) => e.tool_name === "edit_file");
   const editCallIds = new Set(editCalls.map((e) => e.tool_call_id));

@@ -561,7 +561,7 @@ describe("runHeadless", () => {
     expect(agentEvents).toHaveLength(1);
   });
 
-  it("emits an abort error event and stops when the caller aborts", async () => {
+  it("emits an interrupt event and stops when the caller aborts", async () => {
     const events: TrajectoryEvent[] = [];
     const controller = new AbortController();
 
@@ -585,10 +585,9 @@ describe("runHeadless", () => {
       sessionId: "session-abort",
     });
 
-    expect(events.filter((event) => event.type === "error")).toContainEqual(
+    expect(events.filter((event) => event.type === "interrupt")).toContainEqual(
       expect.objectContaining({
-        code: "TIMEOUT",
-        error: "Aborted by caller",
+        reason: "caller-abort",
       })
     );
   });
@@ -622,6 +621,239 @@ describe("runHeadless", () => {
       expect.objectContaining({
         code: "MAX_ITERATIONS",
         error: "Todo continuation safety cap reached (2 reminders).",
+      })
+    );
+  });
+
+  it("passes finish reason and snapshot to onTurnComplete", async () => {
+    const onTurnComplete = vi.fn();
+
+    await runHeadless({
+      agent: {
+        stream: () =>
+          createMockStream([{ role: "assistant", content: "done" }]),
+      },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      onTurnComplete,
+      sessionId: "session-turn-complete-finish-reason",
+    });
+
+    expect(onTurnComplete).toHaveBeenCalledWith(
+      expect.any(Array),
+      undefined,
+      expect.objectContaining({
+        messages: expect.any(Array),
+      }),
+      "stop"
+    );
+  });
+
+  it("passes totalTokens to onTurnComplete when usage exists", async () => {
+    const onTurnComplete = vi.fn();
+
+    await runHeadless({
+      agent: {
+        stream: () =>
+          createMockStream([{ role: "assistant", content: "done" }], "stop", {
+            inputTokens: 11,
+            outputTokens: 7,
+            totalTokens: 18,
+          }),
+      },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      onTurnComplete,
+      sessionId: "session-turn-complete-total-tokens",
+    });
+
+    expect(onTurnComplete).toHaveBeenCalledWith(
+      expect.any(Array),
+      {
+        inputTokens: 11,
+        outputTokens: 7,
+        totalTokens: 18,
+      },
+      expect.objectContaining({
+        messages: expect.any(Array),
+      }),
+      "stop"
+    );
+  });
+
+  it("emits approval lifecycle events in headless mode", async () => {
+    const events: TrajectoryEvent[] = [];
+
+    await runHeadless({
+      agent: {
+        stream: () => ({
+          finishReason: Promise.resolve("stop"),
+          fullStream: (async function* () {
+            await Promise.resolve();
+            yield {
+              type: "tool-approval-request",
+              toolCallId: "call_approval",
+              toolName: "bash",
+              reason: "Needs user approval",
+              providerExecuted: false,
+            };
+            yield { type: "text-delta", text: "waiting" };
+            yield { type: "finish-step", finishReason: "stop" };
+          })() as unknown as AgentStreamResult["fullStream"],
+          response: Promise.resolve({
+            id: "mock-response",
+            modelId: "mock-model",
+            timestamp: new Date(),
+            messages: [{ role: "assistant", content: "waiting" }],
+          } as Awaited<AgentStreamResult["response"]>),
+          totalUsage: Promise.resolve(
+            undefined
+          ) as unknown as AgentStreamResult["totalUsage"],
+          usage: Promise.resolve(
+            undefined
+          ) as unknown as AgentStreamResult["usage"],
+        }),
+      },
+      emitEvent: (event) => {
+        events.push(event);
+      },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      sessionId: "session-approval-event",
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval",
+        state: "pending",
+        toolCallId: "call_approval",
+        toolName: "bash",
+        reason: "Needs user approval",
+        providerExecuted: false,
+      })
+    );
+  });
+
+  it("uses custom shouldContinue when provided", async () => {
+    let streamCallCount = 0;
+
+    await runHeadless({
+      agent: {
+        stream: () => {
+          streamCallCount += 1;
+          return createMockStream(
+            [{ role: "assistant", content: "done" }],
+            "tool-calls"
+          );
+        },
+      },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      sessionId: "session-custom-should-continue",
+      shouldContinue: () => false,
+    });
+
+    expect(streamCallCount).toBe(1);
+  });
+
+  it("runs onBeforeTurn before each stream call", async () => {
+    const onBeforeTurn = vi.fn();
+    let streamCallCount = 0;
+
+    await runHeadless({
+      agent: {
+        stream: () => {
+          streamCallCount += 1;
+          return createMockStream(
+            [
+              {
+                role: "assistant",
+                content: streamCallCount === 1 ? "step" : "done",
+              },
+            ],
+            streamCallCount === 1 ? "tool-calls" : "stop"
+          );
+        },
+      },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      onBeforeTurn,
+      sessionId: "session-on-before-turn",
+    });
+
+    expect(onBeforeTurn).toHaveBeenNthCalledWith(1, "new-turn");
+    expect(onBeforeTurn).toHaveBeenNthCalledWith(2, "intermediate-step");
+  });
+
+  it("passes onBeforeTurn stream overrides into agent.stream", async () => {
+    const stream = vi.fn(() =>
+      createMockStream([{ role: "assistant", content: "done" }])
+    );
+
+    await runHeadless({
+      agent: { stream },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      onBeforeTurn: () => ({
+        providerOptions: { openai: { parallelToolCalls: false } },
+        seed: 42,
+        system: "prepared-system",
+        temperature: 0,
+      }),
+      sessionId: "session-on-before-turn-overrides",
+    });
+
+    expect(stream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: { openai: { parallelToolCalls: false } },
+        seed: 42,
+        system: "prepared-system",
+        temperature: 0,
+      })
+    );
+  });
+
+  it("lets onBeforeTurn override messages and maxOutputTokens", async () => {
+    const stream = vi.fn(() =>
+      createMockStream([{ role: "assistant", content: "done" }])
+    );
+
+    await runHeadless({
+      agent: { stream },
+      initialUserMessage: {
+        content: "initial",
+      },
+      messageHistory: new CheckpointHistory(),
+      modelId: "mock-model",
+      onBeforeTurn: () => ({
+        maxOutputTokens: 64,
+        messages: [{ role: "system", content: "override" }],
+      }),
+      sessionId: "session-on-before-turn-full-overrides",
+    });
+
+    expect(stream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxOutputTokens: 64,
+        messages: [{ role: "system", content: "override" }],
       })
     );
   });

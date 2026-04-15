@@ -170,6 +170,105 @@ describe("runAgentLoop", () => {
     expect(result.iterations).toBe(3);
   });
 
+  it("supports composed shouldContinue predicates", async () => {
+    const result = await runAgentLoop({
+      agent: createMockAgent(["tool-calls", "tool-calls", "tool-calls"]),
+      messages: [{ role: "user", content: "Hello" }],
+      shouldContinue: [() => true, (_reason, context) => context.iteration < 1],
+    });
+
+    expect(result.iterations).toBe(2);
+  });
+
+  it("applies onBeforeTurn overrides before streaming", async () => {
+    const streamCalls: Array<{ system?: string }> = [];
+
+    const agent: Agent = {
+      config: { model: {} as Agent["config"]["model"] },
+      stream(opts): AgentStreamResult {
+        streamCalls.push({ system: opts.system });
+        const fullStream: AsyncIterable<never> = {
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => Promise.resolve({ done: true, value: undefined }),
+            };
+          },
+        };
+        return {
+          fullStream,
+          finishReason: Promise.resolve("stop"),
+          response: Promise.resolve({
+            messages: [{ role: "assistant", content: "ok" }],
+          } as Awaited<AgentStreamResult["response"]>),
+        } as AgentStreamResult;
+      },
+    };
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onBeforeTurn: async () => ({ system: "prepared-system" }),
+    });
+
+    expect(streamCalls).toHaveLength(1);
+    expect(streamCalls[0]?.system).toBe("prepared-system");
+  });
+
+  it("applies onPrepareStep before onBeforeTurn and forwards both", async () => {
+    const streamCalls: Array<{
+      experimentalContext?: { sessionId: string };
+      system?: string;
+    }> = [];
+
+    const agent: Agent = {
+      config: { model: {} as Agent["config"]["model"] },
+      stream(opts): AgentStreamResult {
+        streamCalls.push({
+          experimentalContext: opts.experimentalContext as
+            | { sessionId: string }
+            | undefined,
+          system: opts.system,
+        });
+        const fullStream: AsyncIterable<never> = {
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => Promise.resolve({ done: true, value: undefined }),
+            };
+          },
+        };
+        return {
+          fullStream,
+          finishReason: Promise.resolve("stop"),
+          response: Promise.resolve({
+            messages: [{ role: "assistant", content: "ok" }],
+          } as Awaited<AgentStreamResult["response"]>),
+          totalUsage: Promise.resolve(
+            undefined
+          ) as AgentStreamResult["totalUsage"],
+          usage: Promise.resolve(undefined) as AgentStreamResult["usage"],
+        };
+      },
+      close: async () => undefined,
+    };
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onPrepareStep: async () => ({
+        experimentalContext: { sessionId: "ses_prepared" },
+        system: "prepared-system",
+      }),
+      onBeforeTurn: async () => ({ system: "final-system" }),
+    });
+
+    expect(streamCalls).toEqual([
+      {
+        experimentalContext: { sessionId: "ses_prepared" },
+        system: "final-system",
+      },
+    ]);
+  });
+
   it("stops on abort signal", async () => {
     const agent = createMockAgent([
       "tool-calls",
@@ -233,6 +332,94 @@ describe("runAgentLoop", () => {
     expect(toolCalls.length).toBe(2);
     expect(toolCalls[0].toolName).toBe("get_time");
     expect(toolCalls[1].toolName).toBe("get_weather");
+  });
+
+  it("emits normalized tool lifecycle states including approval transitions", async () => {
+    const lifecycles: Array<{
+      approvalState?: string;
+      state: string;
+      toolName?: string;
+    }> = [];
+
+    const agent: Agent = {
+      close: async () => undefined,
+      config: {
+        model: {} as Agent["config"]["model"],
+      },
+      stream(): AgentStreamResult {
+        async function* fullStreamGenerator() {
+          await Promise.resolve();
+          yield {
+            type: "tool-approval-request" as const,
+            toolCallId: "call_approval",
+            toolName: "bash",
+          };
+          yield {
+            type: "tool-call" as const,
+            toolCallId: "call_approval",
+            toolName: "bash",
+            input: { command: "pwd" },
+          };
+        }
+
+        return {
+          finishReason: Promise.resolve("stop"),
+          fullStream: fullStreamGenerator(),
+          response: Promise.resolve({
+            messages: [{ role: "assistant", content: "done" }],
+          } as Awaited<AgentStreamResult["response"]>),
+          totalUsage: Promise.resolve(
+            undefined
+          ) as AgentStreamResult["totalUsage"],
+          usage: Promise.resolve(undefined) as AgentStreamResult["usage"],
+        };
+      },
+    };
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onToolLifecycle: (lifecycle) => {
+        lifecycles.push({
+          approvalState: lifecycle.approvalState,
+          state: lifecycle.state,
+          toolName: lifecycle.toolName,
+        });
+      },
+    });
+
+    expect(lifecycles).toEqual([
+      {
+        approvalState: "pending",
+        state: "approval-requested",
+        toolName: "bash",
+      },
+      {
+        approvalState: "approved",
+        state: "tool-call",
+        toolName: "bash",
+      },
+    ]);
+  });
+
+  it("calls onInterrupt when aborted", async () => {
+    const interrupts: Array<{ iteration: number; reason: string }> = [];
+    const controller = new AbortController();
+
+    const result = await runAgentLoop({
+      agent: createMockAgent(["tool-calls", "tool-calls"]),
+      messages: [{ role: "user", content: "Hello" }],
+      abortSignal: controller.signal,
+      onInterrupt: (interruption) => {
+        interrupts.push(interruption);
+      },
+      onStepComplete: () => {
+        controller.abort();
+      },
+    });
+
+    expect(result.iterations).toBe(1);
+    expect(interrupts).toEqual([{ iteration: 1, reason: "abort-signal" }]);
   });
 
   it("rethrows errors when onError does not request recovery", async () => {

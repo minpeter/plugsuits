@@ -11,9 +11,13 @@ import type {
   ToolSet,
 } from "ai";
 
+import type { StopCondition } from "./agent";
+import type { AgentExecutionContext } from "./execution-context";
 import type { MCPManager } from "./mcp-manager";
 import type { MCPServerConfig } from "./mcp-types";
+import type { StopPredicate } from "./tool-loop-control";
 import type { ToolSource } from "./tool-source";
+import type { ToolLifecycleState } from "./tool-stream-parts";
 
 export type {
   LanguageModel,
@@ -57,12 +61,17 @@ export type MCPOption =
 /** Configuration for creating an agent via {@link createAgent}. */
 export interface AgentConfig {
   experimental_repairToolCall?: StreamTextOptions["experimental_repairToolCall"];
+  extraStopConditions?: StopCondition[];
   guardrails?: AgentGuardrails;
   instructions?: AgentInstructions;
   maxStepsPerTurn?: number;
   /** Optional MCP (Model Context Protocol) configuration. When provided, MCP tools are loaded and merged with local tools at agent creation time. */
   mcp?: MCPOption;
   model: LanguageModel;
+  prepareStep?: (
+    context: AgentPrepareStepContext
+  ) => AgentPrepareStepResult | undefined;
+  streamDefaults?: AgentStreamDefaults;
   toolSources?: ToolSource[];
   tools?: ToolSet;
 }
@@ -85,6 +94,7 @@ export interface RunnableAgent {
 /** Options passed to {@link Agent.stream} for a single turn. */
 export interface AgentStreamOptions {
   abortSignal?: AbortSignal;
+  experimentalContext?: AgentExecutionContext;
   maxOutputTokens?: StreamTextOptions["maxOutputTokens"];
   messages: ModelMessage[];
   providerOptions?: StreamTextOptions["providerOptions"];
@@ -92,6 +102,17 @@ export interface AgentStreamOptions {
   system?: string;
   temperature?: StreamTextOptions["temperature"];
 }
+
+export interface BeforeTurnResult extends Partial<AgentStreamOptions> {}
+
+export interface AgentStreamDefaults
+  extends Omit<Partial<AgentStreamOptions>, "abortSignal" | "messages"> {}
+
+export interface AgentPrepareStepContext extends AgentStreamOptions {
+  model: LanguageModel;
+}
+
+export interface AgentPrepareStepResult extends Partial<AgentStreamOptions> {}
 
 /** Result of a single streaming turn from {@link Agent.stream}. */
 export interface AgentStreamResult {
@@ -124,6 +145,9 @@ export interface LoopStepInfo {
 
 /** Lifecycle hooks for {@link runAgentLoop}. */
 export interface LoopHooks {
+  onBeforeTurn?: (
+    context: LoopContinueContext
+  ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onError?: (
     error: unknown,
     context: LoopContinueContext
@@ -134,15 +158,28 @@ export interface LoopHooks {
     | Promise<
         { shouldContinue?: boolean; recovery?: ModelMessage[] } | undefined
       >;
+  onInterrupt?: (
+    interruption: {
+      iteration: number;
+      reason: "abort-signal";
+    },
+    context: LoopContinueContext
+  ) => void | Promise<void>;
+  onPrepareStep?: (
+    context: LoopContinueContext
+  ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onStepComplete?: (step: LoopStepInfo) => void | Promise<void>;
+  onToolLifecycle?: (
+    lifecycle: ToolLifecycleState,
+    context: LoopContinueContext
+  ) => void | Promise<void>;
   onToolCall?: (
     call: ToolCallPart,
     context: LoopContinueContext
   ) => void | Promise<void>;
-  shouldContinue?: (
-    finishReason: AgentFinishReason,
-    context: LoopContinueContext
-  ) => boolean;
+  shouldContinue?:
+    | StopPredicate<AgentFinishReason, LoopContinueContext>
+    | StopPredicate<AgentFinishReason, LoopContinueContext>[];
 }
 
 /** Options for {@link runAgentLoop}. */

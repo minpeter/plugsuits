@@ -3,25 +3,28 @@
  * Core agent factory for the harness package.
  */
 
-import { stepCountIs, streamText, tool } from "ai";
+import { streamText, tool } from "ai";
 import { AgentError, AgentErrorCode } from "./errors";
+import type { AgentExecutionContext } from "./execution-context";
 import { resolveMCPOption } from "./mcp-init";
 import type { ToolDefinition, ToolSource } from "./tool-source";
 import type {
   Agent,
   AgentConfig,
   AgentGuardrails,
+  AgentPrepareStepContext,
+  AgentPrepareStepResult,
   AgentStreamOptions,
   AgentStreamResult,
   ToolCallPart,
 } from "./types";
 
-interface StopConditionInput {
+export interface StopConditionInput {
   steps: Array<{
     toolCalls?: ToolCallPart[];
   }>;
 }
-type StopCondition = (input: StopConditionInput) => boolean;
+export type StopCondition = (input: StopConditionInput) => boolean;
 
 const toToolSet = async (toolSources: ToolSource[] | undefined) => {
   if (!toolSources || toolSources.length === 0) {
@@ -51,7 +54,94 @@ const createToolFromDefinition = (
   return tool({
     description: definition.description,
     inputSchema: definition.parameters as never,
-    execute: async (args) => source.callTool(definition.name, args),
+    execute: async (args, context) =>
+      source.callTool(definition.name, args, {
+        abortSignal: context.abortSignal,
+        experimentalContext: context.experimental_context as
+          | AgentExecutionContext
+          | undefined,
+        messages: context.messages,
+        toolCallId: context.toolCallId,
+        toolName: definition.name,
+      }),
+  });
+};
+
+const mergeProviderOptions = (
+  defaults: AgentStreamOptions["providerOptions"] | undefined,
+  overrides: AgentStreamOptions["providerOptions"]
+): AgentStreamOptions["providerOptions"] => {
+  if (!(defaults && overrides)) {
+    return overrides ?? defaults;
+  }
+
+  return {
+    ...(defaults as Record<string, unknown>),
+    ...(overrides as Record<string, unknown>),
+  } as AgentStreamOptions["providerOptions"];
+};
+
+const buildBaseStreamOptions = (
+  config: AgentConfig,
+  opts: AgentStreamOptions
+): AgentPrepareStepContext => {
+  const resolvedSystem =
+    opts.system ??
+    config.streamDefaults?.system ??
+    (typeof config.instructions === "string" ? config.instructions : undefined);
+
+  return {
+    ...config.streamDefaults,
+    ...opts,
+    providerOptions: mergeProviderOptions(
+      config.streamDefaults?.providerOptions,
+      opts.providerOptions
+    ),
+    system: resolvedSystem,
+    model: config.model,
+  };
+};
+
+const applyPreparedOverrides = (
+  base: AgentPrepareStepContext,
+  prepared: AgentPrepareStepResult | undefined
+): AgentStreamOptions => {
+  return {
+    ...base,
+    ...prepared,
+    messages: prepared?.messages ?? base.messages,
+    providerOptions: mergeProviderOptions(
+      base.providerOptions,
+      prepared?.providerOptions
+    ),
+  };
+};
+
+const createStreamTextResult = (
+  config: AgentConfig,
+  preparedOptions: AgentStreamOptions
+) => {
+  return streamText({
+    model: config.model,
+    tools: config.tools,
+    system: preparedOptions.system,
+    messages: preparedOptions.messages,
+    providerOptions: preparedOptions.providerOptions,
+    maxOutputTokens: preparedOptions.maxOutputTokens,
+    seed: preparedOptions.seed,
+    stopWhen: [
+      config.guardrails
+        ? createGuardedStopCondition(config.guardrails)
+        : textResponseReceived(),
+      ...(config.maxStepsPerTurn !== undefined
+        ? [createStepCountStopCondition(config.maxStepsPerTurn)]
+        : []),
+      ...(config.extraStopConditions ?? []),
+    ],
+    temperature: preparedOptions.temperature,
+    abortSignal: preparedOptions.abortSignal,
+    experimental_context: preparedOptions.experimentalContext,
+    experimental_repairToolCall: config.experimental_repairToolCall,
   });
 };
 
@@ -122,6 +212,12 @@ const createGuardedStopCondition = (
   };
 };
 
+const createStepCountStopCondition = (
+  maxStepsPerTurn: number
+): StopCondition => {
+  return ({ steps }) => steps.length >= maxStepsPerTurn;
+};
+
 /**
  * Creates an {@link Agent} instance that wraps a Vercel AI SDK `streamText` call.
  *
@@ -172,33 +268,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
      * Returns a result object with `fullStream`, `finishReason`, and `response`.
      */
     stream(opts: AgentStreamOptions): AgentStreamResult {
-      const system =
-        opts.system ??
-        (typeof effectiveConfig.instructions === "string"
-          ? effectiveConfig.instructions
-          : undefined);
-
-      const result = streamText({
-        model: effectiveConfig.model,
-        tools: effectiveConfig.tools,
-        system,
-        messages: opts.messages,
-        providerOptions: opts.providerOptions,
-        maxOutputTokens: opts.maxOutputTokens,
-        seed: opts.seed,
-        stopWhen:
-          effectiveConfig.maxStepsPerTurn !== undefined
-            ? stepCountIs(effectiveConfig.maxStepsPerTurn)
-            : [
-                effectiveConfig.guardrails
-                  ? createGuardedStopCondition(effectiveConfig.guardrails)
-                  : textResponseReceived(),
-              ],
-        temperature: opts.temperature,
-        abortSignal: opts.abortSignal,
-        experimental_repairToolCall:
-          effectiveConfig.experimental_repairToolCall,
-      });
+      const baseOptions = buildBaseStreamOptions(effectiveConfig, opts);
+      const prepared = effectiveConfig.prepareStep?.(baseOptions);
+      const result = createStreamTextResult(
+        effectiveConfig,
+        applyPreparedOverrides(baseOptions, prepared)
+      );
 
       const { finishReason, response, usage, totalUsage } = result;
 

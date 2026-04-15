@@ -25,7 +25,7 @@ run_plugsuits() {
     /Users/minpeter/github.com/minpeter/plugsuits/packages/cea/src/entrypoints/main.ts \
     -p "$PROMPT" --no-translate --max-iterations 12 \
     -m "$PLUGSUITS_MODEL" --provider anthropic \
-    > "$RESULTS_DIR/${tag}-trajectory.jsonl" \
+    > "$RESULTS_DIR/${tag}-output.jsonl" \
     2> "$RESULTS_DIR/${tag}-stderr.log" || true
   echo "  ✓ plugsuits@${limit} done"
 }
@@ -127,9 +127,9 @@ echo "════════════════════════�
 echo
 printf "  %-28s %6s  %8s  %s\n" "Agent@Limit" "Lines" "Bytes" "Status"
 printf "  %-28s %6s  %8s  %s\n" "────────────" "─────" "─────" "──────"
-for f in "$RESULTS_DIR"/*-output.txt "$RESULTS_DIR"/*-trajectory.jsonl; do
+for f in "$RESULTS_DIR"/*-output.txt "$RESULTS_DIR"/*-output.jsonl; do
   [ -f "$f" ] || continue
-  name=$(basename "$f" | sed 's/-output.txt//' | sed 's/-trajectory.jsonl//')
+  name=$(basename "$f" | sed 's/-output.txt//' | sed 's/-output.jsonl//')
   lines=$(wc -l < "$f" 2>/dev/null | tr -d ' ')
   size=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
   if grep -q "SKIPPED" "$f" 2>/dev/null; then

@@ -42,9 +42,17 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
 };
 
 interface TrajectoryEvent {
-  content?: string;
   error?: string;
-  tool_name?: string;
+  message?: string;
+  observation?: {
+    results?: Array<{ content: string; source_call_id: string }>;
+  };
+  source?: string;
+  tool_calls?: Array<{
+    arguments: Record<string, unknown>;
+    function_name: string;
+    tool_call_id: string;
+  }>;
   type: string;
 }
 
@@ -65,7 +73,7 @@ interface ReliabilityRow {
   scenarioId: ScenarioId;
   timedOut: boolean;
   toolCallCount: number;
-  trajectoryPath: string;
+  outputLogPath: string;
 }
 
 interface HarnessConfig {
@@ -145,7 +153,11 @@ function classifyFailure(params: {
   if ((params.exitCode ?? 0) !== 0) {
     return "exit_code_nonzero";
   }
-  if (!params.events.some((event) => event.type === "assistant")) {
+  if (
+    !params.events.some(
+      (event) => event.type === "step" && event.source === "agent"
+    )
+  ) {
     return "no_assistant";
   }
   return "unknown_incomplete";
@@ -185,12 +197,12 @@ function buildRow(params: {
   runId: string;
   runIndex: number;
   scenarioId: ScenarioId;
-  trajectoryPath: string;
+  outputLogPath: string;
 }): ReliabilityRow {
   const assistantEvents = params.events.filter(
-    (event) => event.type === "assistant"
+    (event) => event.type === "step" && event.source === "agent"
   );
-  const toolCalls = params.events.filter((event) => event.type === "tool_call");
+  const toolCalls = assistantEvents.flatMap((event) => event.tool_calls ?? []);
 
   return {
     assistantTurns: assistantEvents.length,
@@ -204,7 +216,7 @@ function buildRow(params: {
       exitCode: params.result.exitCode,
       timedOut: params.result.timedOut,
     }),
-    finalAssistantText: getLastItem(assistantEvents)?.content ?? "",
+    finalAssistantText: getLastItem(assistantEvents)?.message ?? "",
     modelId: params.modelId,
     promptHash: hashText(params.prompt),
     provider: params.provider,
@@ -214,7 +226,7 @@ function buildRow(params: {
     scenarioId: params.scenarioId,
     timedOut: params.result.timedOut,
     toolCallCount: toolCalls.length,
-    trajectoryPath: params.trajectoryPath,
+    outputLogPath: params.outputLogPath,
   };
 }
 
@@ -352,14 +364,14 @@ async function main(): Promise<void> {
           timeoutMs: config.timeoutMs,
         });
 
-        const trajectoryPath = resolvePath(outDir, `${runId}.trajectory.jsonl`);
+        const outputLogPath = resolvePath(outDir, `${runId}.output.jsonl`);
         const stderrPath = resolvePath(outDir, `${runId}.stderr.log`);
-        writeFileSync(trajectoryPath, result.stdout, "utf8");
+        writeFileSync(outputLogPath, result.stdout, "utf8");
         writeFileSync(stderrPath, result.stderr, "utf8");
 
         const events = parseTrajectory(result.stdout);
         const assistantEvents = events.filter(
-          (event) => event.type === "assistant"
+          (event) => event.type === "step" && event.source === "agent"
         );
         const completed =
           !result.timedOut &&
@@ -380,7 +392,7 @@ async function main(): Promise<void> {
             runId,
             runIndex,
             scenarioId,
-            trajectoryPath,
+            outputLogPath,
           })
         );
       }

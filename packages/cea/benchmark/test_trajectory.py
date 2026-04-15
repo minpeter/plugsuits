@@ -54,7 +54,7 @@ def validate_trajectory(path: str) -> list[str]:
         errors.append(f"step_ids: expected {expected}, got {step_ids}")
 
     # 6. each step has required fields
-    valid_sources = {"user", "agent", "system"}
+    valid_sources = {"user", "agent"}
     for i, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
@@ -87,6 +87,20 @@ def validate_trajectory(path: str) -> list[str]:
         if not isinstance(fm.get("total_steps"), int):
             errors.append("final_metrics.total_steps: must be an integer")
 
+    # 9. persisted lifecycle annotations under extra
+    extra = t.get("extra")
+    if extra is not None and not isinstance(extra, dict):
+        errors.append("extra: must be a dictionary when present")
+    if isinstance(extra, dict):
+        for field in [
+            "approval_events",
+            "compaction_events",
+            "interrupt_events",
+        ]:
+            value = extra.get(field)
+            if value is not None and not isinstance(value, list):
+                errors.append(f"extra.{field}: must be an array when present")
+
     return errors
 
 
@@ -116,8 +130,12 @@ def main() -> None:
         print(
             f"  final_metrics: total_prompt={fm.get('total_prompt_tokens')}, total_completion={fm.get('total_completion_tokens')}"
         )
+        extra = t.get("extra", {}) or {}
         print(
-            f"  compaction_events: {len(t.get('extra', {}).get('compaction_events', []))}"
+            "  lifecycle_annotations: "
+            f"approval={len(extra.get('approval_events', []))}, "
+            f"compaction={len(extra.get('compaction_events', []))}, "
+            f"interrupt={len(extra.get('interrupt_events', []))}"
         )
         sys.exit(0)
 

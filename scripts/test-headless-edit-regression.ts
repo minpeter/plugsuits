@@ -74,18 +74,38 @@ interface AnyEvent extends Record<string, unknown> {
   type: string;
 }
 
-interface ToolCallEvent extends AnyEvent {
+interface ToolCallData {
+  arguments: Record<string, unknown>;
+  function_name: string;
+  tool_call_id: string;
+}
+
+interface ObservationData {
+  content: string;
+  source_call_id: string;
+}
+
+interface ToolCallEvent {
   tool_call_id: string;
   tool_input: Record<string, unknown>;
   tool_name: string;
-  type: "tool_call";
 }
 
-interface ToolResultEvent extends AnyEvent {
+interface ToolResultEvent {
   error?: string;
   output: string;
   tool_call_id: string;
-  type: "tool_result";
+}
+
+interface AgentStepEvent extends AnyEvent {
+  message?: string;
+  observation?: {
+    results: ObservationData[];
+  };
+  source: "agent";
+  step_id: number;
+  tool_calls?: ToolCallData[];
+  type: "step";
 }
 
 interface ErrorEvent extends AnyEvent {
@@ -145,26 +165,50 @@ function isGuardError(result: ToolResultEvent): boolean {
   return GUARD_PATTERNS.some((pattern) => result.error?.includes(pattern));
 }
 
-function isToolCallEvent(event: AnyEvent): event is ToolCallEvent {
+function isAgentStepEvent(event: AnyEvent): event is AgentStepEvent {
   return (
-    event.type === "tool_call" &&
-    typeof event.tool_call_id === "string" &&
-    typeof event.tool_name === "string" &&
-    typeof event.tool_input === "object" &&
-    event.tool_input !== null
-  );
-}
-
-function isToolResultEvent(event: AnyEvent): event is ToolResultEvent {
-  return (
-    event.type === "tool_result" &&
-    typeof event.tool_call_id === "string" &&
-    "output" in event
+    event.type === "step" &&
+    event.source === "agent" &&
+    typeof event.step_id === "number"
   );
 }
 
 function isErrorEvent(event: AnyEvent): event is ErrorEvent {
   return event.type === "error" && typeof event.error === "string";
+}
+
+function extractToolCallEvents(events: AnyEvent[]) {
+  return events.filter(isAgentStepEvent).flatMap((event) =>
+    (event.tool_calls ?? []).map((toolCall) => ({
+      tool_call_id: toolCall.tool_call_id,
+      tool_input: toolCall.arguments,
+      tool_name: toolCall.function_name,
+    }))
+  );
+}
+
+function extractToolResultEvents(events: AnyEvent[]) {
+  return events.filter(isAgentStepEvent).flatMap((event) =>
+    (event.observation?.results ?? []).map((result) => {
+      const parsed = (() => {
+        try {
+          return JSON.parse(result.content) as {
+            error?: string;
+            exit_code?: number;
+            stdout?: string;
+          };
+        } catch {
+          return { stdout: result.content };
+        }
+      })();
+
+      return {
+        error: parsed.error,
+        output: String(parsed.stdout ?? result.content),
+        tool_call_id: result.source_call_id,
+      };
+    })
+  );
 }
 
 function parseJsonlEvents(output: string): AnyEvent[] {
@@ -336,8 +380,8 @@ function reportErrorEvents(errorEvents: ErrorEvent[]): void {
 }
 
 function reportToolAnalysis(events: AnyEvent[]): boolean {
-  const toolCalls = events.filter(isToolCallEvent);
-  const toolResults = events.filter(isToolResultEvent);
+  const toolCalls = extractToolCallEvents(events);
+  const toolResults = extractToolResultEvents(events);
   const errorEvents = events.filter(isErrorEvent);
 
   const editFileCalls = toolCalls.filter(

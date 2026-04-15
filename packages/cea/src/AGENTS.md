@@ -27,17 +27,17 @@ src/
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| Follow interactive input lifecycle | `src/entrypoints/cli.ts` | `run` -> `processInput` -> `processAgentResponse` |
-| Follow headless JSON event emission | `src/entrypoints/headless.ts` | Emits `user/tool_call/tool_result/assistant/error` |
-| Change loop continuation policy | `src/interaction/tool-loop-control.ts` | Shared by CLI and headless |
+| Follow interactive/headless runtime lifecycle | `src/entrypoints/main.ts` | `runAgentLoop`/TUI/headless wiring live here |
+| Follow headless JSON event emission | `src/entrypoints/main.ts` | Headless delegates to `@ai-sdk-tool/headless` and emits ATIF lifecycle events (`metadata/step/approval/compaction/error/interrupt`) |
+| Change loop continuation policy | `../harness/src/tool-loop-control.ts` | Shared continuation predicate comes from harness |
 | Adjust provider/model behavior | `src/agent.ts` | `AgentManager` owns stream setup and options |
 | Modify slash command wiring | `src/commands/index.ts` | Keep aliases and command metadata aligned |
 | Update auto-todo behavior | `src/middleware/todo-continuation.ts` | Drives cross-turn completion reminders |
 
 ## CONVENTIONS
-- Keep runtime parity between `cli.ts` and `headless.ts` for continuation decisions and tool-loop safety boundaries.
+- Keep runtime parity between interactive and headless execution paths in `entrypoints/main.ts` and the shared harness/headless packages.
 - Keep tests colocated with source (`*.test.ts` beside implementation); this repo does not use a separate test directory.
-- Prefer shared helpers for cross-runtime policies (`tool-loop-control.ts`) instead of duplicating literals.
+- Prefer shared helpers from `@ai-sdk-tool/harness` for cross-runtime policies instead of duplicating literals.
 - Treat `src/index.ts` as bootstrap-only; avoid placing runtime logic there.
 - If a change alters event semantics in headless mode, verify benchmark compatibility via `benchmark/AGENTS.md` rules.
 

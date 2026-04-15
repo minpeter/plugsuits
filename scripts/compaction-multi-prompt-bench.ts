@@ -164,7 +164,7 @@ interface RunResult {
   probeMax: number;
   promptId: string;
   timedOut: boolean;
-  trajectoryPath: string;
+  outputLogPath: string;
   turnCount: number;
 }
 
@@ -215,7 +215,7 @@ function classifyOutcome(params: {
 }): { completed: boolean; failureClass: string } {
   const hasError = params.trajEvents.some((event) => event.type === "error");
   const hasAssistant = params.trajEvents.some(
-    (event) => event.type === "assistant"
+    (event) => event.type === "step" && event.source === "agent"
   );
   const errorEvent = [...params.trajEvents]
     .reverse()
@@ -369,7 +369,7 @@ async function runOne(
   contextLimit: number
 ): Promise<RunResult> {
   const tag = `${scenario.id}-${contextLimit}`;
-  const trajectoryPath = resolvePath(RESULTS_DIR, `${tag}-trajectory.jsonl`);
+  const outputLogPath = resolvePath(RESULTS_DIR, `${tag}-output.jsonl`);
   const metricsPath = resolvePath(RESULTS_DIR, `${tag}-metrics.log`);
 
   console.log(
@@ -425,7 +425,7 @@ async function runOne(
     throw new Error(`No benchmark result for ${scenario.id}-${contextLimit}`);
   }
 
-  writeFileSync(trajectoryPath, finalResult.stdout, "utf-8");
+  writeFileSync(outputLogPath, finalResult.stdout, "utf-8");
   writeFileSync(metricsPath, finalResult.stderr, "utf-8");
 
   const compactionCount = finalMetrics.filter(
@@ -463,7 +463,7 @@ async function runOne(
     durationMs: finalResult.durationMs,
     exitCode: finalResult.exitCode,
     timedOut: finalResult.timedOut,
-    trajectoryPath,
+    outputLogPath,
     metricsPath,
   };
 }
@@ -507,7 +507,7 @@ async function runParallelWithLimit(tasks: PendingRun[]): Promise<RunResult[]> {
           durationMs: 0,
           exitCode: null,
           timedOut: false,
-          trajectoryPath: "",
+          outputLogPath: "",
           metricsPath: "",
         };
       }
@@ -703,7 +703,7 @@ async function main(): Promise<void> {
             durationMs: 0,
             exitCode: null,
             timedOut: false,
-            trajectoryPath: "",
+            outputLogPath: "",
             metricsPath: "",
           });
         }

@@ -89,7 +89,7 @@ Available commands:
 pnpm run headless -- "Fix the type error in src/index.ts"
 ```
 
-Outputs structured JSONL events (`user`, `tool_call`, `tool_result`, `assistant`, `error`) for programmatic consumption.
+Outputs structured ATIF JSONL events (`metadata`, `step`, `approval`, `compaction`, `error`, `interrupt`) for programmatic consumption.
 
 ## Architecture
 
@@ -99,14 +99,20 @@ plugsuits/
 │   ├── harness/              @ai-sdk-tool/harness
 │   │   └── src/              Core agent loop, message history, tool management
 │   │
+│   ├── tui/                  @ai-sdk-tool/tui
+│   │   └── src/              Interactive terminal UI runtime and stream rendering
+│   │
+│   ├── headless/             @ai-sdk-tool/headless
+│   │   └── src/              ATIF JSONL runner and trajectory persistence
+│   │
 │   └── cea/                  @ai-sdk-tool/cea
 │       ├── src/
-│       │   ├── entrypoints/  CLI (interactive) + headless (JSONL) runtimes
+│       │   ├── entrypoints/  CLI/bootstrap wiring for interactive + headless runs
 │       │   ├── tools/
 │       │   │   ├── modify/   edit_file (hashline engine), write_file, delete_file
 │       │   │   ├── explore/  read_file, grep, glob
 │       │   │   └── execute/  shell_execute, shell_interact
-│       │   └── interaction/  TUI renderer, streaming, spinner
+│       │   └── interaction/  CEA-specific interaction/rendering adapters
 │       └── benchmark/        Harbor terminal-bench adapter
 │
 └── scripts/                  Benchmark and test automation
@@ -117,6 +123,8 @@ plugsuits/
 | Package | Description |
 |---------|-------------|
 | [`@ai-sdk-tool/harness`](./packages/harness) | Reusable agent harness — model-agnostic loop, tool management, message history |
+| [`@ai-sdk-tool/tui`](./packages/tui) | Interactive terminal UI runtime and stream rendering primitives |
+| [`@ai-sdk-tool/headless`](./packages/headless) | ATIF JSONL runner and persisted trajectory generation for automation |
 | [`@ai-sdk-tool/cea`](./packages/cea) | Code editing agent — full implementation with TUI, tools, and Anthropic integration |
 
 ## Development

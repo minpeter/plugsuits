@@ -1,7 +1,9 @@
+import type { BeforeTurnResult } from "@ai-sdk-tool/harness";
+
 /**
  * ATIF-v1.6 native event types for trajectory logging.
  *
- * All step events (UserStepEvent, AgentStepEvent, SystemStepEvent) conform to the ATIF specification.
+ * All emitted step events (UserStepEvent, AgentStepEvent) conform to the ATIF specification.
  * Metadata is emitted once at run start. Compaction and error events are lifecycle annotations.
  */
 
@@ -76,21 +78,9 @@ export interface AgentStepEvent {
 }
 
 /**
- * A system message step, typically containing observations.
- */
-export interface SystemStepEvent {
-  message: string;
-  observation?: ObservationData;
-  source: "system";
-  step_id: number;
-  timestamp: string;
-  type: "step";
-}
-
-/**
  * Union of all step event types.
  */
-export type StepEvent = UserStepEvent | AgentStepEvent | SystemStepEvent;
+export type StepEvent = UserStepEvent | AgentStepEvent;
 
 // ============================================================================
 // Lifecycle Events
@@ -122,6 +112,22 @@ export interface ErrorEvent {
   type: "error";
 }
 
+export interface ApprovalEvent {
+  providerExecuted?: boolean;
+  reason?: string;
+  state: "approved" | "denied" | "pending";
+  timestamp: string;
+  toolCallId?: string;
+  toolName?: string;
+  type: "approval";
+}
+
+export interface InterruptEvent {
+  reason: "caller-abort";
+  timestamp: string;
+  type: "interrupt";
+}
+
 export type { HistorySnapshot } from "@ai-sdk-tool/harness";
 
 export interface HeadlessRunnerConfig {
@@ -148,19 +154,26 @@ export interface HeadlessRunnerConfig {
   ) => Promise<import("@ai-sdk-tool/harness").UsageMeasurement | null>;
   messageHistory: import("@ai-sdk-tool/harness").CheckpointHistory;
   modelId: string;
+  onBeforeTurn?: (
+    phase: "new-turn" | "intermediate-step"
+  ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onTodoReminder?: () => Promise<{
     hasReminder: boolean;
     message: string | null;
   }>;
+  onInterrupt?: (event: InterruptEvent) => Promise<void> | void;
   onTurnComplete?: (
     messages: import("@ai-sdk-tool/harness").CheckpointMessage[],
     usage?: {
       inputTokens?: number;
       outputTokens?: number;
+      totalTokens?: number;
     },
-    snapshot?: import("@ai-sdk-tool/harness").HistorySnapshot
+    snapshot?: import("@ai-sdk-tool/harness").HistorySnapshot,
+    finishReason?: string
   ) => Promise<void> | void;
   sessionId: string;
+  shouldContinue?: (finishReason: string) => boolean;
   streamTimeoutMs?: number;
 }
 
@@ -190,4 +203,6 @@ export type TrajectoryEvent =
   | StepEvent
   | CompactionEvent
   | ErrorEvent
+  | ApprovalEvent
+  | InterruptEvent
   | MetadataEvent;

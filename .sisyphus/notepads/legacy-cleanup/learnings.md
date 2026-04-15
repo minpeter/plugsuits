@@ -37,3 +37,9 @@
 - `CheckpointHistory` needs mutable config fields (`compactionConfig`, `pruningConfig`) to support runtime `updateCompaction` / `updatePruning` merges.
 - Delegating threshold math to `compaction-policy.ts` keeps behavior aligned across history implementations and prevents duplicated formulas.
 - Speculative compaction trigger must account for `maxTokens` even when `contextLimit` is larger; otherwise orchestrator speculative lifecycle tests can fail.
+
+## 2026-04-15 Wave 0 deprecated removal
+
+- `FileSnapshotStore` can fully own JSONL persistence by reusing only `encodeSessionId` plus the shared `SessionFileLine`/`SessionData` shapes; the old `SessionStore` class was unnecessary indirection.
+- `CheckpointHistory` no longer needs persistence concerns once snapshot-based loading is the only supported path; removing `sessionStore` simplifies compaction and restore behavior without affecting snapshot flows.
+- Canonical token usage fields are now strictly `inputTokens`/`outputTokens`; removing prompt/completion aliases did not require runtime shims when callers already normalize usage upstream.

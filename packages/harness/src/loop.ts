@@ -4,9 +4,14 @@
  */
 
 import { AgentError, AgentErrorCode } from "./errors";
-import { shouldContinueManualToolLoop } from "./tool-loop-control";
+import { getToolLifecycleState } from "./tool-stream-parts";
+import {
+  composeStopPredicates,
+  shouldContinueManualToolLoop,
+} from "./tool-loop-control";
 import type {
   AgentFinishReason,
+  AgentStreamOptions,
   LoopContinueContext,
   RunAgentLoopOptions,
   RunAgentLoopResult,
@@ -16,7 +21,7 @@ import type {
  * Runs an {@link Agent} in a loop until a stop condition is met or `maxIterations` is reached.
  *
  * The loop continues as long as `shouldContinue` returns `true` (default: continues on
- * `tool-calls` and `unknown` finish reasons). Each iteration streams a full agent turn,
+ * `tool-calls` finish reasons). Each iteration streams a full agent turn,
  * collects tool calls, and appends response messages to the conversation history.
  *
  * @param options - Loop configuration including agent, messages, hooks, and limits.
@@ -35,8 +40,30 @@ import type {
 export async function runAgentLoop(
   options: RunAgentLoopOptions
 ): Promise<RunAgentLoopResult> {
-  const { agent, abortSignal, onError, onStepComplete, onToolCall } = options;
-  const shouldContinue = options.shouldContinue ?? shouldContinueManualToolLoop;
+  const {
+    agent,
+    abortSignal,
+    onError,
+    onInterrupt,
+    onStepComplete,
+    onToolCall,
+    onToolLifecycle,
+  } = options;
+  let shouldContinue: (
+    finishReason: AgentFinishReason,
+    context: LoopContinueContext
+  ) => boolean = (finishReason) => shouldContinueManualToolLoop(finishReason);
+  if (Array.isArray(options.shouldContinue)) {
+    shouldContinue = composeStopPredicates<
+      AgentFinishReason,
+      LoopContinueContext
+    >(shouldContinueManualToolLoop, ...options.shouldContinue);
+  } else if (options.shouldContinue) {
+    shouldContinue = composeStopPredicates<
+      AgentFinishReason,
+      LoopContinueContext
+    >(shouldContinueManualToolLoop, options.shouldContinue);
+  }
   const maxIterations = options.maxIterations ?? Number.POSITIVE_INFINITY;
   const messages = [...options.messages];
 
@@ -45,10 +72,13 @@ export async function runAgentLoop(
 
   while (iteration < maxIterations) {
     if (abortSignal?.aborted) {
+      const context: LoopContinueContext = { iteration, messages };
+      await onInterrupt?.({ iteration, reason: "abort-signal" }, context);
       break;
     }
 
     const context: LoopContinueContext = { iteration, messages };
+    const pendingApprovalToolCalls = new Set<string>();
 
     try {
       const instructions = agent.config.instructions;
@@ -56,10 +86,47 @@ export async function runAgentLoop(
         typeof instructions === "function"
           ? await instructions()
           : instructions;
+      const preparedStepOverrides = await options.onPrepareStep?.(context);
+      const turnOverrides = await options.onBeforeTurn?.(context);
+      const streamOptions: AgentStreamOptions = {
+        messages,
+        abortSignal,
+        system,
+        ...preparedStepOverrides,
+        ...turnOverrides,
+      };
 
-      const stream = agent.stream({ messages, abortSignal, system });
+      const stream = agent.stream(streamOptions);
 
       for await (const part of stream.fullStream) {
+        const lifecycle = getToolLifecycleState(
+          part as { toolCallId?: string; toolName?: string; type: string }
+        );
+        if (lifecycle) {
+          const resolvedLifecycle = { ...lifecycle };
+
+          if (resolvedLifecycle.approvalState === "pending") {
+            if (resolvedLifecycle.toolCallId) {
+              pendingApprovalToolCalls.add(resolvedLifecycle.toolCallId);
+            }
+          } else if (
+            resolvedLifecycle.toolCallId &&
+            pendingApprovalToolCalls.has(resolvedLifecycle.toolCallId)
+          ) {
+            if (resolvedLifecycle.state === "tool-call") {
+              resolvedLifecycle.approvalState = "approved";
+              pendingApprovalToolCalls.delete(resolvedLifecycle.toolCallId);
+            }
+
+            if (resolvedLifecycle.state === "output-denied") {
+              resolvedLifecycle.approvalState = "denied";
+              pendingApprovalToolCalls.delete(resolvedLifecycle.toolCallId);
+            }
+          }
+
+          await onToolLifecycle?.(resolvedLifecycle, context);
+        }
+
         if (part.type === "tool-call") {
           await onToolCall?.(part, context);
         }
@@ -90,6 +157,11 @@ export async function runAgentLoop(
 
       iteration += 1;
     } catch (error) {
+      if (abortSignal?.aborted) {
+        await onInterrupt?.({ iteration, reason: "abort-signal" }, context);
+        break;
+      }
+
       const errorResult = await onError?.(error, context);
 
       // If onError returns void or undefined, re-throw

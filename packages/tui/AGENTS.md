@@ -24,13 +24,24 @@ await createAgentTUI({
   header: { title: "My Agent", subtitle: "model: gpt-4o" },
   footer: { text: "12.4k/128.0k (10%)" },
   commands,        // Command[] — optional, defaults to registered commands
+  compactionCallbacks, // optional — compaction lifecycle callbacks
+  contextPressureThresholds, // optional — warning/elevated/critical pressure thresholds
   skills,          // SkillInfo[] — for autocomplete
   toolRenderers,   // ToolRendererMap — custom per-tool rendering
   theme: {
     markdownTheme, // MarkdownTheme from @mariozechner/pi-tui
     editorTheme,   // EditorTheme from @mariozechner/pi-tui
   },
+  measureUsage,    // optional — async usage probe for footer/context tracking
   onSetup,         // async () => void — called once before the input loop
+  onBeforeTurn,    // optional — async hook before each model stream call
+  onStepComplete,  // optional — receives finishReason, iteration, and phase
+  onTurnComplete,  // optional — receives messages, usage, snapshot, finishReason
+  onCommandAction, // optional — notified when a command triggers a structured action
+  preprocessCommand, // optional — intercept slash command input
+  preprocessUserInput, // optional — intercept normal user input
+  shouldContinue,  // optional — override tool-loop continuation predicate
+  showRawToolIo,   // optional — force raw tool IO rendering
 });
 ```
 
@@ -43,10 +54,21 @@ await createAgentTUI({
 | `header` | `{ title, subtitle? }` | no | Header text shown at the top |
 | `footer` | `{ text? }` | no | Text shown below the input editor |
 | `commands` | `Command[]` | no | Slash commands; defaults to all registered commands |
+| `compactionCallbacks` | `CompactionOrchestratorCallbacks` | no | Lifecycle callbacks for compaction start/finish events |
+| `contextPressureThresholds` | `{ warning?, elevated?, critical? }` | no | Thresholds used for context pressure indicators in the header/footer |
 | `skills` | `SkillInfo[]` | no | Skills for editor autocomplete |
 | `toolRenderers` | `ToolRendererMap` | no | Custom renderers per tool name |
 | `theme` | `{ markdownTheme?, editorTheme? }` | no | Visual theme overrides |
+| `measureUsage` | `(messages) => Promise<UsageMeasurement \| null>` | no | Optional usage probe used for footer stats and tighter turn budgeting |
 | `onSetup` | `() => void \| Promise<void>` | no | One-time setup hook before the loop |
+| `onBeforeTurn` | `(phase) => BeforeTurnResult \| Promise<BeforeTurnResult \| undefined> \| undefined` | no | Runs before each model stream call and can override stream options |
+| `onStepComplete` | `({ finishReason, iteration, phase }) => void \| Promise<void>` | no | Runs after each streamed step, including intermediate tool-loop turns |
+| `onTurnComplete` | `(messages, usage?, snapshot?, finishReason?) => void \| Promise<void>` | no | Runs after each completed turn with snapshot metadata |
+| `onCommandAction` | `(action) => void \| Promise<void>` | no | Notified when a command triggers a structured TUI action |
+| `preprocessCommand` | `(input, hooks) => Promise<string \| null>` | no | Intercepts slash command input before execution |
+| `preprocessUserInput` | `(input, hooks) => Promise<PreprocessResult \| undefined>` | no | Intercepts normal user input before it is added to history |
+| `shouldContinue` | `(finishReason) => boolean` | no | Overrides the default continuation predicate |
+| `showRawToolIo` | `boolean` | no | Forces raw tool input/output blocks instead of pretty renderers |
 
 ### `AssistantStreamView`
 
@@ -130,7 +152,10 @@ import { createAgent, CheckpointHistory } from "@ai-sdk-tool/harness";
 import { createAgentTUI } from "@ai-sdk-tool/tui";
 import { openai } from "@ai-sdk/openai";
 
-const agent = createAgent({ model: openai("gpt-4o"), instructions: "..." });
+const agent = await createAgent({
+  model: openai("gpt-4o"),
+  instructions: "...",
+});
 const messageHistory = new CheckpointHistory();
 
 await createAgentTUI({ agent, messageHistory });

@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   formatCompactionAppliedNotice,
+  mergeAgentStreamOptions,
   retryStreamTurnOnContextOverflow,
   retryStreamTurnOnNoOutput,
   shouldDisplayBackgroundCompactionStatus,
@@ -363,5 +364,35 @@ describe("agent-tui compaction core", () => {
 
     expect(discardedCount).toBe(2);
     expect(jobs.every((job) => job.discarded)).toBe(true);
+  });
+
+  it("merges full onBeforeTurn stream overrides for TUI turns", () => {
+    const merged = mergeAgentStreamOptions({
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 128,
+      messages: [{ role: "user", content: "base" }],
+      turnOverrides: {
+        experimentalContext: { sessionId: "ses_123" },
+        maxOutputTokens: 64,
+        messages: [{ role: "system", content: "override" }],
+        providerOptions: { openai: { parallelToolCalls: false } },
+        seed: 7,
+        system: "prepared-system",
+        temperature: 0,
+      },
+    });
+
+    expect(merged).toEqual(
+      expect.objectContaining({
+        experimentalContext: { sessionId: "ses_123" },
+        maxOutputTokens: 64,
+        messages: [{ role: "system", content: "override" }],
+        providerOptions: { openai: { parallelToolCalls: false } },
+        seed: 7,
+        system: "prepared-system",
+        temperature: 0,
+      })
+    );
+    expect(merged.abortSignal).toBeDefined();
   });
 });

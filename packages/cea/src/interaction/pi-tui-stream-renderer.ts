@@ -1173,7 +1173,7 @@ class ToolCallView extends Container {
     return null;
   }
 
-  private setPrettyBlock(
+  setPrettyBlock(
     header: string,
     body: string,
     options?: { isPending?: boolean; useBackground?: boolean }
@@ -1965,6 +1965,42 @@ const handleToolOutputDenied: StreamPartHandler = (part, state) => {
   view.setOutputDenied();
 };
 
+const handleToolApprovalRequest: StreamPartHandler = (part, state) => {
+  const approvalPart = part as StreamPart & {
+    providerExecuted?: boolean;
+    reason?: string;
+    toolCallId: string;
+    toolName: string;
+  };
+
+  state.resetAssistantView(true);
+  const view = state.ensureToolView(
+    approvalPart.toolCallId,
+    approvalPart.toolName
+  );
+
+  const lines = [
+    `**Tool** \`${approvalPart.toolName}\` (\`${approvalPart.toolCallId}\`)`,
+    "**Approval required** before this tool can continue.",
+  ];
+
+  if (
+    typeof approvalPart.reason === "string" &&
+    approvalPart.reason.length > 0
+  ) {
+    lines.push(`**Reason** ${approvalPart.reason}`);
+  }
+
+  if (approvalPart.providerExecuted === false) {
+    lines.push("**Status** waiting for user or policy decision");
+  }
+
+  view.setPrettyBlock(
+    `**Approval** \`${approvalPart.toolName}\``,
+    lines.join("\n\n")
+  );
+};
+
 const handleStartStep: StreamPartHandler = (_part, state) => {
   if (!state.flags.showSteps) {
     return;
@@ -2030,6 +2066,7 @@ const STREAM_HANDLERS: Record<string, StreamPartHandler> = {
   "tool-result": handleToolResult,
   "tool-error": handleToolError,
   "tool-output-denied": handleToolOutputDenied,
+  "tool-approval-request": handleToolApprovalRequest,
   "start-step": handleStartStep,
   "finish-step": handleFinishStep,
   source: handleSource,
@@ -2042,7 +2079,6 @@ const IGNORE_PART_TYPES = new Set([
   "text-end",
   "reasoning-end",
   "start",
-  "tool-approval-request",
 ]);
 
 const isVisibleStreamPart = (
@@ -2054,7 +2090,6 @@ const isVisibleStreamPart = (
     case "text-end":
     case "reasoning-end":
     case "start":
-    case "tool-approval-request":
     case "text-start":
     case "reasoning-start":
     case "tool-input-end":
