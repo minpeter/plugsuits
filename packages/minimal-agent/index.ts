@@ -1,14 +1,15 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { FileSnapshotStore, formatContextUsage } from "@ai-sdk-tool/harness";
 import { createAgentRuntime, defineAgent } from "@ai-sdk-tool/harness/runtime";
 import { runAgentSessionHeadless } from "@ai-sdk-tool/headless/session";
 import { runAgentSessionTUI } from "@ai-sdk-tool/tui/session";
 import { env } from "./env";
 
-const modelId = env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
-const model = createAnthropic({
-  apiKey: env.ANTHROPIC_API_KEY ?? "",
-  ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}),
+const modelId = env.AI_MODEL;
+const model = createOpenAICompatible({
+  name: "custom",
+  apiKey: env.AI_API_KEY,
+  baseURL: env.AI_BASE_URL,
 })(modelId);
 
 const agent = defineAgent({
@@ -19,7 +20,7 @@ const agent = defineAgent({
     mcp: [{ command: "npx", args: ["-y", "duckduckgo-mcp@latest"] }],
   },
   history: {
-    compaction: { enabled: true, contextLimit: 200_000 },
+    compaction: { enabled: true, contextLimit: env.AI_CONTEXT_LIMIT },
   },
   commands: [
     {

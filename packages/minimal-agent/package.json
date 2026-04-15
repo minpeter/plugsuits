@@ -8,21 +8,22 @@
   "scripts": {
     "benchmark": "node --conditions=@ai-sdk-tool/source --import tsx benchmark.ts",
     "build": "tsc && node ../../scripts/fix-esm-imports.mjs dist",
-    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx index.ts",
+    "dev": "node --watch --env-file=.env --conditions=@ai-sdk-tool/source --import tsx index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
     "@ai-sdk-tool/headless": "workspace:*",
     "@ai-sdk-tool/tui": "workspace:*",
+    "@ai-sdk/openai-compatible": "^2.0.35",
     "@t3-oss/env-core": "^0.13.10",
     "ai": "^6.0.116",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^3.0.58",
-    "citty": "^0.2.1",
     "@types/node": "^25.4.0",
+    "citty": "^0.2.1",
     "typescript": "^5.9.3"
   }
 }

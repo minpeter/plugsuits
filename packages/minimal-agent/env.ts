@@ -3,9 +3,10 @@ import { z } from "zod";
 
 export const env = createEnv({
   server: {
-    ANTHROPIC_API_KEY: z.string().min(1).optional(),
-    ANTHROPIC_BASE_URL: z.string().min(1).optional(),
-    ANTHROPIC_MODEL: z.string().min(1).optional(),
+    AI_API_KEY: z.string().min(1).default(""),
+    AI_BASE_URL: z.string().min(1).default("https://apis.opengateway.ai/v1"),
+    AI_MODEL: z.string().min(1).default("openai/gpt-5.4-mini"),
+    AI_CONTEXT_LIMIT: z.coerce.number().int().positive().default(128_000),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
