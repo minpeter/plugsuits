@@ -1,5 +1,11 @@
 # @ai-sdk-tool/harness
 
+## 1.3.0
+
+### Minor Changes
+
+- a714664: Add `defineAgent`, `createAgentRuntime`, and `AgentSession` runtime layer to harness. Add `runAgentSessionTUI` and `runAgentSessionHeadless` session adapter helpers to tui and headless. Remove deprecated `SessionStore`, `CheckpointHistory.fromSession()`, and legacy token field aliases (`completionTokens`, `promptTokens`).
+
 ## 1.2.4
 
 ### Patch Changes

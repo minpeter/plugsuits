@@ -1,5 +1,12 @@
 # @plugsuits/tgbot
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [a714664]
+  - @ai-sdk-tool/harness@1.3.0
+
 ## 0.1.2
 
 ### Patch Changes
