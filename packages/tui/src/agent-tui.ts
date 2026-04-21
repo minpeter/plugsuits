@@ -1558,7 +1558,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       );
 
       showLoader("Working...");
-      await config.onStreamStart?.(phase);
+      try {
+        await config.onStreamStart?.(phase);
+      } catch (hookError) {
+        console.error(
+          "[tui] onStreamStart threw; continuing stream:",
+          hookError
+        );
+      }
 
       const clearStreamingLoader = createStreamingLoaderClearer();
 

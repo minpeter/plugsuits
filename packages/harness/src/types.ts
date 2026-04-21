@@ -165,6 +165,10 @@ export interface LoopHooks {
    * arriving. Note: the SDK may emit invisible framing parts (`start`,
    * `text-start`, …) before user-facing content; consumers that want to
    * wait for *visible* output should filter on part type themselves.
+   *
+   * Observer-only contract: errors thrown from the callback are logged via
+   * `console.error` and swallowed so a buggy observer cannot abort a valid
+   * stream.
    */
   onFirstStreamPart?: (context: LoopContinueContext) => void | Promise<void>;
   onInterrupt?: (
@@ -183,6 +187,10 @@ export interface LoopHooks {
    * `fullStream` iteration begins. This is the closest hook to "LLM request
    * sent, waiting for first chunk" — intended for consumers that need to
    * display a loading indicator during the prompt-processing latency gap.
+   *
+   * Observer-only contract: this hook must not influence the stream. Errors
+   * thrown from the callback are logged via `console.error` and swallowed
+   * so a buggy observer cannot abort a valid stream.
    *
    * The callback is awaited before iteration starts, so keep it fast.
    *

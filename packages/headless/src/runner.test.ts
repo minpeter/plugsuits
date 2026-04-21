@@ -166,6 +166,45 @@ describe("runHeadless", () => {
     expect(agentIndex).toBeGreaterThan(turnStartIndex);
   });
 
+  it("continues streaming when onStreamStart throws (observer errors are isolated)", async () => {
+    const events: TrajectoryEvent[] = [];
+    const history = new CheckpointHistory();
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      await runHeadless({
+        agent: {
+          stream: () =>
+            createMockStream([{ role: "assistant", content: "done" }]),
+        },
+        emitEvent: (event) => {
+          events.push(event);
+        },
+        initialUserMessage: { content: "hi" },
+        messageHistory: history,
+        modelId: "mock-model",
+        onStreamStart: () => {
+          throw new Error("observer bug: should not break the stream");
+        },
+        sessionId: "session-observer-throws",
+      });
+
+      expect(events.some((e) => e.type === "turn-start")).toBe(true);
+      const agentSteps = events.filter(
+        (e) => e.type === "step" && "source" in e && e.source === "agent"
+      );
+      expect(agentSteps).toHaveLength(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onStreamStart"),
+        expect.any(Error)
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it("does not emit turn-start when agent.stream() rejects before dispatch", async () => {
     const events: TrajectoryEvent[] = [];
     const history = new CheckpointHistory();

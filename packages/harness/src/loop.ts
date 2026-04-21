@@ -17,6 +17,21 @@ import type {
   RunAgentLoopResult,
 } from "./types";
 
+async function invokeObserverHook(
+  hook: ((context: LoopContinueContext) => void | Promise<void>) | undefined,
+  hookName: string,
+  context: LoopContinueContext
+): Promise<void> {
+  if (!hook) {
+    return;
+  }
+  try {
+    await hook(context);
+  } catch (error) {
+    console.error(`[harness] ${hookName} threw; continuing stream:`, error);
+  }
+}
+
 /**
  * Runs an {@link Agent} in a loop until a stop condition is met or `maxIterations` is reached.
  *
@@ -100,14 +115,18 @@ export async function runAgentLoop(
 
       const stream = agent.stream(streamOptions);
 
-      await onStreamStart?.(context);
+      await invokeObserverHook(onStreamStart, "onStreamStart", context);
 
       let firstPartSeen = false;
 
       for await (const part of stream.fullStream) {
         if (!firstPartSeen) {
           firstPartSeen = true;
-          await onFirstStreamPart?.(context);
+          await invokeObserverHook(
+            onFirstStreamPart,
+            "onFirstStreamPart",
+            context
+          );
         }
 
         const lifecycle = getToolLifecycleState(

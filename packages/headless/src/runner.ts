@@ -708,7 +708,14 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
             phase,
             timestamp: new Date().toISOString(),
           });
-          await config.onStreamStart?.(phase);
+          try {
+            await config.onStreamStart?.(phase);
+          } catch (hookError) {
+            console.error(
+              "[headless] onStreamStart threw; continuing stream:",
+              hookError
+            );
+          }
         }
         const nextStepId = stepId + 1;
         const processStreamResult = await processStream({
