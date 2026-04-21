@@ -1227,6 +1227,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     };
 
     const baseLoaderMessage = loaderMessage ?? foregroundStatusMessage;
+    let reasoningRevivedSpinner = false;
 
     const state: PiTuiStreamState = {
       flags,
@@ -1238,9 +1239,19 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       getToolView: (toolCallId: string) => toolViews.get(toolCallId),
       chatContainer,
       onReasoningStart: () => {
-        foregroundStatus?.setMessage("Thinking...");
+        if (foregroundStatus) {
+          foregroundStatus.setMessage("Thinking...");
+        } else {
+          showLoader("Thinking...");
+          reasoningRevivedSpinner = true;
+        }
       },
       onReasoningEnd: () => {
+        if (reasoningRevivedSpinner) {
+          clearStatus();
+          reasoningRevivedSpinner = false;
+          return;
+        }
         if (baseLoaderMessage) {
           foregroundStatus?.setMessage(baseLoaderMessage);
         }
