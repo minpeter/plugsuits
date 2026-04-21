@@ -1,26 +1,13 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { harnessEnv } from "@ai-sdk-tool/harness";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
-
-const ENV_FILE_CANDIDATES = [
-  resolve(process.cwd(), ".env"),
-  resolve(process.cwd(), "../../.env"),
-];
-
-for (const envPath of ENV_FILE_CANDIDATES) {
-  if (existsSync(envPath)) {
-    process.loadEnvFile(envPath);
-  }
-}
 
 export const env = createEnv({
   server: {
     AI_API_KEY: z.string().min(1).optional(),
     AI_BASE_URL: z.string().min(1).default("https://apis.opengateway.ai/v1"),
     AI_MODEL: z.string().min(1).default("openai/gpt-5.4"),
-    AI_CONTEXT_LIMIT: z.coerce.number().int().positive().default(200_000),
+    AI_CONTEXT_LIMIT: z.coerce.number().int().positive().default(128_000),
     DEBUG_SHOW_FINISH_REASON: z.stringbool().default(false),
     DEBUG_SHOW_TOOL_RESULTS: z.stringbool().default(false),
     DEBUG_SHOW_RAW_TOOL_IO: z.stringbool().default(false),

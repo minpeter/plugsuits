@@ -55,7 +55,7 @@ Estimated additional reduction: ~60-80 lines.
 
 These are tightly coupled to CEA's runtime UX and must remain CEA-specific:
 
-- **`AgentManager` class** — OpenAI-compatible model building, compaction budget calculation, and runtime model switching via `/model`. Cannot be replaced without losing CEA-specific runtime fidelity.
+- **`AgentManager` class** — OpenAI-compatible model building, compaction budget calculation, and startup model selection via `--model` / `-m`. Cannot be replaced without losing CEA-specific runtime fidelity.
 - **`buildModel()` / `buildCompactionConfig()`** — Requires a live OpenAI-compatible model instance.
 - **TUI selector overlays** — Interactive model/reasoning/tool-fallback selector UIs. Pure CEA UX.
 - **`buildAgentStreamWithTodoContinuation()`** — Splices TODO reminder messages into the stream. CEA-specific loop control.

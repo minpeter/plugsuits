@@ -30,7 +30,7 @@
     "pss": "cli.js"
   },
   "scripts": {
-    "dev": "node --watch --env-file=.env --conditions=@ai-sdk-tool/source --import tsx src/entrypoints/main.ts",
+    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx src/entrypoints/main.ts",
     "build": "tsc && node scripts/postbuild.mjs && node ../../scripts/fix-esm-imports.mjs dist",
     "test": "vitest run src",
     "typecheck": "tsc --noEmit",

@@ -11,6 +11,7 @@ import {
   defineAgent,
 } from "@ai-sdk-tool/harness/runtime";
 import { FileSnapshotStore } from "@ai-sdk-tool/harness/sessions";
+import { buildCompactionTokenBudget } from "./compaction-config";
 import { env } from "./env";
 
 const provider = createOpenAICompatible({
@@ -53,24 +54,13 @@ function getTracker(threadId: string): SessionMemoryTracker {
 
 function historyConfig(threadId: string) {
   const tracker = getTracker(threadId);
+  const compactionBudget = buildCompactionTokenBudget(env.AI_CONTEXT_LIMIT);
+
   return {
     compaction: {
       enabled: true,
       contextLimit: env.AI_CONTEXT_LIMIT,
-      keepRecentTokens: Math.min(
-        30_000,
-        Math.max(4096, Math.floor(env.AI_CONTEXT_LIMIT * 0.3))
-      ),
-      reserveTokens: Math.min(
-        20_000,
-        Math.max(2048, Math.floor(env.AI_CONTEXT_LIMIT * 0.2))
-      ),
-      maxTokens: Math.min(
-        50_000,
-        Math.max(8192, Math.floor(env.AI_CONTEXT_LIMIT * 0.5))
-      ),
-      thresholdRatio: 0.65,
-      speculativeStartRatio: 0.8,
+      ...compactionBudget,
       getStructuredState: tracker.getStructuredState.bind(tracker),
       summarizeFn: summarize,
     },

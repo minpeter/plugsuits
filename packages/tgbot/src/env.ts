@@ -1,21 +1,10 @@
-import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { harnessEnv } from "@ai-sdk-tool/harness";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 const TRAILING_SLASHES = /\/+$/;
-const ENV_FILE_CANDIDATES = [
-  resolve(process.cwd(), ".env"),
-  resolve(process.cwd(), "../../.env"),
-];
-
-for (const envPath of ENV_FILE_CANDIDATES) {
-  if (existsSync(envPath)) {
-    process.loadEnvFile(envPath);
-  }
-}
 
 export const env = createEnv({
   server: {

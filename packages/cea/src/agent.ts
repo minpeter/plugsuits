@@ -50,7 +50,6 @@ export const DEFAULT_MODEL_ID = env.AI_MODEL;
  * Also used as fallback when model-specific limits are not available.
  */
 const OUTPUT_TOKEN_CAP = 64_000;
-const DEFAULT_CONTEXT_LENGTH = 128_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
 type ProviderOptions = HarnessAgentStreamOptions["providerOptions"];
 
@@ -187,7 +186,7 @@ const getEffectiveMaxOutputTokens = (modelId: string): number => {
 };
 
 const getModelContextLength = (_modelId: string): number => {
-  return env.AI_CONTEXT_LIMIT ?? DEFAULT_CONTEXT_LENGTH;
+  return env.AI_CONTEXT_LIMIT;
 };
 
 const getCompactionReserveTokens = (modelId: string): number => {
