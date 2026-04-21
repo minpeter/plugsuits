@@ -19,7 +19,7 @@ const markdownTheme: MarkdownTheme = {
   underline: (t) => t,
 };
 
-describe("BaseToolCallView fallback pending indicator", () => {
+describe("BaseToolCallView rendering", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -31,7 +31,7 @@ describe("BaseToolCallView fallback pending indicator", () => {
   const renderView = (view: BaseToolCallView): string =>
     view.render(120).join("\n");
 
-  it("shows Executing... spinner when input is set but output is pending", async () => {
+  it("does not render an inline Executing indicator (moved to the foreground spinner)", () => {
     const view = new BaseToolCallView(
       "call_1",
       "shell_execute",
@@ -40,14 +40,12 @@ describe("BaseToolCallView fallback pending indicator", () => {
     );
     view.setFinalInput({ command: "ls -la" });
 
-    const output = renderView(view);
-    expect(output).toContain("Executing...");
-    expect(output).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
+    expect(renderView(view)).not.toContain("Executing...");
 
     view.dispose();
   });
 
-  it("removes the indicator once output arrives", async () => {
+  it("renders tool input without leaving trailing blank lines", () => {
     const view = new BaseToolCallView(
       "call_2",
       "shell_execute",
@@ -55,58 +53,28 @@ describe("BaseToolCallView fallback pending indicator", () => {
       () => undefined
     );
     view.setFinalInput({ command: "ls" });
-    expect(renderView(view)).toContain("Executing...");
 
-    view.setOutput("file-a\nfile-b\n");
-    expect(renderView(view)).not.toContain("Executing...");
+    const lines = view.render(120);
+    expect(lines.length).toBeGreaterThan(0);
+    const lastLine = lines.at(-1) ?? "";
+    expect(lastLine.trim().length).toBeGreaterThan(0);
 
     view.dispose();
   });
 
-  it("removes the indicator once an error is reported", async () => {
+  it("renders tool output after it lands", () => {
     const view = new BaseToolCallView(
       "call_3",
       "shell_execute",
       markdownTheme,
       () => undefined
     );
-    view.setFinalInput({ command: "false" });
-    expect(renderView(view)).toContain("Executing...");
+    view.setFinalInput({ command: "ls" });
+    view.setOutput("file-a\nfile-b\n");
 
-    view.setError(new Error("boom"));
-    expect(renderView(view)).not.toContain("Executing...");
-
-    view.dispose();
-  });
-
-  it("does not render the indicator before any input is captured", () => {
-    const view = new BaseToolCallView(
-      "call_4",
-      "shell_execute",
-      markdownTheme,
-      () => undefined
-    );
-
-    expect(renderView(view)).not.toContain("Executing...");
-
-    view.dispose();
-  });
-
-  it("places the indicator immediately below the tool block with no extra blank gap", () => {
-    const view = new BaseToolCallView(
-      "call_5",
-      "shell_execute",
-      markdownTheme,
-      () => undefined
-    );
-    view.setFinalInput({ command: "ls -la" });
-
-    const lines = view.render(120);
-    const indicatorIdx = lines.findIndex((line) => line.includes("Executing..."));
-    expect(indicatorIdx).toBeGreaterThan(0);
-
-    const lineAbove = lines[indicatorIdx - 1];
-    expect(lineAbove.trim().length).toBeGreaterThan(0);
+    const output = renderView(view);
+    expect(output).toContain("file-a");
+    expect(output).toContain("file-b");
 
     view.dispose();
   });

@@ -1228,6 +1228,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
     const baseLoaderMessage = loaderMessage ?? foregroundStatusMessage;
     let reasoningRevivedSpinner = false;
+    let toolPendingCount = 0;
+    let toolRevivedSpinner = false;
+
+    const restoreBaseSpinner = (): void => {
+      if (baseLoaderMessage) {
+        foregroundStatus?.setMessage(baseLoaderMessage);
+      }
+    };
 
     const state: PiTuiStreamState = {
       flags,
@@ -1252,9 +1260,28 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           reasoningRevivedSpinner = false;
           return;
         }
-        if (baseLoaderMessage) {
-          foregroundStatus?.setMessage(baseLoaderMessage);
+        restoreBaseSpinner();
+      },
+      onToolPendingStart: () => {
+        toolPendingCount += 1;
+        if (foregroundStatus) {
+          foregroundStatus.setMessage("Executing...");
+        } else {
+          showLoader("Executing...");
+          toolRevivedSpinner = true;
         }
+      },
+      onToolPendingEnd: () => {
+        toolPendingCount = Math.max(0, toolPendingCount - 1);
+        if (toolPendingCount > 0) {
+          return;
+        }
+        if (toolRevivedSpinner) {
+          clearStatus();
+          toolRevivedSpinner = false;
+          return;
+        }
+        restoreBaseSpinner();
       },
     };
 

@@ -105,6 +105,8 @@ export interface PiTuiStreamState {
   getToolView: (toolCallId: string) => ToolCallView | undefined;
   onReasoningEnd?: () => void;
   onReasoningStart?: () => void;
+  onToolPendingEnd?: () => void;
+  onToolPendingStart?: () => void;
   resetAssistantView: (suppressLeadingSpacer?: boolean) => void;
   streamedToolCallIds: Set<string>;
 }
@@ -259,14 +261,18 @@ export const handleToolCall: StreamPartHandler = (part, state) => {
   if (!shouldSkipToolCallRender) {
     view.setToolName(toolCallPart.toolName);
   }
+
+  state.onToolPendingStart?.();
 };
 
 export const handleToolResult: StreamPartHandler = (part, state) => {
+  const toolResultPart = part as Extract<StreamPart, { type: "tool-result" }>;
+  state.onToolPendingEnd?.();
+
   if (!state.flags.showToolResults) {
     return;
   }
 
-  const toolResultPart = part as Extract<StreamPart, { type: "tool-result" }>;
   state.resetAssistantView(true);
   const view = state.ensureToolView(
     toolResultPart.toolCallId,
@@ -277,6 +283,7 @@ export const handleToolResult: StreamPartHandler = (part, state) => {
 
 export const handleToolError: StreamPartHandler = (part, state) => {
   const toolErrorPart = part as Extract<StreamPart, { type: "tool-error" }>;
+  state.onToolPendingEnd?.();
   state.resetAssistantView(true);
   const view = state.ensureToolView(
     toolErrorPart.toolCallId,
@@ -290,6 +297,7 @@ export const handleToolOutputDenied: StreamPartHandler = (part, state) => {
     StreamPart,
     { type: "tool-output-denied" }
   >;
+  state.onToolPendingEnd?.();
   state.resetAssistantView(true);
   const view = state.ensureToolView(deniedPart.toolCallId, deniedPart.toolName);
   view.setOutputDenied();

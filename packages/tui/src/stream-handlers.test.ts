@@ -1,7 +1,11 @@
 import { Container } from "@mariozechner/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   handleToolApprovalRequest,
+  handleToolCall,
+  handleToolError,
+  handleToolOutputDenied,
+  handleToolResult,
   isVisibleStreamPart,
   type PiTuiStreamState,
 } from "./stream-handlers";
@@ -24,7 +28,9 @@ const markdownTheme = {
   underline: (text: string) => text,
 };
 
-function createState() {
+function createState(
+  overrides: Partial<PiTuiStreamState> = {}
+): { chatContainer: Container; state: PiTuiStreamState } {
   const chatContainer = new Container();
   const toolViews = new Map<string, BaseToolCallView>();
 
@@ -57,6 +63,7 @@ function createState() {
     getToolView: (toolCallId) => toolViews.get(toolCallId),
     resetAssistantView: () => undefined,
     streamedToolCallIds: new Set(),
+    ...overrides,
   };
 
   return { chatContainer, state };
@@ -95,5 +102,100 @@ describe("stream-handlers", () => {
         showToolResults: true,
       })
     ).toBe(true);
+  });
+
+  it("fires onToolPendingStart when a tool-call is dispatched", () => {
+    const onToolPendingStart = vi.fn();
+    const { state } = createState({ onToolPendingStart });
+
+    handleToolCall(
+      {
+        type: "tool-call",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+        input: { command: "ls" },
+      } as never,
+      state
+    );
+
+    expect(onToolPendingStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onToolPendingEnd when a tool-result arrives", () => {
+    const onToolPendingEnd = vi.fn();
+    const { state } = createState({ onToolPendingEnd });
+
+    handleToolResult(
+      {
+        type: "tool-result",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+        output: "files",
+      } as never,
+      state
+    );
+
+    expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onToolPendingEnd when a tool-error arrives", () => {
+    const onToolPendingEnd = vi.fn();
+    const { state } = createState({ onToolPendingEnd });
+
+    handleToolError(
+      {
+        type: "tool-error",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+        error: new Error("boom"),
+      } as never,
+      state
+    );
+
+    expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onToolPendingEnd when tool output is denied", () => {
+    const onToolPendingEnd = vi.fn();
+    const { state } = createState({ onToolPendingEnd });
+
+    handleToolOutputDenied(
+      {
+        type: "tool-output-denied",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+      } as never,
+      state
+    );
+
+    expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onToolPendingEnd even when showToolResults flag is disabled", () => {
+    const onToolPendingEnd = vi.fn();
+    const { state } = createState({
+      onToolPendingEnd,
+      flags: {
+        showFiles: false,
+        showFinishReason: false,
+        showRawToolIo: false,
+        showReasoning: true,
+        showSources: false,
+        showSteps: false,
+        showToolResults: false,
+      },
+    });
+
+    handleToolResult(
+      {
+        type: "tool-result",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+        output: "files",
+      } as never,
+      state
+    );
+
+    expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,7 +3,6 @@ import {
   Markdown,
   type MarkdownTheme,
   Spacer,
-  Text,
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
@@ -180,8 +179,6 @@ export class BaseToolCallView extends Container {
   private pendingSpinnerTicker: SpinnerTicker | null = null;
   private pendingTemplate: string | null = null;
   private lastPendingFrame = "";
-  private pendingIndicatorText: Text | null = null;
-  private pendingIndicatorTicker: SpinnerTicker | null = null;
   private prettyBlockActive = false;
   private readBlock: Container | null = null;
   private readBody: BackgroundBody | null = null;
@@ -211,7 +208,6 @@ export class BaseToolCallView extends Container {
 
   dispose(): void {
     this.stopPendingSpinner();
-    this.stopInlinePendingIndicator();
   }
 
   async appendInputChunk(chunk: string): Promise<void> {
@@ -369,38 +365,6 @@ export class BaseToolCallView extends Container {
     );
   }
 
-  private ensureInlinePendingIndicator(): void {
-    if (!this.pendingIndicatorText) {
-      this.pendingIndicatorText = new Text("", 1, 0);
-    } else {
-      this.removeChild(this.pendingIndicatorText);
-    }
-
-    this.addChild(this.pendingIndicatorText);
-
-    if (this.pendingIndicatorTicker) {
-      return;
-    }
-
-    this.pendingIndicatorTicker = createSpinnerTicker((frame) => {
-      this.pendingIndicatorText?.setText(
-        stylePendingIndicator(frame, PENDING_MESSAGE)
-      );
-      this.requestRender?.();
-    });
-  }
-
-  private stopInlinePendingIndicator(): void {
-    if (this.pendingIndicatorTicker) {
-      this.pendingIndicatorTicker.stop();
-      this.pendingIndicatorTicker = null;
-    }
-    if (this.pendingIndicatorText) {
-      this.removeChild(this.pendingIndicatorText);
-      this.pendingIndicatorText = null;
-    }
-  }
-
   private resolveBestInput(): unknown {
     if (this.finalInput !== undefined) {
       return this.finalInput;
@@ -452,13 +416,11 @@ export class BaseToolCallView extends Container {
 
     if (!this.showRawToolIo && this.tryRenderWithCustomRenderer(bestInput)) {
       if (this.prettyBlockActive) {
-        this.stopInlinePendingIndicator();
         return;
       }
       if (this.renderedOverride) {
         this.setDisplayMode("content");
         this.content.setText(this.renderedOverride);
-        this.syncInlinePendingIndicator();
         return;
       }
     }
@@ -467,7 +429,6 @@ export class BaseToolCallView extends Container {
     this.setDisplayMode("content");
 
     if (this.shouldSuppressRawFallback()) {
-      this.stopInlinePendingIndicator();
       return;
     }
 
@@ -493,29 +454,6 @@ export class BaseToolCallView extends Container {
     }
 
     this.content.setText(blocks.join("\n\n"));
-    this.syncInlinePendingIndicator();
-  }
-
-  private isAwaitingResult(): boolean {
-    const hasInput =
-      this.finalInput !== undefined ||
-      this.parsedInput !== undefined ||
-      this.inputBuffer.length > 0;
-
-    return (
-      hasInput &&
-      this.output === undefined &&
-      this.error === undefined &&
-      !this.outputDenied
-    );
-  }
-
-  private syncInlinePendingIndicator(): void {
-    if (this.isAwaitingResult()) {
-      this.ensureInlinePendingIndicator();
-    } else {
-      this.stopInlinePendingIndicator();
-    }
   }
 }
 
