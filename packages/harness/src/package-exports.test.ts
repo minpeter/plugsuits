@@ -32,6 +32,9 @@ describe("package exports", () => {
     expect(exportsMap["./memory"]?.["@ai-sdk-tool/source"]).toBe(
       "./src/subpath/memory.ts"
     );
+    expect(exportsMap["./preferences"]?.["@ai-sdk-tool/source"]).toBe(
+      "./src/subpath/preferences.ts"
+    );
     expect(exportsMap["./mcp"]?.["@ai-sdk-tool/source"]).toBe(
       "./src/subpath/mcp.ts"
     );

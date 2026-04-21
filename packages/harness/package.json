@@ -30,6 +30,11 @@
       "import": "./dist/subpath/memory.js",
       "types": "./dist/subpath/memory.d.ts"
     },
+    "./preferences": {
+      "@ai-sdk-tool/source": "./src/subpath/preferences.ts",
+      "import": "./dist/subpath/preferences.js",
+      "types": "./dist/subpath/preferences.d.ts"
+    },
     "./mcp": {
       "@ai-sdk-tool/source": "./src/subpath/mcp.ts",
       "import": "./dist/subpath/mcp.js",

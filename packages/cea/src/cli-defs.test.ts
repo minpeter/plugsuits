@@ -177,23 +177,62 @@ describe("resolveSharedConfig", () => {
     expect(resolveSharedConfig(args).model).toBeNull();
   });
 
-  it("uses explicit toolcall-mode", () => {
+  it("returns explicit toolcall-mode when flag was passed on the command line", () => {
     const args: SharedArgs = { "toolcall-mode": "hermes" };
-    expect(resolveSharedConfig(args).toolFallbackMode).toBe("hermes");
+    const config = resolveSharedConfig(args, {
+      rawArgs: ["--toolcall-mode", "hermes"],
+    });
+    expect(config.toolFallbackMode).toBe("hermes");
+    expect(config.toolFallbackModeExplicit).toBe(true);
   });
 
-  it("uses default toolcall-mode when undefined", () => {
+  it("returns null toolcall-mode when flag was not on the command line", () => {
     const args: SharedArgs = {};
-    expect(resolveSharedConfig(args).toolFallbackMode).toBe("disable");
+    const config = resolveSharedConfig(args, { rawArgs: [] });
+    expect(config.toolFallbackMode).toBeNull();
+    expect(config.toolFallbackModeExplicit).toBe(false);
   });
 
-  it("uses translate false", () => {
+  it("recognizes --tool-fallback legacy flag as explicit", () => {
+    const args: SharedArgs = { "toolcall-mode": "morphxml" };
+    const config = resolveSharedConfig(args, {
+      rawArgs: ["--tool-fallback"],
+    });
+    expect(config.toolFallbackModeExplicit).toBe(true);
+    expect(config.toolFallbackMode).toBe("morphxml");
+  });
+
+  it("returns translate false when --no-translate was passed", () => {
     const args: SharedArgs = { translate: false };
-    expect(resolveSharedConfig(args).translateUserPrompts).toBe(false);
+    const config = resolveSharedConfig(args, { rawArgs: ["--no-translate"] });
+    expect(config.translateUserPrompts).toBe(false);
   });
 
-  it("defaults translate to true when undefined", () => {
+  it("returns translate true when --translate was passed", () => {
+    const args: SharedArgs = { translate: true };
+    const config = resolveSharedConfig(args, { rawArgs: ["--translate"] });
+    expect(config.translateUserPrompts).toBe(true);
+  });
+
+  it("returns null translate when no translate flag was on the command line", () => {
     const args: SharedArgs = {};
-    expect(resolveSharedConfig(args).translateUserPrompts).toBe(true);
+    const config = resolveSharedConfig(args, { rawArgs: [] });
+    expect(config.translateUserPrompts).toBeNull();
+  });
+
+  it("recognizes =value form for explicitness detection", () => {
+    const args: SharedArgs = { "toolcall-mode": "hermes" };
+    const config = resolveSharedConfig(args, {
+      rawArgs: ["--toolcall-mode=hermes"],
+    });
+    expect(config.toolFallbackModeExplicit).toBe(true);
+  });
+
+  it("treats missing rawArgs as no explicit flags", () => {
+    const args: SharedArgs = { translate: true, "toolcall-mode": "hermes" };
+    const config = resolveSharedConfig(args);
+    expect(config.translateUserPrompts).toBeNull();
+    expect(config.toolFallbackMode).toBeNull();
+    expect(config.toolFallbackModeExplicit).toBe(false);
   });
 });

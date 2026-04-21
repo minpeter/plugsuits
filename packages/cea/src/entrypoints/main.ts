@@ -52,6 +52,7 @@ import {
 } from "../commands";
 import { createClearCommand } from "../commands/clear";
 import { createCompactCommand } from "../commands/compact";
+import { configurePreferencesPersistence } from "../commands/preferences-persistence";
 import { createReasoningModeCommand } from "../commands/reasoning-mode";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { createTranslateCommand } from "../commands/translate";
@@ -78,7 +79,12 @@ import {
 } from "../tool-fallback-mode";
 import { resetMissingLinesFailures } from "../tools/modify/edit-file-diagnostics";
 import { cleanup } from "../tools/utils/execute/process-manager";
+import { createUserPreferencesStore } from "../user-preferences";
 import { initializeTools } from "../utils/tools-manager";
+import {
+  applyPersistedPreferencesToAgentManager,
+  applySharedConfigToAgentManager,
+} from "./preferences-startup";
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_BOLD = "\x1b[1m";
@@ -139,6 +145,11 @@ const sessionManager = sessionManagerScope.__ceaSessionManager;
 const sessionStoreBaseDir = join(process.cwd(), ".plugsuits", "sessions");
 mkdirSync(sessionStoreBaseDir, { recursive: true });
 const store = new FileSnapshotStore(sessionStoreBaseDir);
+const userPreferencesBundle = createUserPreferencesStore();
+configurePreferencesPersistence({
+  bundle: userPreferencesBundle.bundle,
+  workspaceStore: userPreferencesBundle.workspaceStore,
+});
 const resolveSessionMemoryStorePath = (sessionId: string): string =>
   join(sessionStoreBaseDir, sessionId, "session-memory.md");
 const createSessionMemoryStore = (sessionId: string): FileMemoryStore =>
@@ -644,15 +655,16 @@ const mainCommand = defineCommand({
     });
     await replaceCurrentSessionHistory(sessionManager.getId());
 
-    const config = resolveSharedConfig(args as SharedArgs);
-    if (config.model) {
-      agentManager.setModelId(config.model);
-    }
-    if (config.reasoningMode !== null) {
-      agentManager.setReasoningMode(config.reasoningMode);
-    }
-    agentManager.setToolFallbackMode(config.toolFallbackMode);
-    agentManager.setTranslationEnabled(config.translateUserPrompts);
+    await applyPersistedPreferencesToAgentManager(
+      agentManager,
+      userPreferencesBundle.store
+    );
+    applySharedConfigToAgentManager(
+      agentManager,
+      resolveSharedConfig(args as SharedArgs, {
+        rawArgs: process.argv.slice(2),
+      })
+    );
     await updateCompactionForCurrentModel();
 
     const promptArg = (

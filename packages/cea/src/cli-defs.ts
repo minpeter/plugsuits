@@ -97,8 +97,9 @@ export const normalizeRawArgs = (rawArgs: string[]): string[] => {
 export interface SharedConfig {
   model: string | null;
   reasoningMode: ReasoningMode | null;
-  toolFallbackMode: ToolFallbackMode;
-  translateUserPrompts: boolean;
+  toolFallbackMode: ToolFallbackMode | null;
+  toolFallbackModeExplicit: boolean;
+  translateUserPrompts: boolean | null;
 }
 
 export interface SharedArgs {
@@ -109,14 +110,59 @@ export interface SharedArgs {
   translate?: boolean;
 }
 
-export const resolveSharedConfig = (args: SharedArgs): SharedConfig => {
+export interface ResolveSharedConfigOptions {
+  rawArgs?: readonly string[];
+}
+
+const rawArgMatches = (arg: string, ...names: string[]): boolean => {
+  for (const name of names) {
+    if (arg === name) {
+      return true;
+    }
+    if (arg.startsWith(`${name}=`)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const hasFlag = (
+  rawArgs: readonly string[] | undefined,
+  ...names: string[]
+): boolean => {
+  if (!rawArgs) {
+    return false;
+  }
+  return rawArgs.some((arg) => rawArgMatches(arg, ...names));
+};
+
+export const resolveSharedConfig = (
+  args: SharedArgs,
+  options: ResolveSharedConfigOptions = {}
+): SharedConfig => {
+  const { rawArgs } = options;
   const explicitReasoningMode = args["reasoning-mode"];
+
+  const translateExplicit = hasFlag(rawArgs, "--translate", "--no-translate");
+  const toolFallbackExplicit = hasFlag(
+    rawArgs,
+    "--toolcall-mode",
+    "--tool-fallback"
+  );
+
+  let translateUserPrompts: boolean | null = null;
+  if (translateExplicit) {
+    translateUserPrompts = args.translate ?? true;
+  }
 
   return {
     model: args.model ?? null,
     reasoningMode:
       explicitReasoningMode ?? (args.think ? ("on" as const) : null),
-    toolFallbackMode: args["toolcall-mode"] ?? DEFAULT_TOOL_FALLBACK_MODE,
-    translateUserPrompts: args.translate ?? true,
+    toolFallbackMode: toolFallbackExplicit
+      ? (args["toolcall-mode"] ?? DEFAULT_TOOL_FALLBACK_MODE)
+      : null,
+    toolFallbackModeExplicit: toolFallbackExplicit,
+    translateUserPrompts,
   };
 };

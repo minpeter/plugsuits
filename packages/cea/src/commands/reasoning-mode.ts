@@ -1,6 +1,7 @@
 import type { Command } from "@ai-sdk-tool/harness";
 import { agentManager } from "../agent";
 import { parseReasoningMode, REASONING_MODES } from "../reasoning-mode";
+import { persistPreferencePatch } from "./preferences-persistence";
 
 const REASONING_MODE_USAGE = REASONING_MODES.join("|");
 
@@ -46,6 +47,7 @@ export const createReasoningModeCommand = (): Command => ({
     }
 
     agentManager.setReasoningMode(mode);
+    persistPreferencePatch({ reasoningMode: mode });
 
     return {
       success: true,

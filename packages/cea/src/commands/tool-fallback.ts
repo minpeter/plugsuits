@@ -4,6 +4,7 @@ import {
   parseToolFallbackMode,
   TOOL_FALLBACK_MODES,
 } from "../tool-fallback-mode";
+import { persistPreferencePatch } from "./preferences-persistence";
 
 const TOOL_FALLBACK_USAGE = TOOL_FALLBACK_MODES.join("|");
 
@@ -39,6 +40,7 @@ export const createToolFallbackCommand = (): Command => ({
     }
 
     agentManager.setToolFallbackMode(mode);
+    persistPreferencePatch({ toolFallbackMode: mode });
     return {
       success: true,
       message: `Tool fallback mode set to: ${mode}`,
