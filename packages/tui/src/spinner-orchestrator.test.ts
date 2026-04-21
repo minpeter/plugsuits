@@ -215,6 +215,31 @@ describe("createSpinnerOrchestrator", () => {
       expect(h.events).toContainEqual({ type: "clearStatus" });
       expect(h.state().hasSpinner).toBe(false);
     });
+
+    // Regression: tool-revived spinner ownership must transfer to reasoning
+    // when the tool completes mid-reasoning. Otherwise onReasoningEnd leaves
+    // the spinner stuck on Working... with no pending work.
+    it("tool-revived spinner becomes reasoning-owned when tool ends mid-reasoning", () => {
+      const h = createAdapter(false);
+      const orch = createSpinnerOrchestrator(h.adapter, "Working...");
+
+      orch.onToolPendingStart();
+      expect(h.events).toContainEqual({
+        type: "showLoader",
+        message: "Executing...",
+      });
+
+      orch.onReasoningStart();
+      expect(h.state().currentMessage).toBe("Thinking...");
+
+      orch.onToolPendingEnd();
+      expect(h.state().currentMessage).toBe("Thinking...");
+      expect(h.state().hasSpinner).toBe(true);
+
+      orch.onReasoningEnd();
+      expect(h.events).toContainEqual({ type: "clearStatus" });
+      expect(h.state().hasSpinner).toBe(false);
+    });
   });
 
   describe("missing baseLoaderMessage", () => {

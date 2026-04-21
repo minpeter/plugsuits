@@ -76,6 +76,10 @@ export const createSpinnerOrchestrator = (
         return;
       }
       if (reasoningActive) {
+        if (toolRevivedSpinner) {
+          reasoningRevivedSpinner = true;
+          toolRevivedSpinner = false;
+        }
         return;
       }
       if (toolRevivedSpinner) {
