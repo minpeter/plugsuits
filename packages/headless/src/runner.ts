@@ -77,7 +77,7 @@ function buildTurnStreamOptions(params: {
   } = turnOverrides ?? {};
 
   return {
-    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     ...restTurnOverrides,
     messages: overrideMessages ?? messages,
     abortSignal: mergeAbortSignals(abortSignal, overrideAbortSignal),
@@ -164,7 +164,7 @@ function getRecommendedMaxOutputTokens(
   messages: ModelMessage[]
 ): number | undefined {
   if (!hasRecommendedMaxOutputTokens(history)) {
-    return undefined;
+    return;
   }
 
   return history.getRecommendedMaxOutputTokens(messages);

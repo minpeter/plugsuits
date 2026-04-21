@@ -56,9 +56,7 @@ export interface PendingToolResult {
 const fallbackGetToolInputId = (part: {
   id?: string;
   toolCallId?: string;
-}): string | undefined => {
-  return part.id ?? part.toolCallId;
-};
+}): string | undefined => part.id ?? part.toolCallId;
 
 const fallbackGetToolInputChunk = (part: {
   delta?: unknown;

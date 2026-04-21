@@ -90,7 +90,7 @@ function parseArg(flag: string): string | undefined {
   const args = process.argv.slice(2);
   const index = args.indexOf(flag);
   if (index === -1) {
-    return undefined;
+    return;
   }
   return args[index + 1];
 }

@@ -104,7 +104,7 @@ export class PostCompactRestorer {
     const items = this.getRestorationItems();
 
     if (items.length === 0) {
-      return undefined;
+      return;
     }
 
     const parts: string[] = [
@@ -129,7 +129,7 @@ export class PostCompactRestorer {
     const message = this.buildRestorationMessage();
 
     if (!message) {
-      return undefined;
+      return;
     }
 
     return [{ role: "user", content: message }];

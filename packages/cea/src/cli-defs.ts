@@ -37,9 +37,8 @@ export const sharedArgsDef = {
   },
 } satisfies ArgsDef;
 
-const hasValue = (value: string | undefined): value is string => {
-  return typeof value === "string" && !value.startsWith("--");
-};
+const hasValue = (value: string | undefined): value is string =>
+  typeof value === "string" && !value.startsWith("--");
 
 export const normalizeRawArgs = (rawArgs: string[]): string[] => {
   const normalized: string[] = [];

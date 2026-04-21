@@ -20,7 +20,7 @@ export const mergeAgentModelProfile = (params: {
   const { base, override } = params;
 
   if (!(base || override)) {
-    return undefined;
+    return;
   }
 
   return {
@@ -46,7 +46,7 @@ export const mergeAgentModelProfile = (params: {
       });
 
       if (!(baseResult || overrideResult)) {
-        return undefined;
+        return;
       }
 
       return {

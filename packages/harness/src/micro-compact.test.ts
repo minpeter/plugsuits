@@ -85,9 +85,11 @@ function makeTokenSizedText(tokens: number): string {
 }
 
 function estimateCheckpointTokens(messages: CheckpointMessage[]): number {
-  return messages.reduce((total, checkpoint) => {
-    return total + estimateTokens(extractMessageText(checkpoint.message));
-  }, 0);
+  return messages.reduce(
+    (total, checkpoint) =>
+      total + estimateTokens(extractMessageText(checkpoint.message)),
+    0
+  );
 }
 
 describe("microCompactMessages", () => {

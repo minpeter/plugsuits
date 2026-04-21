@@ -293,9 +293,9 @@ async function collectNestedIgnoreDirectories(
       continue;
     }
 
-    const hasIgnoreFile = entries.some((entry) => {
-      return entry.isFile() && IGNORE_FILE_NAME_SET.has(entry.name);
-    });
+    const hasIgnoreFile = entries.some(
+      (entry) => entry.isFile() && IGNORE_FILE_NAME_SET.has(entry.name)
+    );
     if (hasIgnoreFile) {
       discovered.add(currentDir);
     }
@@ -637,7 +637,15 @@ export async function safeReadFileEnhanced(
   let startLine1: number;
   let endLine1: number;
 
-  if (options?.around_line !== undefined) {
+  if (options?.around_line === undefined) {
+    const offset = Math.max(options?.offset ?? 0, 0);
+    const limit = Math.max(
+      options?.limit ?? FILE_READ_POLICY.maxLinesPerRead,
+      1
+    );
+    startLine1 = Math.min(offset + 1, totalLines);
+    endLine1 = Math.min(offset + limit, totalLines);
+  } else {
     const before = Math.max(options.before ?? 5, 0);
     const after = Math.max(options.after ?? 10, 0);
     const clampedAroundLine = Math.min(
@@ -652,14 +660,6 @@ export async function safeReadFileEnhanced(
     });
     startLine1 = window.startLine1;
     endLine1 = window.endLine1;
-  } else {
-    const offset = Math.max(options?.offset ?? 0, 0);
-    const limit = Math.max(
-      options?.limit ?? FILE_READ_POLICY.maxLinesPerRead,
-      1
-    );
-    startLine1 = Math.min(offset + 1, totalLines);
-    endLine1 = Math.min(offset + limit, totalLines);
   }
 
   const selectedLines = allLines.slice(startLine1 - 1, endLine1);

@@ -189,9 +189,8 @@ export const registerCommand = (command: Command): void => {
   defaultRegistry.register(command);
 };
 
-export const resolveRegisteredCommandName = (name: string): string => {
-  return defaultRegistry.resolve(name);
-};
+export const resolveRegisteredCommandName = (name: string): string =>
+  defaultRegistry.resolve(name);
 
 defaultRegistry.register(createHelpCommand(getCommands));
 
@@ -217,12 +216,10 @@ export const parseCommand = (
 
 export const executeCommand = (
   input: string
-): Promise<CommandResult | SkillCommandResult | null> => {
-  return defaultRegistry.execute(input);
-};
+): Promise<CommandResult | SkillCommandResult | null> =>
+  defaultRegistry.execute(input);
 
 export const isSkillCommandResult = (
   result: CommandResult | SkillCommandResult | null
-): result is SkillCommandResult => {
-  return result !== null && "isSkill" in result && result.isSkill === true;
-};
+): result is SkillCommandResult =>
+  result !== null && "isSkill" in result && result.isSkill === true;

@@ -51,13 +51,11 @@ const isPlainEmptyObject = (value: unknown): boolean => {
   return Object.keys(value).length === 0;
 };
 
-const applyGrayBackground = (text: string): string => {
-  return `${ANSI_BG_GRAY}${text}${ANSI_RESET}`;
-};
+const applyGrayBackground = (text: string): string =>
+  `${ANSI_BG_GRAY}${text}${ANSI_RESET}`;
 
-const applyErrorBackground = (text: string): string => {
-  return `${ANSI_BG_DARK_RED}${text}${ANSI_RESET}`;
-};
+const applyErrorBackground = (text: string): string =>
+  `${ANSI_BG_DARK_RED}${text}${ANSI_RESET}`;
 
 class TrimmedMarkdown extends Markdown {
   override render(width: number): string[] {
@@ -380,7 +378,7 @@ export class BaseToolCallView extends Container {
       return this.inputBuffer;
     }
 
-    return undefined;
+    return;
   }
 
   private tryRenderWithCustomRenderer(bestInput: unknown): boolean {

@@ -121,7 +121,7 @@ export class BackgroundMemoryExtractor {
 
   getStructuredState(): string | undefined {
     if (!this.hasExtractedAtLeastOnce) {
-      return undefined;
+      return;
     }
     const content = this.cachedState?.trim();
     return content && content.length > 0 ? this.cachedState : undefined;

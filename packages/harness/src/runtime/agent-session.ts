@@ -131,8 +131,8 @@ class AgentSessionImpl<TAgentName extends string, TContext>
         messages: this.history.getMessagesForLLM(),
         maxIterations: options?.maxIterations,
         abortSignal: options?.signal,
-        onBeforeTurn: async (loopContext) => {
-          return await this.definition.onBeforeTurn?.(
+        onBeforeTurn: async (loopContext) =>
+          await this.definition.onBeforeTurn?.(
             {
               phase:
                 loopContext.iteration === 0 ? "new-turn" : "intermediate-step",
@@ -140,8 +140,7 @@ class AgentSessionImpl<TAgentName extends string, TContext>
               messages: loopContext.messages,
             },
             sessionContext
-          );
-        },
+          ),
         onStepComplete: async (step) => {
           this.history.addModelMessages(step.response.messages);
           this.syncRevision();

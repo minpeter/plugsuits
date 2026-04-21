@@ -17,7 +17,7 @@ export function createHashlineChunkFormatter(
 
   const flush = (): string | undefined => {
     if (outputLines.length === 0) {
-      return undefined;
+      return;
     }
     const chunk = outputLines.join("\n");
     outputLines = [];

@@ -418,7 +418,7 @@ export class CompactionOrchestrator {
       value?: CompactionOrchestratorCallbacks | CompactionOrchestratorOptions
     ): CompactionCircuitBreaker | undefined => {
       if (!(value && isCompactionOrchestratorOptions(value))) {
-        return undefined;
+        return;
       }
 
       return value.circuitBreaker;

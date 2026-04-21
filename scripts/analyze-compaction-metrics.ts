@@ -11,9 +11,15 @@ const args = process.argv.slice(2);
 const isSample = args.includes("--sample");
 const outputPath = (() => {
   const idx = args.indexOf("--output");
-  return idx !== -1
-    ? args[idx + 1]
-    : resolvePath(EVIDENCE_DIR, "compaction-e2e-report.md");
+  const defaultOutputPath = resolvePath(
+    EVIDENCE_DIR,
+    "compaction-e2e-report.md"
+  );
+  if (idx === -1) {
+    return defaultOutputPath;
+  }
+  const value = args[idx + 1];
+  return value && !value.startsWith("--") ? value : defaultOutputPath;
 })();
 interface BaseMetric {
   event: string;
@@ -160,7 +166,7 @@ function buildScenarioTable(limit: number, turns: TurnData[]): string {
   for (const t of turns) {
     const compaction = t.hasCompaction ? "✓ YES" : "No";
     const strategy = t.compactionStrategy ?? "—";
-    const blocking = t.blockingMs != null ? `${t.blockingMs}` : "—";
+    const blocking = t.blockingMs == null ? "—" : `${t.blockingMs}`;
     const tokensAfter = t.hasCompaction ? fmt(t.tokensAfter) : "—";
 
     rows.push(

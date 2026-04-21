@@ -1045,7 +1045,7 @@ export class CheckpointHistory {
 
   private resolvePreviousSummary(summaryIndex: number): string | undefined {
     if (summaryIndex < 0) {
-      return undefined;
+      return;
     }
 
     const previousSummaryMessage = this.messages[summaryIndex];
@@ -1056,7 +1056,7 @@ export class CheckpointHistory {
       return previousSummaryMessage.message.content;
     }
 
-    return undefined;
+    return;
   }
 
   private buildSessionMemoryCompactionSummary(
@@ -1070,7 +1070,7 @@ export class CheckpointHistory {
       this.logCompactionDebug(
         "compact summary fallback=llm reason=structured-state-empty"
       );
-      return undefined;
+      return;
     }
 
     const estimatedStateTokens = estimateTokens(structuredState);
@@ -1081,7 +1081,7 @@ export class CheckpointHistory {
       this.logCompactionDebug(
         `compact summary fallback=llm reason=structured-state-too-large structuredStateTokens=${estimatedStateTokens} threshold=${Math.floor(sessionMemoryThreshold)} contextLimit=${contextLimit}`
       );
-      return undefined;
+      return;
     }
 
     const sessionMemoryCompactionConfig =
@@ -1124,7 +1124,7 @@ export class CheckpointHistory {
       this.logCompactionDebug(
         `compact summary fallback=llm reason=session-memory-keep-window-empty keepFromIndex=${adjustedKeepFromIndex} coveredUntilIndex=${coveredUntilIndex ?? "none"}`
       );
-      return undefined;
+      return;
     }
 
     this.logCompactionDebug(
@@ -1147,7 +1147,7 @@ export class CheckpointHistory {
       absoluteCoveredIndex === undefined ||
       !Number.isFinite(absoluteCoveredIndex)
     ) {
-      return undefined;
+      return;
     }
 
     const normalizedAbsoluteIndex = Math.max(
@@ -2239,13 +2239,13 @@ export class CheckpointHistory {
       const summaryIndex = this.messages.findIndex(
         (message) => message.id === this.summaryMessageId
       );
-      if (summaryIndex !== -1) {
+      if (summaryIndex === -1) {
+        this.messages = pruneResult.messages;
+      } else {
         this.messages = [
           ...this.messages.slice(0, summaryIndex),
           ...pruneResult.messages,
         ];
-      } else {
-        this.messages = pruneResult.messages;
       }
     } else {
       this.messages = pruneResult.messages;
@@ -2280,10 +2280,10 @@ export class CheckpointHistory {
       const summaryIndex = this.messages.findIndex(
         (message) => message.id === this.summaryMessageId
       );
-      if (summaryIndex !== -1) {
-        this.messages = [...this.messages.slice(0, summaryIndex), ...messages];
-      } else {
+      if (summaryIndex === -1) {
         this.messages = messages;
+      } else {
+        this.messages = [...this.messages.slice(0, summaryIndex), ...messages];
       }
     } else {
       this.messages = messages;

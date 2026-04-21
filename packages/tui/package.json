@@ -41,7 +41,10 @@
   },
   "devDependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
-    "@types/node": "^25.4.0",
-    "typescript": "^5.9.3"
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

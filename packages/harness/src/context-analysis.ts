@@ -127,7 +127,7 @@ function findPathInText(text: string): string | undefined {
     }
   }
 
-  return undefined;
+  return;
 }
 
 function findPathFromPathKeys(
@@ -144,7 +144,7 @@ function findPathFromPathKeys(
     }
   }
 
-  return undefined;
+  return;
 }
 
 function findPathFromNestedValues(
@@ -168,7 +168,7 @@ function findPathFromNestedValues(
     }
   }
 
-  return undefined;
+  return;
 }
 
 function findPathByKey(value: unknown, depth = 0): string | undefined {
@@ -177,7 +177,7 @@ function findPathByKey(value: unknown, depth = 0): string | undefined {
     value == null ||
     typeof value !== "object"
   ) {
-    return undefined;
+    return;
   }
 
   if (Array.isArray(value)) {
@@ -261,7 +261,7 @@ function getPrimaryReadPath(output: unknown): string | undefined {
 
   const text = extractOutputText(output);
   if (text.length === 0) {
-    return undefined;
+    return;
   }
 
   return findPathInText(text.slice(0, MAX_TEXT_SCAN_LENGTH));

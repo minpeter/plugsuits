@@ -15,14 +15,17 @@
     "@ai-sdk-tool/harness": "workspace:*",
     "@ai-sdk-tool/headless": "workspace:*",
     "@ai-sdk-tool/tui": "workspace:*",
-    "@ai-sdk/openai-compatible": "^2.0.35",
-    "@t3-oss/env-core": "^0.13.10",
-    "ai": "^6.0.116",
+    "@ai-sdk/openai-compatible": "^2.0.41",
+    "@t3-oss/env-core": "^0.13.11",
+    "ai": "^6.0.168",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.4.0",
-    "citty": "^0.2.1",
-    "typescript": "^5.9.3"
+    "@types/node": "^25.6.0",
+    "citty": "^0.2.2",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }

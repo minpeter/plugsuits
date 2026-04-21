@@ -187,7 +187,7 @@ export function getRecommendedMaxOutputTokens(params: {
   } = params;
 
   if (contextLimit <= 0) {
-    return undefined;
+    return;
   }
 
   const cappedReserve = Math.min(

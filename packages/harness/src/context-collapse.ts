@@ -151,7 +151,7 @@ function getInputString(
 ): string | undefined {
   const value = input[key];
   if (typeof value !== "string") {
-    return undefined;
+    return;
   }
 
   const normalized = normalizeHint(value);
@@ -326,7 +326,7 @@ function extractOperationHint(
   input: unknown
 ): string | undefined {
   if (!isRecord(input)) {
-    return undefined;
+    return;
   }
 
   if (type === "read") {

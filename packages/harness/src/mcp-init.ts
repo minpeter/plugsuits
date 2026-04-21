@@ -153,7 +153,7 @@ async function resolveConfig(mcp: Exclude<MCPOption, MCPManager>): Promise<{
   const namedInline = arrayToNamedServers(inlineServers, "inline");
   const allServers = { ...fileServers, ...namedInline };
   const timeoutSuffix =
-    mcp.toolsTimeout !== undefined ? `+timeout:${mcp.toolsTimeout}` : "";
+    mcp.toolsTimeout === undefined ? "" : `+timeout:${mcp.toolsTimeout}`;
   return {
     cacheKey: `combined:${resolvedConfigPath ?? ""}+${stableStringify(inlineServers)}${timeoutSuffix}`,
     options: {

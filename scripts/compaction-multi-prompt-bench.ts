@@ -101,7 +101,7 @@ if (scenarioArgIdx !== -1 && args[scenarioArgIdx + 1]) {
 function readFlagValue(flag: string): string | undefined {
   const index = args.indexOf(flag);
   if (index === -1) {
-    return undefined;
+    return;
   }
   return args[index + 1];
 }

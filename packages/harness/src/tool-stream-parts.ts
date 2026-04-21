@@ -28,9 +28,8 @@ export interface ToolLifecycleState {
   toolName?: string;
 }
 
-export const getToolInputId = (part: ToolInputPartLike): string | undefined => {
-  return part.id ?? part.toolCallId;
-};
+export const getToolInputId = (part: ToolInputPartLike): string | undefined =>
+  part.id ?? part.toolCallId;
 
 export const getToolInputChunk = (
   part: ToolInputDeltaPartLike

@@ -92,49 +92,42 @@ const ANSI_CYAN = "\x1b[36m";
 const ANSI_BRIGHT_CYAN = "\x1b[96m";
 const ANSI_GRAY = "\x1b[90m";
 
-const style = (prefix: string, text: string): string => {
-  return `${prefix}${text}${ANSI_RESET}`;
-};
+const style = (prefix: string, text: string): string =>
+  `${prefix}${text}${ANSI_RESET}`;
 
 const buildCurrentIndicatorLabel = (
   label: string,
   isCurrent: boolean
-): string => {
-  return isCurrent ? `${label} (current)` : label;
-};
+): string => (isCurrent ? `${label} (current)` : label);
 
-const createMarkdownTheme = (): MarkdownTheme => {
-  return {
-    heading: (text) => style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, text),
-    link: (text) => style(`${ANSI_UNDERLINE}${ANSI_CYAN}`, text),
-    linkUrl: (text) => style(ANSI_GRAY, text),
-    code: (text) => style(ANSI_YELLOW, text),
-    codeBlock: (text) => style(ANSI_GREEN, text),
-    codeBlockBorder: (text) => style(ANSI_GRAY, text),
-    quote: (text) => style(`${ANSI_ITALIC}${ANSI_GRAY}`, text),
-    quoteBorder: (text) => style(ANSI_GRAY, text),
-    hr: (text) => style(ANSI_GRAY, text),
-    listBullet: (text) => style(ANSI_MAGENTA, text),
-    bold: (text) => style(ANSI_BOLD, text),
-    italic: (text) => style(ANSI_ITALIC, text),
-    strikethrough: (text) => style(ANSI_DIM, text),
-    underline: (text) => style(ANSI_UNDERLINE, text),
-    codeBlockIndent: "  ",
-  };
-};
+const createMarkdownTheme = (): MarkdownTheme => ({
+  heading: (text) => style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, text),
+  link: (text) => style(`${ANSI_UNDERLINE}${ANSI_CYAN}`, text),
+  linkUrl: (text) => style(ANSI_GRAY, text),
+  code: (text) => style(ANSI_YELLOW, text),
+  codeBlock: (text) => style(ANSI_GREEN, text),
+  codeBlockBorder: (text) => style(ANSI_GRAY, text),
+  quote: (text) => style(`${ANSI_ITALIC}${ANSI_GRAY}`, text),
+  quoteBorder: (text) => style(ANSI_GRAY, text),
+  hr: (text) => style(ANSI_GRAY, text),
+  listBullet: (text) => style(ANSI_MAGENTA, text),
+  bold: (text) => style(ANSI_BOLD, text),
+  italic: (text) => style(ANSI_ITALIC, text),
+  strikethrough: (text) => style(ANSI_DIM, text),
+  underline: (text) => style(ANSI_UNDERLINE, text),
+  codeBlockIndent: "  ",
+});
 
-const createEditorTheme = (): EditorTheme => {
-  return {
-    borderColor: (text: string) => style(ANSI_GRAY, text),
-    selectList: {
-      selectedPrefix: (text: string) => style(`${ANSI_BOLD}${ANSI_CYAN}`, text),
-      selectedText: (text: string) => style(ANSI_CYAN, text),
-      description: (text: string) => style(ANSI_GRAY, text),
-      scrollInfo: (text: string) => style(ANSI_DIM, text),
-      noMatch: (text: string) => style(ANSI_DIM, text),
-    },
-  };
-};
+const createEditorTheme = (): EditorTheme => ({
+  borderColor: (text: string) => style(ANSI_GRAY, text),
+  selectList: {
+    selectedPrefix: (text: string) => style(`${ANSI_BOLD}${ANSI_CYAN}`, text),
+    selectedText: (text: string) => style(ANSI_CYAN, text),
+    description: (text: string) => style(ANSI_GRAY, text),
+    scrollInfo: (text: string) => style(ANSI_DIM, text),
+    noMatch: (text: string) => style(ANSI_DIM, text),
+  },
+});
 
 const sessionManagerScope = globalThis as typeof globalThis & {
   __ceaSessionManager?: SessionManager;
@@ -146,12 +139,10 @@ const sessionManager = sessionManagerScope.__ceaSessionManager;
 const sessionStoreBaseDir = join(process.cwd(), ".plugsuits", "sessions");
 mkdirSync(sessionStoreBaseDir, { recursive: true });
 const store = new FileSnapshotStore(sessionStoreBaseDir);
-const resolveSessionMemoryStorePath = (sessionId: string): string => {
-  return join(sessionStoreBaseDir, sessionId, "session-memory.md");
-};
-const createSessionMemoryStore = (sessionId: string): FileMemoryStore => {
-  return new FileMemoryStore(resolveSessionMemoryStorePath(sessionId));
-};
+const resolveSessionMemoryStorePath = (sessionId: string): string =>
+  join(sessionStoreBaseDir, sessionId, "session-memory.md");
+const createSessionMemoryStore = (sessionId: string): FileMemoryStore =>
+  new FileMemoryStore(resolveSessionMemoryStorePath(sessionId));
 let messageHistory: CheckpointHistory;
 const compactionCircuitBreaker = new CompactionCircuitBreaker();
 const postCompactRestorer = new PostCompactRestorer();
@@ -166,11 +157,10 @@ const unregisterSkillLoadListener = registerSkillLoadListener((skill) => {
 let mcpManager: MCPManager | undefined;
 const trackedReadToolResultIds = new Set<string>();
 
-const toRecord = (value: unknown): Record<string, unknown> | null => {
-  return typeof value === "object" && value !== null
+const toRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : null;
-};
 
 const readTextFromOutput = (output: unknown): string => {
   if (typeof output === "string") {
@@ -324,13 +314,14 @@ registerCommand(
   createCompactCommand({ getMessageHistory: () => messageHistory })
 );
 
-const createTranslationPreprocessor = () => {
-  return async (
+const createTranslationPreprocessor =
+  () =>
+  async (
     input: string,
     hooks: PreprocessHooks
   ): Promise<PreprocessResult | undefined> => {
     if (!(agentManager.isTranslationEnabled() && isNonEnglish(input))) {
-      return undefined;
+      return;
     }
 
     hooks.showStatus("Translating...");
@@ -346,7 +337,7 @@ const createTranslationPreprocessor = () => {
       }
 
       if (!result.translated || result.text === input) {
-        return undefined;
+        return;
       }
 
       return {
@@ -358,7 +349,6 @@ const createTranslationPreprocessor = () => {
       hooks.clearStatus();
     }
   };
-};
 
 const buildAgentStreamWithTodoContinuation = (): RunnableAgent => {
   return {
@@ -503,12 +493,10 @@ const wrapCommand = (
     context: CommandContext,
     original: Command["execute"]
   ) => ReturnType<Command["execute"]>
-): Command => {
-  return {
-    ...command,
-    execute: (context) => execute(context, command.execute),
-  };
-};
+): Command => ({
+  ...command,
+  execute: (context) => execute(context, command.execute),
+});
 
 const createCliCommands = (): Command[] => {
   const commands = Array.from(getCommands().values());
@@ -550,7 +538,7 @@ const requestSignalShutdown = (code: number): void => {
 
 const getAtifOutputPath = (args: { atif?: boolean }): string | undefined => {
   if (!args.atif) {
-    return undefined;
+    return;
   }
 
   return env.ATIF_OUTPUT_PATH || "trajectory.json";
@@ -777,9 +765,9 @@ const mainCommand = defineCommand({
         preserved: "Preserve provider-native reasoning format",
       };
       const selectableSet = new Set(selectableModes);
-      const modeItems: SelectItem[] = REASONING_MODES.filter((mode) => {
-        return selectableSet.has(mode);
-      }).map((mode) => {
+      const modeItems: SelectItem[] = REASONING_MODES.filter((mode) =>
+        selectableSet.has(mode)
+      ).map((mode) => {
         const parsedMode = parseReasoningMode(mode) ?? DEFAULT_REASONING_MODE;
         return {
           value: parsedMode,
@@ -1018,7 +1006,7 @@ const mainCommand = defineCommand({
         !(parsed.name === "reasoning-mode" || parsed.name === "think") ||
         parsed.args.length > 0
       ) {
-        return undefined;
+        return;
       }
 
       const selected = await showReasoningModeSelector(hooks);
@@ -1030,7 +1018,7 @@ const mainCommand = defineCommand({
       hooks: CommandPreprocessHooks
     ): Promise<string | null | undefined> => {
       if (parsed.name !== "tool-fallback" || parsed.args.length > 0) {
-        return undefined;
+        return;
       }
 
       const selected = await showToolFallbackSelector(hooks);
@@ -1042,7 +1030,7 @@ const mainCommand = defineCommand({
       hooks: CommandPreprocessHooks
     ): Promise<string | null | undefined> => {
       if (parsed.name !== "translate" || parsed.args.length > 0) {
-        return undefined;
+        return;
       }
 
       const selected = await showTranslateModeSelector(hooks);
@@ -1082,11 +1070,12 @@ const mainCommand = defineCommand({
         return translateResult;
       }
 
-      return undefined;
+      return;
     };
 
-    const createCommandPreprocessor = () => {
-      return async (
+    const createCommandPreprocessor =
+      () =>
+      async (
         commandInput: string,
         hooks: CommandPreprocessHooks
       ): Promise<string | null> => {
@@ -1105,7 +1094,6 @@ const mainCommand = defineCommand({
 
         return commandInput;
       };
-    };
 
     try {
       await createAgentTUI({
@@ -1121,10 +1109,7 @@ const mainCommand = defineCommand({
         footer: {
           get text() {
             const contextUsage = messageHistory.getContextUsage();
-            if (!contextUsage) {
-              return undefined;
-            }
-            return formatContextUsage(contextUsage);
+            return contextUsage ? formatContextUsage(contextUsage) : undefined;
           },
         },
         header: {

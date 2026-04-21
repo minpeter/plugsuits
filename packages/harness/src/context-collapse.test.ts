@@ -58,11 +58,11 @@ function makeUserMessage(text: string): CheckpointMessage {
 }
 
 function estimateCheckpointTokens(messages: CheckpointMessage[]): number {
-  return messages.reduce((total, checkpointMessage) => {
-    return (
-      total + estimateTokens(extractMessageText(checkpointMessage.message))
-    );
-  }, 0);
+  return messages.reduce(
+    (total, checkpointMessage) =>
+      total + estimateTokens(extractMessageText(checkpointMessage.message)),
+    0
+  );
 }
 
 describe("collapseConsecutiveOps", () => {

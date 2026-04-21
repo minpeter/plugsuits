@@ -9,8 +9,8 @@ import { writeFileTool } from "./modify/write-file";
 import { loadSkillTool } from "./planning/load-skill";
 import { todoWriteTool } from "./planning/todo-write";
 
-export const createTools = () => {
-  return {
+export const createTools = () =>
+  ({
     shell_execute: shellExecuteTool,
     shell_interact: shellInteractTool,
     write_file: writeFileTool,
@@ -21,8 +21,7 @@ export const createTools = () => {
     grep_files: grepTool,
     load_skill: loadSkillTool,
     todo_write: todoWriteTool,
-  } as const;
-};
+  }) as const;
 
 export type ToolRegistry = ReturnType<typeof createTools>;
 

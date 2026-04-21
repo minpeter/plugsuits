@@ -9,9 +9,8 @@ import { colors } from "./colors";
 
 const LEADING_NEWLINES = /^\n+/;
 
-const styleThinkingText = (text: string): string => {
-  return `${colors.dim}${colors.italic}${colors.gray}${text}${colors.reset}`;
-};
+const styleThinkingText = (text: string): string =>
+  `${colors.dim}${colors.italic}${colors.gray}${text}${colors.reset}`;
 
 interface AssistantStreamSegment {
   content: string;

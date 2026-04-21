@@ -24,9 +24,10 @@ function getUsagePercent(currentTokens: number, hardLimitAt: number): number {
 }
 
 function getTotalToolResultTokens(stats: ContextTokenStats): number {
-  return [...stats.toolResults.values()].reduce((sum, item) => {
-    return sum + item.tokens;
-  }, 0);
+  return [...stats.toolResults.values()].reduce(
+    (sum, item) => sum + item.tokens,
+    0
+  );
 }
 
 function getLargestSingleToolResult(stats: ContextTokenStats): {
@@ -72,16 +73,12 @@ function getDuplicateReadSuggestions(
   return [...stats.duplicateReads.entries()]
     .sort((a, b) => b[1].wastedTokens - a[1].wastedTokens)
     .slice(0, MAX_DUPLICATE_SUGGESTIONS)
-    .map(([path, duplicate]) => {
-      return {
-        level:
-          duplicate.wastedTokens >= LARGE_TOOL_RESULT_TOKENS
-            ? "warning"
-            : "info",
-        message: `File ${path} read ${duplicate.count} times, ~${duplicate.wastedTokens} tokens wasted.`,
-        estimatedSavings: duplicate.wastedTokens,
-      };
-    });
+    .map(([path, duplicate]) => ({
+      level:
+        duplicate.wastedTokens >= LARGE_TOOL_RESULT_TOKENS ? "warning" : "info",
+      message: `File ${path} read ${duplicate.count} times, ~${duplicate.wastedTokens} tokens wasted.`,
+      estimatedSavings: duplicate.wastedTokens,
+    }));
 }
 
 function sortSuggestions(

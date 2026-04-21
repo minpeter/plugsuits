@@ -50,8 +50,8 @@ const toToolSet = async (toolSources: ToolSource[] | undefined) => {
 const createToolFromDefinition = (
   source: ToolSource,
   definition: ToolDefinition
-) => {
-  return tool({
+) =>
+  tool({
     description: definition.description,
     inputSchema: definition.parameters as never,
     execute: async (args, context) =>
@@ -65,7 +65,6 @@ const createToolFromDefinition = (
         toolName: definition.name,
       }),
   });
-};
 
 const mergeProviderOptions = (
   defaults: AgentStreamOptions["providerOptions"] | undefined,
@@ -105,23 +104,21 @@ const buildBaseStreamOptions = (
 const applyPreparedOverrides = (
   base: AgentPrepareStepContext,
   prepared: AgentPrepareStepResult | undefined
-): AgentStreamOptions => {
-  return {
-    ...base,
-    ...prepared,
-    messages: prepared?.messages ?? base.messages,
-    providerOptions: mergeProviderOptions(
-      base.providerOptions,
-      prepared?.providerOptions
-    ),
-  };
-};
+): AgentStreamOptions => ({
+  ...base,
+  ...prepared,
+  messages: prepared?.messages ?? base.messages,
+  providerOptions: mergeProviderOptions(
+    base.providerOptions,
+    prepared?.providerOptions
+  ),
+});
 
 const createStreamTextResult = (
   config: AgentConfig,
   preparedOptions: AgentStreamOptions
-) => {
-  return streamText({
+) =>
+  streamText({
     model: config.model,
     tools: config.tools,
     system: preparedOptions.system,
@@ -133,9 +130,9 @@ const createStreamTextResult = (
       config.guardrails
         ? createGuardedStopCondition(config.guardrails)
         : textResponseReceived(),
-      ...(config.maxStepsPerTurn !== undefined
-        ? [createStepCountStopCondition(config.maxStepsPerTurn)]
-        : []),
+      ...(config.maxStepsPerTurn === undefined
+        ? []
+        : [createStepCountStopCondition(config.maxStepsPerTurn)]),
       ...(config.extraStopConditions ?? []),
     ],
     temperature: preparedOptions.temperature,
@@ -143,16 +140,14 @@ const createStreamTextResult = (
     experimental_context: preparedOptions.experimentalContext,
     experimental_repairToolCall: config.experimental_repairToolCall,
   });
-};
 
 const serializeToolCall = (
   toolCall: Pick<ToolCallPart, "input" | "toolName">
-) => {
-  return JSON.stringify({ input: toolCall.input, toolName: toolCall.toolName });
-};
+) => JSON.stringify({ input: toolCall.input, toolName: toolCall.toolName });
 
-const textResponseReceived = (): StopCondition => {
-  return ({ steps }: StopConditionInput) => {
+const textResponseReceived =
+  (): StopCondition =>
+  ({ steps }: StopConditionInput) => {
     const lastStep = steps.at(-1);
     if (!lastStep) {
       return false;
@@ -160,12 +155,10 @@ const textResponseReceived = (): StopCondition => {
     const hasTools = (lastStep.toolCalls?.length ?? 0) > 0;
     return !hasTools;
   };
-};
 
-const createGuardedStopCondition = (
-  guardrails: AgentGuardrails
-): StopCondition => {
-  return ({ steps }: StopConditionInput) => {
+const createGuardedStopCondition =
+  (guardrails: AgentGuardrails): StopCondition =>
+  ({ steps }: StopConditionInput) => {
     const lastStep = steps.at(-1);
     if (!lastStep) {
       return false;
@@ -210,13 +203,11 @@ const createGuardedStopCondition = (
 
     return false;
   };
-};
 
-const createStepCountStopCondition = (
-  maxStepsPerTurn: number
-): StopCondition => {
-  return ({ steps }) => steps.length >= maxStepsPerTurn;
-};
+const createStepCountStopCondition =
+  (maxStepsPerTurn: number): StopCondition =>
+  ({ steps }) =>
+    steps.length >= maxStepsPerTurn;
 
 /**
  * Creates an {@link Agent} instance that wraps a Vercel AI SDK `streamText` call.
@@ -258,7 +249,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   }
 
   const effectiveConfig: AgentConfig =
-    mergedTools !== config.tools ? { ...config, tools: mergedTools } : config;
+    mergedTools === config.tools ? config : { ...config, tools: mergedTools };
 
   return {
     config: effectiveConfig,

@@ -15,9 +15,8 @@ export const normalizeFinishReason = (finishReason: string): string => {
   return FINISH_REASON_ALIASES.get(normalized) ?? normalized;
 };
 
-export const shouldContinueManualToolLoop = (finishReason: string): boolean => {
-  return CONTINUATION_FINISH_REASONS.has(normalizeFinishReason(finishReason));
-};
+export const shouldContinueManualToolLoop = (finishReason: string): boolean =>
+  CONTINUATION_FINISH_REASONS.has(normalizeFinishReason(finishReason));
 
 export const composeStopPredicates = <FinishReason, Context>(
   ...predicates: Array<StopPredicate<FinishReason, Context> | undefined>

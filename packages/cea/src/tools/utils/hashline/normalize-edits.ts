@@ -16,7 +16,7 @@ export interface RawHashlineEdit {
 
 function normalizeAnchor(value: string | undefined): string | undefined {
   if (typeof value !== "string") {
-    return undefined;
+    return;
   }
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;

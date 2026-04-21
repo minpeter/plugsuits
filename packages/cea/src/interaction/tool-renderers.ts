@@ -95,9 +95,8 @@ const extractBooleanField = (input: unknown, field: string): boolean | null => {
   return typeof record[field] === "boolean" ? (record[field] as boolean) : null;
 };
 
-const buildPrettyHeader = (title: string, target: string): string => {
-  return `**${title}** \`${target}\``;
-};
+const buildPrettyHeader = (title: string, target: string): string =>
+  `**${title}** \`${target}\``;
 
 const buildTextPreviewLines = (
   text: string,
@@ -204,17 +203,14 @@ const parseNumberedBlockToolOutput = (
   return { metadata, blockTitle, blockBody };
 };
 
-const parseReadFileOutput = (output: string): ParsedBlockOutput | null => {
-  return parseNumberedBlockToolOutput(output, READ_FILE_SUCCESS_PREFIX);
-};
+const parseReadFileOutput = (output: string): ParsedBlockOutput | null =>
+  parseNumberedBlockToolOutput(output, READ_FILE_SUCCESS_PREFIX);
 
-const parseGlobOutput = (output: string): ParsedBlockOutput | null => {
-  return parseNumberedBlockToolOutput(output, GLOB_SUCCESS_PREFIX);
-};
+const parseGlobOutput = (output: string): ParsedBlockOutput | null =>
+  parseNumberedBlockToolOutput(output, GLOB_SUCCESS_PREFIX);
 
-const parseGrepOutput = (output: string): ParsedBlockOutput | null => {
-  return parseNumberedBlockToolOutput(output, GREP_SUCCESS_PREFIX);
-};
+const parseGrepOutput = (output: string): ParsedBlockOutput | null =>
+  parseNumberedBlockToolOutput(output, GREP_SUCCESS_PREFIX);
 
 const resolveReadPath = (parsed: ParsedBlockOutput): string => {
   const pathValue = parsed.metadata.get("path") ?? "";
@@ -1046,9 +1042,10 @@ const renderTodoWrite = (
       ? (input as Record<string, unknown>).todos
       : undefined;
   const todos = Array.isArray(todoItems)
-    ? todoItems.filter((item): item is Record<string, unknown> => {
-        return typeof item === "object" && item !== null;
-      })
+    ? todoItems.filter(
+        (item): item is Record<string, unknown> =>
+          typeof item === "object" && item !== null
+      )
     : [];
 
   const totalTodos = todos.length;

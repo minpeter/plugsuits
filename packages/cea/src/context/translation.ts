@@ -59,14 +59,13 @@ const toErrorMessage = (error: unknown): string => {
  * Escapes XML special characters to prevent markup interpretation.
  * Used as defense-in-depth for user-controlled content in XML contexts.
  */
-export const escapeXmlEntities = (text: string): string => {
-  return text
+export const escapeXmlEntities = (text: string): string =>
+  text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
-};
 
 /**
  * Sanitizes text for safe inclusion in XML CDATA section.

@@ -66,7 +66,7 @@ function tryParseEmbeddedValue(raw: string): string[] | null | undefined {
     return [stringMatch[1]];
   }
 
-  return undefined;
+  return;
 }
 
 function tryExtractEmbeddedLines(
@@ -82,13 +82,13 @@ function tryExtractEmbeddedLines(
     return tryParseEmbeddedValue(qsMatch[1]);
   }
 
-  return undefined;
+  return;
 }
 
 function tryExtractEmbeddedEnd(rest: string): string | undefined {
   const endMatch = rest.match(EMBEDDED_END_REGEX);
   if (!endMatch) {
-    return undefined;
+    return;
   }
   return endMatch[1].replace(HASH_NORMALIZE_REGEX, "#");
 }
@@ -129,12 +129,7 @@ export function repairMalformedEdit(edit: HashlineToolEdit): RepairResult {
 
     if (edit.lines === undefined) {
       const extractedLines = tryExtractEmbeddedLines(posRepair.rest);
-      if (extractedLines !== undefined) {
-        repairedLines = extractedLines;
-        warnings.push(
-          "Auto-repaired lines: extracted embedded content from pos field."
-        );
-      } else {
+      if (extractedLines === undefined) {
         const plainContent = posRepair.rest
           .replace(LEADING_SEPARATOR_REGEX, "")
           .trim();
@@ -145,6 +140,11 @@ export function repairMalformedEdit(edit: HashlineToolEdit): RepairResult {
             `Auto-repaired lines: extracted trailing content '${plainContent.slice(0, 60)}' from pos as replacement text.`
           );
         }
+      } else {
+        repairedLines = extractedLines;
+        warnings.push(
+          "Auto-repaired lines: extracted embedded content from pos field."
+        );
       }
     }
   }

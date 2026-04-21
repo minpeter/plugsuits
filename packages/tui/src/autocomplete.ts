@@ -28,9 +28,8 @@ const truncateAutocompleteLabel = (value: string, maxWidth: number): string => {
   return `${value.slice(0, maxWidth - 1)}…`;
 };
 
-const toAutocompleteEntryValue = (entry: SlashAutocompleteEntry): string => {
-  return "name" in entry ? entry.name : entry.value;
-};
+const toAutocompleteEntryValue = (entry: SlashAutocompleteEntry): string =>
+  "name" in entry ? entry.name : entry.value;
 
 const toAutocompleteItem = (suggestion: SlashCommand): AutocompleteItem => ({
   value: suggestion.name,

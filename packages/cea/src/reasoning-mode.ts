@@ -9,9 +9,8 @@ export type ReasoningMode = (typeof REASONING_MODES)[number];
 
 export const DEFAULT_REASONING_MODE: ReasoningMode = "off";
 
-const isReasoningMode = (value: string): value is ReasoningMode => {
-  return REASONING_MODES.includes(value as ReasoningMode);
-};
+const isReasoningMode = (value: string): value is ReasoningMode =>
+  REASONING_MODES.includes(value as ReasoningMode);
 
 export const parseReasoningMode = (rawValue: string): ReasoningMode | null => {
   const value = rawValue.toLowerCase();

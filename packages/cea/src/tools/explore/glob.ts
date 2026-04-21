@@ -160,11 +160,7 @@ export async function executeGlob({
   ];
 
   if (displayFiles.length > 0) {
-    const body = displayFiles
-      .map((f) => {
-        return f.path;
-      })
-      .join("\n");
+    const body = displayFiles.map((f) => f.path).join("\n");
     output.push(formatBlock("glob results", body));
   } else {
     output.push(formatBlock("glob results", "(no matches)"));

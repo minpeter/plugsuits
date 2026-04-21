@@ -17,9 +17,7 @@ type StreamPart = TextStreamPart<ToolSet>;
 const fallbackGetToolInputId = (part: {
   id?: string;
   toolCallId?: string;
-}): string | undefined => {
-  return part.id ?? part.toolCallId;
-};
+}): string | undefined => part.id ?? part.toolCallId;
 
 const fallbackGetToolInputChunk = (part: {
   delta?: unknown;
@@ -81,14 +79,12 @@ export const addChatComponent = (
 
 export const createToolInputState = (
   toolName: string
-): ToolInputRenderState => {
-  return {
-    toolName,
-    hasContent: false,
-    inputBuffer: "",
-    renderedInputLength: 0,
-  };
-};
+): ToolInputRenderState => ({
+  toolName,
+  hasContent: false,
+  inputBuffer: "",
+  renderedInputLength: 0,
+});
 
 export interface PiTuiRenderFlags {
   showFiles: boolean;
@@ -141,9 +137,8 @@ export const syncToolInputToView = async (
   toolState.renderedInputLength = toolState.inputBuffer.length;
 };
 
-export const createInfoMessage = (title: string, value: unknown): Text => {
-  return new Text(`${title}\n${safeStringify(value)}`, 1, 0);
-};
+export const createInfoMessage = (title: string, value: unknown): Text =>
+  new Text(`${title}\n${safeStringify(value)}`, 1, 0);
 
 export type StreamPartHandler = (
   part: StreamPart,

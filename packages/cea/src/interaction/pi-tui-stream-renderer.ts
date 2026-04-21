@@ -115,9 +115,7 @@ const HASHLINE_TAG_PIPE_ONLY_PATTERN =
   /^(.*\d+#[ZPMQVRWSNKTXJBYH]{2})\s*\|\s*$/;
 const HASHLINE_COMPACT_LINE_PATTERN = /^\s*\d+#[ZPMQVRWSNKTXJBYH]{2}\|.*$/;
 
-const isRawToolIoEnabledByEnv = (): boolean => {
-  return env.DEBUG_SHOW_RAW_TOOL_IO;
-};
+const isRawToolIoEnabledByEnv = (): boolean => env.DEBUG_SHOW_RAW_TOOL_IO;
 
 interface ReadFileParsedOutput {
   blockBody: string;
@@ -175,9 +173,8 @@ const buildTextPreviewLines = (
   return preview;
 };
 
-const buildPrettyHeader = (title: string, target: string): string => {
-  return `**${title}** \`${target}\``;
-};
+const buildPrettyHeader = (title: string, target: string): string =>
+  `**${title}** \`${target}\``;
 
 const normalizeHashlineBreakArtifacts = (lines: string[]): string[] => {
   const normalized: string[] = [];
@@ -338,17 +335,14 @@ const parseNumberedBlockToolOutput = (
   };
 };
 
-const parseReadFileOutput = (output: string): ReadFileParsedOutput | null => {
-  return parseNumberedBlockToolOutput(output, READ_FILE_SUCCESS_PREFIX);
-};
+const parseReadFileOutput = (output: string): ReadFileParsedOutput | null =>
+  parseNumberedBlockToolOutput(output, READ_FILE_SUCCESS_PREFIX);
 
-const parseGlobOutput = (output: string): ReadFileParsedOutput | null => {
-  return parseNumberedBlockToolOutput(output, GLOB_SUCCESS_PREFIX);
-};
+const parseGlobOutput = (output: string): ReadFileParsedOutput | null =>
+  parseNumberedBlockToolOutput(output, GLOB_SUCCESS_PREFIX);
 
-const parseGrepOutput = (output: string): ReadFileParsedOutput | null => {
-  return parseNumberedBlockToolOutput(output, GREP_SUCCESS_PREFIX);
-};
+const parseGrepOutput = (output: string): ReadFileParsedOutput | null =>
+  parseNumberedBlockToolOutput(output, GREP_SUCCESS_PREFIX);
 
 const resolveReadPath = (parsed: ReadFileParsedOutput): string => {
   const pathValue = parsed.metadata.get("path") ?? "";
@@ -623,17 +617,13 @@ const renderGrepOutput = (output: string): GrepRenderPayload | null => {
   };
 };
 
-const renderPendingOutput = (): string => {
-  return TOOL_PENDING_MARKER;
-};
+const renderPendingOutput = (): string => TOOL_PENDING_MARKER;
 
-const buildPendingSpinnerText = (frame: string): string => {
-  return `${frame} ${TOOL_PENDING_MESSAGE}`;
-};
+const buildPendingSpinnerText = (frame: string): string =>
+  `${frame} ${TOOL_PENDING_MESSAGE}`;
 
-const renderToolOutput = (_toolName: string, output: unknown): string => {
-  return renderCodeBlock("text", output);
-};
+const renderToolOutput = (_toolName: string, output: unknown): string =>
+  renderCodeBlock("text", output);
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_DIM = "\x1b[2m";
@@ -644,17 +634,14 @@ const ANSI_BG_DARK_RED = "\x1b[48;5;88m";
 const LEADING_NEWLINES = /^\n+/;
 const TRAILING_NEWLINES = /\n+$/;
 
-const applyReadPreviewBackground = (text: string): string => {
-  return `${ANSI_BG_GRAY}${text}${ANSI_RESET}`;
-};
+const applyReadPreviewBackground = (text: string): string =>
+  `${ANSI_BG_GRAY}${text}${ANSI_RESET}`;
 
-const applyErrorBackground = (text: string): string => {
-  return `${ANSI_BG_DARK_RED}${text}${ANSI_RESET}`;
-};
+const applyErrorBackground = (text: string): string =>
+  `${ANSI_BG_DARK_RED}${text}${ANSI_RESET}`;
 
-const styleThinkingText = (text: string): string => {
-  return `${ANSI_DIM}${ANSI_ITALIC}${ANSI_GRAY}${text}${ANSI_RESET}`;
-};
+const styleThinkingText = (text: string): string =>
+  `${ANSI_DIM}${ANSI_ITALIC}${ANSI_GRAY}${text}${ANSI_RESET}`;
 
 class TrimmedMarkdown extends Markdown {
   override render(width: number): string[] {
@@ -1138,7 +1125,7 @@ class ToolCallView extends Container {
     if (this.inputBuffer.length > 0) {
       return this.inputBuffer;
     }
-    return undefined;
+    return;
   }
 
   private canRenderPrettyTool(toolName: string | Set<string>): boolean {
@@ -1600,9 +1587,10 @@ class ToolCallView extends Container {
         ? (bestInput as Record<string, unknown>).todos
         : undefined;
     const todos = Array.isArray(todoItems)
-      ? todoItems.filter((item): item is Record<string, unknown> => {
-          return typeof item === "object" && item !== null;
-        })
+      ? todoItems.filter(
+          (item): item is Record<string, unknown> =>
+            typeof item === "object" && item !== null
+        )
       : [];
 
     const totalTodos = todos.length;
@@ -1738,9 +1726,8 @@ class ToolCallView extends Container {
   }
 }
 
-const getToolInputId = (part: ToolInputPart): string | undefined => {
-  return part.id ?? part.toolCallId;
-};
+const getToolInputId = (part: ToolInputPart): string | undefined =>
+  part.id ?? part.toolCallId;
 
 const getToolInputChunk = (part: ToolInputDeltaPart): string | null => {
   if (typeof part.delta === "string") {
@@ -1754,14 +1741,12 @@ const getToolInputChunk = (part: ToolInputDeltaPart): string | null => {
   return null;
 };
 
-const createToolInputState = (toolName: string): ToolInputRenderState => {
-  return {
-    toolName,
-    hasContent: false,
-    inputBuffer: "",
-    renderedInputLength: 0,
-  };
-};
+const createToolInputState = (toolName: string): ToolInputRenderState => ({
+  toolName,
+  hasContent: false,
+  inputBuffer: "",
+  renderedInputLength: 0,
+});
 
 const syncToolInputToView = async (
   state: PiTuiStreamState,
@@ -1793,9 +1778,8 @@ const syncToolInputToView = async (
   toolState.renderedInputLength = toolState.inputBuffer.length;
 };
 
-const createInfoMessage = (title: string, value: unknown): Text => {
-  return new Text(`${title}\n${safeStringify(value)}`, 1, 0);
-};
+const createInfoMessage = (title: string, value: unknown): Text =>
+  new Text(`${title}\n${safeStringify(value)}`, 1, 0);
 
 interface PiTuiRenderFlags {
   showFiles: boolean;

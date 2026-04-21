@@ -91,7 +91,7 @@ const getUsageNumber = (
     }
   }
 
-  return undefined;
+  return;
 };
 
 const normalizeUsageMeasurement = (usage: unknown): UsageMeasurement | null => {
@@ -120,12 +120,10 @@ const normalizeUsageMeasurement = (usage: unknown): UsageMeasurement | null => {
   };
 };
 
-const getBenchmarkSamplingOverrides = (): BenchmarkSamplingOverrides => {
-  return {
-    seed: env.BENCHMARK_SEED,
-    temperature: env.BENCHMARK_TEMPERATURE,
-  };
-};
+const getBenchmarkSamplingOverrides = (): BenchmarkSamplingOverrides => ({
+  seed: env.BENCHMARK_SEED,
+  temperature: env.BENCHMARK_TEMPERATURE,
+});
 
 /** Token limits shared across all provider types. */
 export interface ModelTokenLimits {
@@ -177,47 +175,39 @@ export const selectTranslationReasoningMode = (
   return selectBestReasoningMode(modes);
 };
 
-const getModelMaxCompletionTokens = (_modelId: string): number => {
-  return OUTPUT_TOKEN_CAP;
-};
+const getModelMaxCompletionTokens = (_modelId: string): number =>
+  OUTPUT_TOKEN_CAP;
 
-const getEffectiveMaxOutputTokens = (modelId: string): number => {
-  return Math.min(getModelMaxCompletionTokens(modelId), OUTPUT_TOKEN_CAP);
-};
+const getEffectiveMaxOutputTokens = (modelId: string): number =>
+  Math.min(getModelMaxCompletionTokens(modelId), OUTPUT_TOKEN_CAP);
 
-const getModelContextLength = (_modelId: string): number => {
-  return env.AI_CONTEXT_LIMIT;
-};
+const getModelContextLength = (_modelId: string): number =>
+  env.AI_CONTEXT_LIMIT;
 
-const getCompactionReserveTokens = (modelId: string): number => {
-  return Math.min(
+const getCompactionReserveTokens = (modelId: string): number =>
+  Math.min(
     getEffectiveMaxOutputTokens(modelId),
     Math.max(4096, Math.floor(getModelContextLength(modelId) * 0.25))
   );
-};
 
 const getProviderOptions = (
   modelId: string,
   _reasoningMode: ReasoningMode
-): { options: ProviderOptions; maxOutputTokens: number } => {
-  return {
-    options: undefined,
-    maxOutputTokens: getCompactionReserveTokens(modelId),
-  };
-};
+): { options: ProviderOptions; maxOutputTokens: number } => ({
+  options: undefined,
+  maxOutputTokens: getCompactionReserveTokens(modelId),
+});
 
 export const buildAgentModelProfile = (params: {
   model: ReturnType<AgentManager["buildModel"]>["model"];
   providerOptions: ProviderOptions;
-}): AgentModelProfile => {
-  return {
-    streamDefaults: params.providerOptions
-      ? {
-          providerOptions: params.providerOptions,
-        }
-      : {},
-  };
-};
+}): AgentModelProfile => ({
+  streamDefaults: params.providerOptions
+    ? {
+        providerOptions: params.providerOptions,
+      }
+    : {},
+});
 
 const defaultToolRegistry = createTools();
 
@@ -405,7 +395,7 @@ export class AgentManager {
     modelProvider?: ReturnType<typeof createOpenAICompatible> | null
   ) {
     this.modelProvider =
-      modelProvider !== undefined ? modelProvider : openAICompatible;
+      modelProvider === undefined ? openAICompatible : modelProvider;
     this.applyBestReasoningModeForCurrentModel();
   }
 
@@ -542,7 +532,7 @@ export class AgentManager {
       const fileState = fileTrackingState();
       const memoryState = memoryExtractor?.getStructuredState();
       if (!(fileState || memoryState)) {
-        return undefined;
+        return;
       }
       const parts: string[] = [];
       if (memoryState) {
@@ -556,7 +546,7 @@ export class AgentManager {
 
     const getLastExtractionMessageIndex = (): number | undefined => {
       if (!memoryExtractor?.getStructuredState()) {
-        return undefined;
+        return;
       }
 
       return memoryExtractor.getLastExtractionMessageIndex();
@@ -749,9 +739,9 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     // Caller budget comes from harness context-window enforcement;
     // provider cap comes from model-specific limits.
     const effectiveMaxOutputTokens =
-      options.maxOutputTokens != null
-        ? Math.min(options.maxOutputTokens, providerMaxOutputTokens)
-        : providerMaxOutputTokens;
+      options.maxOutputTokens == null
+        ? providerMaxOutputTokens
+        : Math.min(options.maxOutputTokens, providerMaxOutputTokens);
 
     const instructions = await this.getInstructions();
     if (messages.length === 0) {
@@ -813,9 +803,7 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
     });
     const usage = normalizeUsageMeasurement(
       await Promise.all([stream.usage, stream.response]).then(
-        ([resolvedUsage]) => {
-          return resolvedUsage;
-        }
+        ([resolvedUsage]) => resolvedUsage
       )
     );
 

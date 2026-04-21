@@ -79,9 +79,11 @@ interface PrunableToolResultRef {
 }
 
 function estimateCheckpointTokens(messages: CheckpointMessage[]): number {
-  return messages.reduce((total, message) => {
-    return total + estimateTokens(extractMessageText(message.message));
-  }, 0);
+  return messages.reduce(
+    (total, message) =>
+      total + estimateTokens(extractMessageText(message.message)),
+    0
+  );
 }
 
 function resolveProtectedFromIndex(

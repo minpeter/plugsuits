@@ -352,7 +352,7 @@ export class SessionMemoryTracker {
     const orderedFacts = this.getOrderedFactsForStructuredState();
 
     if (orderedFacts.length === 0) {
-      return undefined;
+      return;
     }
 
     for (
@@ -536,14 +536,14 @@ export class SessionMemoryTracker {
       const key = rawKey.trim();
       const value = rawValue.trim();
       if (!(key && value)) {
-        return undefined;
+        return;
       }
       return { key, value };
     }
 
     const plainMatch = line.match(BULLET_FACT_REGEX);
     if (!plainMatch) {
-      return undefined;
+      return;
     }
 
     const [, rawKey, rawValue] = plainMatch;
@@ -551,7 +551,7 @@ export class SessionMemoryTracker {
     const value = rawValue.trim();
 
     if (!(key && value)) {
-      return undefined;
+      return;
     }
 
     return { key, value };
@@ -575,7 +575,7 @@ export class SessionMemoryTracker {
     const normalizedKey = normalizeFactKey(rawKey);
 
     if (!normalizedKey) {
-      return undefined;
+      return;
     }
 
     return {

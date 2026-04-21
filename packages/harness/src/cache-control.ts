@@ -14,7 +14,7 @@ export const ANTHROPIC_EPHEMERAL_CACHE_CONTROL = {
 
 const getStringField = (value: unknown, key: string): string | undefined => {
   if (typeof value !== "object" || value === null) {
-    return undefined;
+    return;
   }
 
   const field = (value as Record<string, unknown>)[key];
@@ -25,12 +25,11 @@ export const isAnthropicModel = (model: LanguageModel): boolean => {
   const provider = getStringField(model, "provider");
   const modelId = getStringField(model, "modelId");
 
-  return [provider, modelId].some((value) => {
-    return (
+  return [provider, modelId].some(
+    (value) =>
       typeof value === "string" &&
       (value.includes("anthropic") || value.includes("claude"))
-    );
-  });
+  );
 };
 
 export const addEphemeralCacheControlToLastMessage = (params: {

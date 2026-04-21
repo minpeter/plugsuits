@@ -274,7 +274,7 @@ async function attemptToolDownload(
         )
       );
     }
-    return undefined;
+    return;
   }
 }
 
@@ -293,13 +293,13 @@ export async function ensureTool(
 
   const config = TOOLS[tool];
   if (!config) {
-    return undefined;
+    return;
   }
 
   // For non-installable tools, show installation instructions
   if (!config.installable) {
     showInstallInstructions(config, silent);
-    return undefined;
+    return;
   }
 
   // Tool not found - download it

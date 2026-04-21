@@ -20,9 +20,10 @@ export function encodeSessionId(sessionId: string): string {
   if (sessionId.length === 0) {
     throw new Error("sessionId must not be empty");
   }
-  return sessionId.replace(/[^A-Za-z0-9-]/g, (ch) => {
-    return `_${ch.charCodeAt(0).toString(16).padStart(4, "0")}`;
-  });
+  return sessionId.replace(
+    /[^A-Za-z0-9-]/g,
+    (ch) => `_${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
+  );
 }
 
 export function decodeSessionId(encodedSessionId: string): string {
@@ -30,7 +31,7 @@ export function decodeSessionId(encodedSessionId: string): string {
     throw new Error("encodedSessionId must not be empty");
   }
 
-  return encodedSessionId.replace(/_([0-9a-f]{4})/g, (_match, hex: string) => {
-    return String.fromCharCode(Number.parseInt(hex, 16));
-  });
+  return encodedSessionId.replace(/_([0-9a-f]{4})/g, (_match, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16))
+  );
 }

@@ -1011,10 +1011,10 @@ async function runTestCase(
 
     proc.on("close", (code) => {
       clearTimeout(timeout);
-      if (code !== 0) {
-        reject(new Error(`Exit code ${code}\n${stderr.slice(-500)}`));
-      } else {
+      if (code === 0) {
         res(stdout);
+      } else {
+        reject(new Error(`Exit code ${code}\n${stderr.slice(-500)}`));
       }
     });
     proc.on("error", (err) => {

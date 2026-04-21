@@ -45,13 +45,11 @@ const { streamTextMock, resolveMCPOptionMock, stepCountIsMock, toolMock } =
     return { streamTextMock, resolveMCPOptionMock, stepCountIsMock, toolMock };
   });
 
-vi.mock("ai", () => {
-  return {
-    stepCountIs: stepCountIsMock,
-    streamText: streamTextMock,
-    tool: toolMock,
-  };
-});
+vi.mock("ai", () => ({
+  stepCountIs: stepCountIsMock,
+  streamText: streamTextMock,
+  tool: toolMock,
+}));
 
 vi.mock("./mcp-init.js", () => ({
   clearMCPCache: vi.fn(),
@@ -262,9 +260,9 @@ describe("createAgent", () => {
   });
 
   it("appends extra stop conditions as independent stop triggers", async () => {
-    const extraStopCondition = vi.fn(({ steps }) => {
-      return (steps.at(-1)?.toolCalls?.length ?? 0) >= 2;
-    });
+    const extraStopCondition = vi.fn(
+      ({ steps }) => (steps.at(-1)?.toolCalls?.length ?? 0) >= 2
+    );
     const agent = await createAgent({
       extraStopConditions: [extraStopCondition],
       model: createMockModel(),

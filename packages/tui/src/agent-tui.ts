@@ -102,9 +102,8 @@ interface ContextPressureThresholds {
   warning: number;
 }
 
-const style = (prefix: string, text: string): string => {
-  return `${prefix}${text}${ANSI_RESET}`;
-};
+const style = (prefix: string, text: string): string =>
+  `${prefix}${text}${ANSI_RESET}`;
 
 class StatusSpinner extends Text {
   private readonly frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -333,38 +332,34 @@ class FooterStatusBar extends Text {
   }
 }
 
-const createDefaultMarkdownTheme = (): MarkdownTheme => {
-  return {
-    heading: (text) => style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, text),
-    link: (text) => style(`${ANSI_BOLD}${ANSI_CYAN}`, text),
-    linkUrl: (text) => style(ANSI_GRAY, text),
-    code: (text) => style(ANSI_CYAN, text),
-    codeBlock: (text) => style(ANSI_CYAN, text),
-    codeBlockBorder: (text) => style(ANSI_GRAY, text),
-    quote: (text) => style(ANSI_GRAY, text),
-    quoteBorder: (text) => style(ANSI_GRAY, text),
-    hr: (text) => style(ANSI_GRAY, text),
-    listBullet: (text) => style(ANSI_CYAN, text),
-    bold: (text) => style(ANSI_BOLD, text),
-    italic: (text) => style(ANSI_DIM, text),
-    strikethrough: (text) => style(ANSI_DIM, text),
-    underline: (text) => style(ANSI_BOLD, text),
-    codeBlockIndent: "  ",
-  };
-};
+const createDefaultMarkdownTheme = (): MarkdownTheme => ({
+  heading: (text) => style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, text),
+  link: (text) => style(`${ANSI_BOLD}${ANSI_CYAN}`, text),
+  linkUrl: (text) => style(ANSI_GRAY, text),
+  code: (text) => style(ANSI_CYAN, text),
+  codeBlock: (text) => style(ANSI_CYAN, text),
+  codeBlockBorder: (text) => style(ANSI_GRAY, text),
+  quote: (text) => style(ANSI_GRAY, text),
+  quoteBorder: (text) => style(ANSI_GRAY, text),
+  hr: (text) => style(ANSI_GRAY, text),
+  listBullet: (text) => style(ANSI_CYAN, text),
+  bold: (text) => style(ANSI_BOLD, text),
+  italic: (text) => style(ANSI_DIM, text),
+  strikethrough: (text) => style(ANSI_DIM, text),
+  underline: (text) => style(ANSI_BOLD, text),
+  codeBlockIndent: "  ",
+});
 
-const createDefaultEditorTheme = (): EditorTheme => {
-  return {
-    borderColor: (text: string) => style(ANSI_GRAY, text),
-    selectList: {
-      selectedPrefix: (text: string) => style(`${ANSI_BOLD}${ANSI_CYAN}`, text),
-      selectedText: (text: string) => style(ANSI_CYAN, text),
-      description: (text: string) => style(ANSI_GRAY, text),
-      scrollInfo: (text: string) => style(ANSI_DIM, text),
-      noMatch: (text: string) => style(ANSI_DIM, text),
-    },
-  };
-};
+const createDefaultEditorTheme = (): EditorTheme => ({
+  borderColor: (text: string) => style(ANSI_GRAY, text),
+  selectList: {
+    selectedPrefix: (text: string) => style(`${ANSI_BOLD}${ANSI_CYAN}`, text),
+    selectedText: (text: string) => style(ANSI_CYAN, text),
+    description: (text: string) => style(ANSI_GRAY, text),
+    scrollInfo: (text: string) => style(ANSI_DIM, text),
+    noMatch: (text: string) => style(ANSI_DIM, text),
+  },
+});
 
 const addUserMessage = (
   chatContainer: Container,
@@ -532,7 +527,7 @@ export function mergeAgentStreamOptions(params: {
   } = turnOverrides ?? {};
 
   return {
-    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     ...restTurnOverrides,
     messages: overrideMessages ?? messages,
     abortSignal:
@@ -778,14 +773,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     );
   };
 
-  const createStatusSpinner = (message: string): StatusSpinner => {
-    return new StatusSpinner(
+  const createStatusSpinner = (message: string): StatusSpinner =>
+    new StatusSpinner(
       tui,
       (text: string) => style(ANSI_CYAN, text),
       (text: string) => style(ANSI_DIM, text),
       message
     );
-  };
 
   const renderForegroundStatus = (): void => {
     statusContainer.clear();
@@ -1100,7 +1094,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       cancelActiveStream();
       return { consume: true };
     }
-    return undefined;
+    return;
   });
 
   const onSigInt = (): void => {
@@ -1125,13 +1119,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     resolve(text);
   };
 
-  const waitForInput = (): Promise<string | null> => {
-    return new Promise<string | null>((resolve) => {
+  const waitForInput = (): Promise<string | null> =>
+    new Promise<string | null>((resolve) => {
       inputResolver = (value: string | null) => resolve(value);
       tui.setFocus(editor);
       tui.requestRender();
     });
-  };
 
   const renderAgentStream = async (
     stream: AsyncIterable<unknown>,
@@ -1624,7 +1617,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     compactionOrchestrator.discardAll();
-    config.messageHistory.reset?.() ?? config.messageHistory.clear();
+    if (config.messageHistory.reset) {
+      config.messageHistory.reset();
+    } else {
+      config.messageHistory.clear();
+    }
     chatContainer.clear();
     addNewSessionMessage(chatContainer);
     await config.onCommandAction?.(commandResult.action);

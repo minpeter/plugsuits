@@ -19,7 +19,7 @@ function getUsageNumber(
     }
   }
 
-  return undefined;
+  return;
 }
 
 export function normalizeUsageMeasurement(

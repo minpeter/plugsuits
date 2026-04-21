@@ -15,12 +15,10 @@ const tagGrepLine = (
   path: string,
   lineNumber: number,
   content: string
-): string => {
-  return `${path}:${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
-};
-const tagReadLine = (lineNumber: number, content: string): string => {
-  return `${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
-};
+): string =>
+  `${path}:${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
+const tagReadLine = (lineNumber: number, content: string): string =>
+  `${lineNumber}#${computeLineHash(lineNumber, content)}|${content}`;
 const markdownTheme: MarkdownTheme = {
   heading: (text) => text,
   link: (text) => text,

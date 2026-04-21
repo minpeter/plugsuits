@@ -202,11 +202,11 @@ export function validateLineRefs(lines: string[], refs: string[]): void {
 
 export function tryParseLineTag(tag: string | undefined): LineRef | undefined {
   if (!tag) {
-    return undefined;
+    return;
   }
   try {
     return parseLineRef(tag);
   } catch {
-    return undefined;
+    return;
   }
 }

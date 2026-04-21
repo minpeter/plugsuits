@@ -104,9 +104,8 @@ describe("compaction-planner", () => {
     const result = calculateCompactionSplitIndex({
       adjustSplitIndex: (splitIndex) => splitIndex,
       aggressive: false,
-      estimateMessageTokens: (msg: CheckpointMessage) => {
-        return Math.ceil((msg.message.content as string).length / 4);
-      },
+      estimateMessageTokens: (msg: CheckpointMessage) =>
+        Math.ceil((msg.message.content as string).length / 4),
       keepRecentTokens: 50,
       messages,
     });

@@ -60,9 +60,9 @@ describe("generateContextSuggestions", () => {
       100
     );
 
-    const toolWarning = suggestions.find((item) => {
-      return item.message.includes("Tool results: 25%");
-    });
+    const toolWarning = suggestions.find((item) =>
+      item.message.includes("Tool results: 25%")
+    );
 
     expect(toolWarning).toBeDefined();
     expect(toolWarning?.level).toBe("warning");
@@ -81,12 +81,12 @@ describe("generateContextSuggestions", () => {
       100
     );
 
-    const mathDuplicate = suggestions.find((item) => {
-      return item.message.includes("File src/utils/math.ts read 3 times");
-    });
-    const bigDuplicate = suggestions.find((item) => {
-      return item.message.includes("File src/utils/big.ts read 2 times");
-    });
+    const mathDuplicate = suggestions.find((item) =>
+      item.message.includes("File src/utils/math.ts read 3 times")
+    );
+    const bigDuplicate = suggestions.find((item) =>
+      item.message.includes("File src/utils/big.ts read 2 times")
+    );
 
     expect(mathDuplicate).toBeDefined();
     expect(mathDuplicate?.level).toBe("info");
@@ -107,9 +107,9 @@ describe("generateContextSuggestions", () => {
       100
     );
 
-    const largeToolResult = suggestions.find((item) => {
-      return item.message.includes("read_file: 6200 tokens");
-    });
+    const largeToolResult = suggestions.find((item) =>
+      item.message.includes("read_file: 6200 tokens")
+    );
 
     expect(largeToolResult).toBeDefined();
     expect(largeToolResult?.level).toBe("warning");

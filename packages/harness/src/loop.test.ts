@@ -162,9 +162,7 @@ describe("runAgentLoop", () => {
     const result = await runAgentLoop({
       agent,
       messages: [{ role: "user", content: "Hello" }],
-      shouldContinue: (_reason, context) => {
-        return context.iteration < 2;
-      },
+      shouldContinue: (_reason, context) => context.iteration < 2,
     });
 
     expect(result.iterations).toBe(3);

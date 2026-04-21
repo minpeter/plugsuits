@@ -12,18 +12,21 @@
   },
   "dependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
-    "@ai-sdk/openai-compatible": "^2.0.35",
-    "@chat-adapter/state-redis": "^4.23.0",
-    "@chat-adapter/telegram": "^4.23.0",
-    "@t3-oss/env-core": "^0.13.10",
-    "ai": "^6.0.116",
-    "chat": "^4.23.0",
-    "undici": "^7.0.0",
+    "@ai-sdk/openai-compatible": "^2.0.41",
+    "@chat-adapter/state-redis": "^4.26.0",
+    "@chat-adapter/telegram": "^4.26.0",
+    "@t3-oss/env-core": "^0.13.11",
+    "ai": "^6.0.168",
+    "chat": "^4.26.0",
+    "undici": "^8.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.4.0",
+    "@types/node": "^25.6.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }
