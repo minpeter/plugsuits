@@ -1179,6 +1179,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const renderAgentStream = async (
     stream: AsyncIterable<unknown>,
     flags: PiTuiRenderFlags,
+    phase: "new-turn" | "intermediate-step",
     onFirstVisiblePart?: () => void,
     loaderMessage?: string
   ): Promise<void> => {
@@ -1189,6 +1190,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     let assistantView: AssistantStreamView | null = null;
     let suppressAssistantLeadingSpacer = false;
     let firstVisiblePartSeen = false;
+    let firstTextStartSeen = false;
 
     const resetAssistantView = (suppressLeadingSpacer = false): void => {
       if (suppressLeadingSpacer) {
@@ -1267,6 +1269,26 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         const part = rawPart as {
           type: string;
         };
+
+        if (
+          !firstTextStartSeen &&
+          phase === "intermediate-step" &&
+          part.type === "text-start"
+        ) {
+          firstTextStartSeen = true;
+          idleStatusPlaceholderMode = "suppressed";
+          renderForegroundStatus();
+        }
+
+        if (
+          idleStatusPlaceholderMode === "suppressed" &&
+          (part.type === "tool-input-start" ||
+            part.type === "tool-input-delta" ||
+            part.type === "tool-call")
+        ) {
+          idleStatusPlaceholderMode = "normal";
+          renderForegroundStatus();
+        }
 
         if (
           !firstVisiblePartSeen &&
@@ -1599,6 +1621,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           showSources: false,
           showFiles: false,
         },
+        phase,
         clearStreamingLoader,
         "Working..."
       );
