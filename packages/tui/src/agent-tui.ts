@@ -789,10 +789,15 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     );
 
   const idleStatusPlaceholder = new IdleStatusPlaceholder();
+  let suppressIdleStatusPlaceholder = false;
 
   const renderForegroundStatus = (): void => {
     statusContainer.clear();
-    statusContainer.addChild(foregroundStatus ?? idleStatusPlaceholder);
+    if (foregroundStatus) {
+      statusContainer.addChild(foregroundStatus);
+    } else if (!suppressIdleStatusPlaceholder) {
+      statusContainer.addChild(idleStatusPlaceholder);
+    }
     tui.requestRender();
   };
 
@@ -1078,7 +1083,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     streamInterruptRequested = true;
-    addSystemMessage(chatContainer, "⚡ Interrupted");
     activeStreamController.abort("User requested stream interruption");
     return true;
   };
@@ -1348,7 +1352,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         0
       )
     );
-    tui.requestRender();
+    suppressIdleStatusPlaceholder = true;
+    renderForegroundStatus();
   };
 
   const addAbnormalFinishReasonMessage = (finishReason: string): void => {
@@ -1848,6 +1853,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       addSystemMessage(chatContainer, "메시지를 입력해주세요");
       tui.requestRender();
       return true;
+    }
+
+    if (suppressIdleStatusPlaceholder) {
+      suppressIdleStatusPlaceholder = false;
+      renderForegroundStatus();
     }
 
     try {
