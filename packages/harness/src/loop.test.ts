@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentError, AgentErrorCode } from "./errors";
 import { runAgentLoop } from "./loop";
 import type { Agent, AgentStreamResult } from "./types";
@@ -302,6 +302,102 @@ describe("runAgentLoop", () => {
     // Initial message + response from iteration 0 + response from iteration 1
     // Both responses are always appended before checking continuation
     expect(result.messages.length).toBe(3);
+  });
+
+  it("invokes onFirstStreamPart exactly once with the first emitted part", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      toolCallsPerIteration: [
+        [
+          { toolName: "get_time", args: {} },
+          { toolName: "get_weather", args: { location: "Paris" } },
+        ],
+        [],
+      ],
+    });
+
+    const observed: Array<{ type: string; iteration: number }> = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onFirstStreamPart: (part, context) => {
+        observed.push({ type: part.type, iteration: context.iteration });
+      },
+    });
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]?.type).toBe("tool-call");
+    expect(observed[0]?.iteration).toBe(0);
+  });
+
+  it("invokes onFirstStreamPart on each iteration when the stream has content", async () => {
+    const agent = createMockAgent(["tool-calls", "tool-calls", "stop"], {
+      toolCallsPerIteration: [
+        [{ toolName: "first_call", args: {} }],
+        [{ toolName: "second_call", args: {} }],
+        [],
+      ],
+    });
+
+    const observed: Array<{ type: string; iteration: number }> = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onFirstStreamPart: (part, context) => {
+        observed.push({ type: part.type, iteration: context.iteration });
+      },
+    });
+
+    expect(observed).toHaveLength(2);
+    expect(observed[0]?.iteration).toBe(0);
+    expect(observed[1]?.iteration).toBe(1);
+  });
+
+  it("skips onFirstStreamPart when the stream yields no parts", async () => {
+    const agent = createMockAgent(["stop"], {
+      toolCallsPerIteration: [[]],
+    });
+
+    const observed: unknown[] = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onFirstStreamPart: (part) => {
+        observed.push(part);
+      },
+    });
+
+    expect(observed).toHaveLength(0);
+  });
+
+  it("isolates onFirstStreamPart observer errors from the stream flow", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      toolCallsPerIteration: [[{ toolName: "noop", args: {} }], []],
+    });
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const result = await runAgentLoop({
+        agent,
+        messages: [{ role: "user", content: "Hello" }],
+        onFirstStreamPart: () => {
+          throw new Error("observer bug");
+        },
+      });
+
+      expect(result.iterations).toBe(2);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onFirstStreamPart"),
+        expect.any(Error)
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it("calls onToolCall for each tool call", async () => {

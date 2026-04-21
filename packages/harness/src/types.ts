@@ -7,6 +7,7 @@ import type {
   LanguageModel,
   ModelMessage,
   streamText,
+  TextStreamPart,
   ToolCallPart,
   ToolSet,
 } from "ai";
@@ -159,18 +160,25 @@ export interface LoopHooks {
         { shouldContinue?: boolean; recovery?: ModelMessage[] } | undefined
       >;
   /**
-   * Fires exactly once per loop iteration when the first part of any kind
-   * arrives from `stream.fullStream`. Consumers can use this to clear a
-   * prompt-processing indicator the moment any byte of output begins
-   * arriving. Note: the SDK may emit invisible framing parts (`start`,
-   * `text-start`, …) before user-facing content; consumers that want to
-   * wait for *visible* output should filter on part type themselves.
+   * Fires exactly once per loop iteration, on the **first** part of any
+   * kind emitted from `stream.fullStream`. The part itself is passed as
+   * the first argument so consumers can inspect `part.type` if they only
+   * care about visible output — e.g., ignore framing parts (`start`,
+   * `text-start`, …) and react only to `text-delta`, `tool-call`, etc.
    *
-   * Observer-only contract: errors thrown from the callback are logged via
-   * `console.error` and swallowed so a buggy observer cannot abort a valid
-   * stream.
+   * Important: the hook fires on the very first part regardless of its
+   * visibility. Filtering inside the callback lets you *decide what to
+   * do* with that first part; it does NOT cause the hook to re-fire on
+   * a later visible part.
+   *
+   * Observer-only contract: errors thrown from the callback are logged
+   * via `console.error` and swallowed so a buggy observer cannot abort a
+   * valid stream.
    */
-  onFirstStreamPart?: (context: LoopContinueContext) => void | Promise<void>;
+  onFirstStreamPart?: (
+    part: TextStreamPart<ToolSet>,
+    context: LoopContinueContext
+  ) => void | Promise<void>;
   onInterrupt?: (
     interruption: {
       iteration: number;

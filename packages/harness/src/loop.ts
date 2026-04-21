@@ -17,16 +17,16 @@ import type {
   RunAgentLoopResult,
 } from "./types";
 
-async function invokeObserverHook(
-  hook: ((context: LoopContinueContext) => void | Promise<void>) | undefined,
+async function invokeObserverHook<Args extends readonly unknown[]>(
+  hook: ((...args: Args) => void | Promise<void>) | undefined,
   hookName: string,
-  context: LoopContinueContext
+  ...args: Args
 ): Promise<void> {
   if (!hook) {
     return;
   }
   try {
-    await hook(context);
+    await hook(...args);
   } catch (error) {
     console.error(`[harness] ${hookName} threw; continuing stream:`, error);
   }
@@ -125,6 +125,7 @@ export async function runAgentLoop(
           await invokeObserverHook(
             onFirstStreamPart,
             "onFirstStreamPart",
+            part,
             context
           );
         }
