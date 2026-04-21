@@ -4,8 +4,10 @@ import { z } from "zod";
 
 export const env = createEnv({
   server: {
-    ANTHROPIC_API_KEY: z.string().min(1).optional(),
-    ANTHROPIC_BASE_URL: z.string().url().optional(),
+    AI_API_KEY: z.string().min(1).optional(),
+    AI_BASE_URL: z.url().default("https://apis.opengateway.ai/v1"),
+    AI_MODEL: z.string().min(1).default("openai/gpt-5.4"),
+    AI_CONTEXT_LIMIT: z.coerce.number().int().positive().default(128_000),
     DEBUG_SHOW_FINISH_REASON: z.stringbool().default(false),
     DEBUG_SHOW_TOOL_RESULTS: z.stringbool().default(false),
     DEBUG_SHOW_RAW_TOOL_IO: z.stringbool().default(false),
@@ -20,10 +22,10 @@ export const env = createEnv({
 });
 
 export const validateProviderConfig = (): void => {
-  if (!env.ANTHROPIC_API_KEY) {
+  if (!env.AI_API_KEY) {
     console.error(
       "Error: No provider credentials found.\n" +
-        "  export ANTHROPIC_API_KEY=your_anthropic_api_key_here"
+        "  export AI_API_KEY=your_ai_api_key_here"
     );
     process.exit(1);
   }

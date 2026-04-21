@@ -10,9 +10,9 @@
  * 5. Assert final file content has "cat" replacing "pig"
  *
  * Usage:
- *   node --import tsx scripts/test-headless-edit-regression.ts [-m <model>] [--provider <provider>]
+ *   node --import tsx scripts/test-headless-edit-regression.ts [-m <model>]
  *
- * Requires: ANTHROPIC_API_KEY or appropriate API key set in environment.
+ * Requires: AI_API_KEY or appropriate API key set in environment.
  */
 
 import { spawn } from "node:child_process";
@@ -55,10 +55,7 @@ const extraArgs: string[] = [];
 const rawArgs = process.argv.slice(2);
 for (let i = 0; i < rawArgs.length; i++) {
   const arg = rawArgs[i];
-  if (
-    (arg === "-m" || arg === "--model" || arg === "--provider") &&
-    i + 1 < rawArgs.length
-  ) {
+  if ((arg === "-m" || arg === "--model") && i + 1 < rawArgs.length) {
     extraArgs.push(arg, rawArgs[i + 1]);
     i++;
   } else if (arg === "--think" || arg === "--no-translate") {

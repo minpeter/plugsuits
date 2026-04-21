@@ -17,8 +17,9 @@ export const env = createEnv({
       .transform((v) => v.replace(TRAILING_SLASHES, "")),
     REDIS_URL: z.url(),
     AI_API_KEY: z.string().min(1),
-    AI_BASE_URL: z.url(),
-    AI_MODEL_ID: z.string().min(1).default("gpt-4o"),
+    AI_BASE_URL: z.url().default("https://apis.opengateway.ai/v1"),
+    AI_MODEL: z.string().min(1).default("openai/gpt-5.4-mini"),
+    AI_CONTEXT_LIMIT: z.coerce.number().int().positive().default(128_000),
     MAX_ITERATIONS: z.coerce.number().int().positive().default(10),
     TRIGGER_WORDS: z
       .string()

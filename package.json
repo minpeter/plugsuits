@@ -1,7 +1,7 @@
 {
   "name": "cea-monorepo",
   "version": "1.0.0",
-  "description": "A code-editing agent using Vercel AI SDK and Anthropic",
+  "description": "A code-editing agent using Vercel AI SDK with shared AI_* configuration",
   "private": true,
   "scripts": {
     "build": "turbo run build",

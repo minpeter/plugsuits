@@ -53,10 +53,10 @@ Estimated additional reduction: ~60-80 lines.
 
 ## Phase 3: Keep CEA-Specific (Do NOT migrate)
 
-These are tightly coupled to Anthropic's API or CEA's UX and must remain CEA-specific:
+These are tightly coupled to CEA's runtime UX and must remain CEA-specific:
 
-- **`AgentManager` class** — Anthropic model building, thinking budget calculation, model switching via `/model` command. Cannot be replaced without losing provider-specific fidelity.
-- **`buildModel()` / `buildCompactionConfig()`** — Requires a live Anthropic model instance.
+- **`AgentManager` class** — OpenAI-compatible model building, compaction budget calculation, and startup model selection via `--model` / `-m`. Cannot be replaced without losing CEA-specific runtime fidelity.
+- **`buildModel()` / `buildCompactionConfig()`** — Requires a live OpenAI-compatible model instance.
 - **TUI selector overlays** — Interactive model/reasoning/tool-fallback selector UIs. Pure CEA UX.
 - **`buildAgentStreamWithTodoContinuation()`** — Splices TODO reminder messages into the stream. CEA-specific loop control.
 - **`PostCompactRestorer`** — Tracks `read_file` results and rebuilds restoration messages after compaction. File-editing context recovery.

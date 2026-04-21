@@ -1,5 +1,4 @@
 import type { ArgsDef } from "citty";
-import type { ProviderType } from "./agent";
 import { parseReasoningMode, type ReasoningMode } from "./reasoning-mode";
 import {
   DEFAULT_TOOL_FALLBACK_MODE,
@@ -14,11 +13,6 @@ export const sharedArgsDef = {
     type: "string",
     alias: "m",
     description: "Model ID",
-  },
-  provider: {
-    type: "enum",
-    options: ["anthropic"],
-    description: "Provider type",
   },
   "reasoning-mode": {
     type: "enum",
@@ -103,7 +97,6 @@ export const normalizeRawArgs = (rawArgs: string[]): string[] => {
 
 export interface SharedConfig {
   model: string | null;
-  provider: ProviderType | null;
   reasoningMode: ReasoningMode | null;
   toolFallbackMode: ToolFallbackMode;
   translateUserPrompts: boolean;
@@ -111,7 +104,6 @@ export interface SharedConfig {
 
 export interface SharedArgs {
   model?: string;
-  provider?: ProviderType;
   "reasoning-mode"?: ReasoningMode;
   think?: boolean;
   "toolcall-mode"?: ToolFallbackMode;
@@ -123,7 +115,6 @@ export const resolveSharedConfig = (args: SharedArgs): SharedConfig => {
 
   return {
     model: args.model ?? null,
-    provider: args.provider ?? null,
     reasoningMode:
       explicitReasoningMode ?? (args.think ? ("on" as const) : null),
     toolFallbackMode: args["toolcall-mode"] ?? DEFAULT_TOOL_FALLBACK_MODE,

@@ -87,20 +87,16 @@ describe("Skill command prefixes", () => {
 
 describe("Reasoning mode command", () => {
   let originalMode: ReturnType<typeof agentManager.getReasoningMode>;
-  let originalProvider: ReturnType<typeof agentManager.getProvider>;
   let originalModelId: ReturnType<typeof agentManager.getModelId>;
 
   beforeEach(() => {
     originalMode = agentManager.getReasoningMode();
-    originalProvider = agentManager.getProvider();
     originalModelId = agentManager.getModelId();
-    agentManager.setProvider("anthropic");
-    agentManager.setModelId("claude-sonnet-4-6");
+    agentManager.setModelId("openai/gpt-5.4");
     agentManager.setReasoningMode("on");
   });
 
   afterEach(() => {
-    agentManager.setProvider(originalProvider);
     agentManager.setModelId(originalModelId);
     agentManager.setReasoningMode(originalMode);
   });

@@ -31,10 +31,7 @@ for (let i = 0; i < args.length; i++) {
     continue;
   }
 
-  if (
-    (arg === "-m" || arg === "--model" || arg === "--provider") &&
-    i + 1 < args.length
-  ) {
+  if ((arg === "-m" || arg === "--model") && i + 1 < args.length) {
     extraArgs.push(arg, args[i + 1]);
     i++;
   }

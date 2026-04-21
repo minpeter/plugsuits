@@ -49,8 +49,7 @@ describe("AgentManager translation reasoning selection", () => {
   });
 
   it("uses off for translation when off is selectable", () => {
-    agentManager.setProvider("anthropic");
-    agentManager.setModelId("claude-sonnet-4-6");
+    agentManager.setModelId("openai/gpt-5.4");
     agentManager.setReasoningMode("preserved");
 
     expect(agentManager.getTranslationReasoningMode()).toBe("off");
@@ -58,86 +57,32 @@ describe("AgentManager translation reasoning selection", () => {
 });
 
 describe("buildAgentModelProfile", () => {
-  it("injects anthropic provider defaults and last-message cache control", () => {
+  it("forwards provider options when supplied", () => {
     const profile = buildAgentModelProfile({
       model: {
-        provider: "anthropic",
-        modelId: "claude-sonnet-4-6",
+        provider: "openai-compatible",
+        modelId: "openai/gpt-5.4",
       } as never,
-      providerOptions: {
-        anthropic: {
-          thinking: {
-            type: "enabled",
-            budgetTokens: 1000,
-          },
-        },
-      },
+      providerOptions: { openai: { parallelToolCalls: true } },
     });
 
     expect(profile.streamDefaults).toEqual({
-      providerOptions: {
-        anthropic: {
-          thinking: {
-            type: "enabled",
-            budgetTokens: 1000,
-          },
-        },
-      },
+      providerOptions: { openai: { parallelToolCalls: true } },
     });
-    expect(
-      profile.prepareStep?.({
-        messages: [{ role: "user", content: "hello" }],
-        model: {
-          provider: "anthropic",
-          modelId: "claude-sonnet-4-6",
-        } as never,
-      })
-    ).toEqual(
-      expect.objectContaining({
-        messages: expect.any(Array),
-      })
-    );
-    const anthropicMessages = profile.prepareStep?.({
-      messages: [{ role: "user", content: "hello" }],
-      model: {
-        provider: "anthropic",
-        modelId: "claude-sonnet-4-6",
-      } as never,
-    })?.messages;
-    expect(anthropicMessages).toHaveLength(1);
-    expect(anthropicMessages?.[0]).toMatchObject({
-      role: "user",
-      content: "hello",
-    });
-    expect(anthropicMessages?.[0]).toMatchObject({
-      providerOptions: {
-        anthropic: { cacheControl: { type: "ephemeral" } },
-      },
-    });
+    expect(profile.prepareStep).toBeUndefined();
   });
 
-  it("is effectively a no-op for non-anthropic message caching", () => {
+  it("returns empty stream defaults when provider options are absent", () => {
     const profile = buildAgentModelProfile({
       model: {
-        provider: "openai",
-        modelId: "gpt-4.1",
+        provider: "openai-compatible",
+        modelId: "openai/gpt-5.4-mini",
       } as never,
       providerOptions: undefined,
     });
 
-    expect(
-      profile.prepareStep?.({
-        messages: [{ role: "user", content: "hello" }],
-        model: {
-          provider: "openai",
-          modelId: "gpt-4.1",
-        } as never,
-      })
-    ).toEqual(
-      expect.objectContaining({
-        messages: [{ role: "user", content: "hello" }],
-      })
-    );
+    expect(profile.streamDefaults).toEqual({});
+    expect(profile.prepareStep).toBeUndefined();
   });
 });
 
@@ -247,8 +192,7 @@ summary`);
   });
 
   it("uses a soft compaction threshold and earlier speculative ratio based on usable input budget", () => {
-    agentManager.setProvider("anthropic");
-    agentManager.setModelId("claude-sonnet-4-6");
+    agentManager.setModelId("openai/gpt-5.4");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(
@@ -317,8 +261,7 @@ summary`);
   });
 
   it("buildCompactionConfig includes getStructuredState callback", () => {
-    agentManager.setProvider("anthropic");
-    agentManager.setModelId("claude-sonnet-4-6");
+    agentManager.setModelId("openai/gpt-5.4");
 
     const mutableAgentManager = agentManager as unknown as {
       getProviderModel(

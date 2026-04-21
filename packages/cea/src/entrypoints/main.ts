@@ -31,9 +31,6 @@ import {
 import type { EditorTheme, MarkdownTheme } from "@mariozechner/pi-tui";
 import {
   Container,
-  Input,
-  Key,
-  matchesKey,
   type SelectItem,
   SelectList,
   Spacer,
@@ -55,15 +52,7 @@ import {
 } from "../commands";
 import { createClearCommand } from "../commands/clear";
 import { createCompactCommand } from "../commands/compact";
-import {
-  applyModelSelection,
-  createModelCommand,
-  findModelBySelection,
-  getAvailableModels,
-  type ModelInfo,
-} from "../commands/model";
 import { createReasoningModeCommand } from "../commands/reasoning-mode";
-import { createRenderCommand } from "../commands/render";
 import { createToolFallbackCommand } from "../commands/tool-fallback";
 import { createTranslateCommand } from "../commands/translate";
 import type { SkillInfo } from "../context/skills";
@@ -112,23 +101,6 @@ const buildCurrentIndicatorLabel = (
   isCurrent: boolean
 ): string => {
   return isCurrent ? `${label} (current)` : label;
-};
-
-const buildModelSelectorLabel = (
-  model: ModelInfo,
-  isCurrent: boolean
-): string => {
-  return buildCurrentIndicatorLabel(model.id, isCurrent);
-};
-
-const buildModelSelectorDescription = (model: ModelInfo): string => {
-  const providerLabel = "Anthropic";
-
-  if (model.name?.trim()) {
-    return `${model.name} • ${providerLabel}`;
-  }
-
-  return providerLabel;
 };
 
 const createMarkdownTheme = (): MarkdownTheme => {
@@ -344,18 +316,6 @@ const handleCompactionComplete = (result: CompactionResult): void => {
 let requestedProcessExitCode: number | null = null;
 let signalShutdownRequested = false;
 
-registerCommand(
-  createRenderCommand(async () => ({
-    model: agentManager.getModelId(),
-    modelType: agentManager.getModelType(),
-    instructions: await agentManager.getInstructions(),
-    tools: agentManager.getTools(),
-    messages: messageHistory.toModelMessages(),
-    reasoningMode: agentManager.getReasoningMode(),
-    toolFallbackMode: agentManager.getToolFallbackMode(),
-  }))
-);
-registerCommand(createModelCommand());
 registerCommand(createClearCommand());
 registerCommand(createReasoningModeCommand());
 registerCommand(createToolFallbackCommand());
@@ -554,16 +514,6 @@ const createCliCommands = (): Command[] => {
   const commands = Array.from(getCommands().values());
 
   return commands.map((command) => {
-    if (command.name === "model") {
-      return wrapCommand(command, async (context, original) => {
-        const result = await original(context);
-        if (result.success) {
-          await updateCompactionForCurrentModel();
-        }
-        return result;
-      });
-    }
-
     if (command.name === "reasoning-mode" || command.name === "think") {
       return wrapCommand(command, async (context, original) => {
         const result = await original(context);
@@ -707,9 +657,6 @@ const mainCommand = defineCommand({
     await replaceCurrentSessionHistory(sessionManager.getId());
 
     const config = resolveSharedConfig(args as SharedArgs);
-    if (config.provider) {
-      agentManager.setProvider(config.provider);
-    }
     if (config.model) {
       agentManager.setModelId(config.model);
     }
@@ -1063,154 +1010,6 @@ const mainCommand = defineCommand({
       });
     };
 
-    const showModelSelector = async (
-      models: ModelInfo[],
-      currentModelId: string,
-      currentProvider: ModelInfo["provider"],
-      hooks: CommandPreprocessHooks,
-      initialFilter = ""
-    ): Promise<ModelInfo | null> => {
-      hooks.clearStatus();
-
-      const selectorContainer = new Container();
-      const searchInput = new Input();
-      searchInput.focused = true;
-      searchInput.setValue(initialFilter);
-
-      const items: SelectItem[] = models.map((model, index) => {
-        const isCurrent =
-          model.id === currentModelId && model.provider === currentProvider;
-        return {
-          value: String(index),
-          label: buildModelSelectorLabel(model, isCurrent),
-          description: buildModelSelectorDescription(model),
-        };
-      });
-
-      const selectList = new SelectList(
-        items,
-        10,
-        hooks.editorTheme.selectList
-      );
-
-      selectorContainer.addChild(
-        new Text(style(ANSI_DIM, "Select model"), 1, 0)
-      );
-      selectorContainer.addChild(
-        new Text(
-          style(ANSI_DIM, "Type to filter, Enter to select, Esc to cancel"),
-          1,
-          0
-        )
-      );
-      selectorContainer.addChild(new Spacer(1));
-      selectorContainer.addChild(new Text(style(ANSI_DIM, "Search:"), 1, 0));
-      selectorContainer.addChild(searchInput);
-      selectorContainer.addChild(new Spacer(1));
-      selectorContainer.addChild(selectList);
-
-      hooks.statusContainer.addChild(selectorContainer);
-      selectList.setFilter(initialFilter);
-      if (!initialFilter) {
-        const currentIndex = items.findIndex((_item, i) => {
-          const model = models[i];
-          return (
-            model.id === currentModelId && model.provider === currentProvider
-          );
-        });
-        if (currentIndex >= 0) {
-          selectList.setSelectedIndex(currentIndex);
-        }
-      }
-      hooks.tui.requestRender();
-
-      return await new Promise<ModelInfo | null>((resolve) => {
-        let settled = false;
-        let removeInputListener: (() => void) | null = null;
-
-        const finish = (value: ModelInfo | null): void => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          if (removeInputListener) {
-            removeInputListener();
-          }
-          hooks.statusContainer.removeChild(selectorContainer);
-          hooks.tui.requestRender();
-          resolve(value);
-        };
-
-        selectList.onSelect = (item) => {
-          const selectedIndex = Number.parseInt(item.value, 10);
-          finish(models[selectedIndex] ?? null);
-        };
-        selectList.onCancel = () => {
-          finish(null);
-        };
-
-        removeInputListener = hooks.addInputListener((data: string) => {
-          if (hooks.isCtrlCInput(data)) {
-            finish(null);
-            return { consume: true };
-          }
-
-          const isNavigationInput =
-            matchesKey(data, Key.up) ||
-            matchesKey(data, Key.down) ||
-            matchesKey(data, Key.enter) ||
-            matchesKey(data, Key.escape);
-
-          if (isNavigationInput) {
-            selectList.handleInput(data);
-          } else {
-            searchInput.handleInput(data);
-            selectList.setFilter(searchInput.getValue());
-          }
-
-          hooks.tui.requestRender();
-          return { consume: true };
-        });
-      });
-    };
-
-    const handleModelCommand = async (
-      commandInput: string,
-      parsed: { name: string; args: string[] },
-      hooks: CommandPreprocessHooks
-    ): Promise<string | null> => {
-      const models = getAvailableModels();
-      if (models.length === 0) {
-        return commandInput;
-      }
-
-      const searchTerm = parsed.args[0]?.trim() ?? "";
-
-      if (parsed.args.length > 0 && findModelBySelection(searchTerm, models)) {
-        return commandInput;
-      }
-
-      const selectedModel = await showModelSelector(
-        models,
-        agentManager.getModelId(),
-        agentManager.getProvider(),
-        hooks,
-        searchTerm
-      );
-
-      if (!selectedModel) {
-        return null;
-      }
-
-      const result = applyModelSelection(selectedModel);
-      await updateCompactionForCurrentModel();
-      if (result.message) {
-        hooks.showMessage(result.message);
-      }
-      hooks.updateHeader();
-      return null;
-    };
-
     const handleReasoningModeSelectorCommand = async (
       parsed: { name: string; args: string[] },
       hooks: CommandPreprocessHooks
@@ -1296,10 +1095,6 @@ const mainCommand = defineCommand({
           return commandInput;
         }
 
-        if (parsed.name === "model") {
-          return handleModelCommand(commandInput, parsed, hooks);
-        }
-
         const selectorResult = await preprocessSimpleSelectorCommand(
           parsed,
           hooks
@@ -1335,8 +1130,7 @@ const mainCommand = defineCommand({
         header: {
           title: "Code Editing Agent",
           get subtitle() {
-            const modelInfo = `${agentManager.getProvider()}/${agentManager.getModelId()}`;
-            return `${modelInfo}\nSession: ${sessionManager.getId()}`;
+            return `${agentManager.getModelId()}\nSession: ${sessionManager.getId()}`;
           },
         },
         theme: {

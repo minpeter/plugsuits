@@ -20,18 +20,11 @@ const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run");
 const extraArgs: string[] = [];
 let hasModelArg = false;
-let hasProviderArg = false;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (
-    (arg === "-m" || arg === "--model" || arg === "--provider") &&
-    i + 1 < args.length
-  ) {
+  if ((arg === "-m" || arg === "--model") && i + 1 < args.length) {
     if (arg === "-m" || arg === "--model") {
       hasModelArg = true;
-    }
-    if (arg === "--provider") {
-      hasProviderArg = true;
     }
     extraArgs.push(arg, args[i + 1]);
     i++;
@@ -40,12 +33,8 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-if (!hasProviderArg) {
-  extraArgs.push("--provider", "anthropic");
-}
-
 if (!hasModelArg) {
-  extraArgs.push("--model", "claude-sonnet-4-6");
+  extraArgs.push("--model", "openai/gpt-5.4");
 }
 
 interface Scenario {
@@ -233,7 +222,7 @@ async function runScenario(scenario: Scenario): Promise<void> {
 
 const main = async () => {
   console.log(
-    "\n🧪 Compaction E2E Test — 32K/40K/80K (Claude Sonnet 4.6 via Anthropic)\n"
+    "\n🧪 Compaction E2E Test — 32K/40K/80K (shared AI_* runtime config)\n"
   );
 
   mkdirSync(RESULTS_DIR, { recursive: true });

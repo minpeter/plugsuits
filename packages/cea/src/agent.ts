@@ -1,8 +1,6 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
-import type { ProviderOptions as AiProviderOptions } from "@ai-sdk/provider-utils";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   type AgentModelProfile,
-  addEphemeralCacheControlToLastMessage,
   BackgroundMemoryExtractor,
   type CompactionConfig,
   computeAdaptiveThresholdRatio as computeAdaptiveThresholdRatioFromPolicy,
@@ -42,8 +40,8 @@ import {
 } from "./tool-fallback-mode";
 import { createTools, type ToolRegistry } from "./tools";
 
-export const DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-4-6";
-export const DEFAULT_MODEL_ID = DEFAULT_ANTHROPIC_MODEL_ID;
+const DEFAULT_PROVIDER = "openai-compatible" as const;
+export const DEFAULT_MODEL_ID = env.AI_MODEL;
 
 /**
  * Hard cap on output tokens sent to the API.
@@ -52,9 +50,8 @@ export const DEFAULT_MODEL_ID = DEFAULT_ANTHROPIC_MODEL_ID;
  * Also used as fallback when model-specific limits are not available.
  */
 const OUTPUT_TOKEN_CAP = 64_000;
-const DEFAULT_CONTEXT_LENGTH = 200_000;
 const TRANSLATION_MAX_OUTPUT_TOKENS = 4000;
-type ProviderOptions = AiProviderOptions | undefined;
+type ProviderOptions = HarnessAgentStreamOptions["providerOptions"];
 
 interface BenchmarkSamplingOverrides {
   seed?: number;
@@ -73,7 +70,7 @@ export type AgentStreamOptions = Pick<
 >;
 export type AgentStreamResult = HarnessAgentStreamResult;
 
-export type ProviderType = "anthropic";
+export type ProviderType = typeof DEFAULT_PROVIDER;
 
 export interface UsageMeasurement {
   inputTokens: number;
@@ -136,36 +133,15 @@ export interface ModelTokenLimits {
   maxCompletionTokens: number;
 }
 
-export interface AnthropicModelInfo extends ModelTokenLimits {
-  id: string;
-  name: string;
-}
-
-export const ANTHROPIC_MODELS: readonly AnthropicModelInfo[] = [
-  {
-    id: "claude-sonnet-4-6",
-    name: "Claude Sonnet 4.6 (Latest)",
-    contextLength: 200_000,
-    maxCompletionTokens: 64_000,
-  },
-  {
-    id: "claude-opus-4-6",
-    name: "Claude Opus 4.6 (Latest)",
-    contextLength: 200_000,
-    maxCompletionTokens: 32_000,
-  },
-] as const;
-
-const anthropic = env.ANTHROPIC_API_KEY
-  ? createAnthropic({
-      apiKey: env.ANTHROPIC_API_KEY,
-      ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}),
+const openAICompatible = env.AI_API_KEY
+  ? createOpenAICompatible({
+      name: DEFAULT_PROVIDER,
+      apiKey: env.AI_API_KEY,
+      baseURL: env.AI_BASE_URL,
     })
   : null;
 
-const ANTHROPIC_THINKING_BUDGET_TOKENS = 10_000;
-
-const ANTHROPIC_SELECTABLE_REASONING_MODES: ReasoningMode[] = ["off", "on"];
+const SELECTABLE_REASONING_MODES: ReasoningMode[] = ["off", "on"];
 const REASONING_MODE_PRIORITY: readonly ReasoningMode[] = [
   "preserved",
   "interleaved",
@@ -201,129 +177,45 @@ export const selectTranslationReasoningMode = (
   return selectBestReasoningMode(modes);
 };
 
-const isAnthropicWithReasoning = (
-  modelId: string,
-  provider: ProviderType,
-  reasoningMode: ReasoningMode
-): boolean => {
-  const thinkingEnabled = reasoningMode !== "off";
-  return (
-    provider === "anthropic" && thinkingEnabled && !modelId.includes("opus")
-  );
-};
-
-const getModelMaxCompletionTokens = (modelId: string): number => {
-  const model = ANTHROPIC_MODELS.find((m) => m.id === modelId);
-  return model?.maxCompletionTokens ?? OUTPUT_TOKEN_CAP;
+const getModelMaxCompletionTokens = (_modelId: string): number => {
+  return OUTPUT_TOKEN_CAP;
 };
 
 const getEffectiveMaxOutputTokens = (modelId: string): number => {
   return Math.min(getModelMaxCompletionTokens(modelId), OUTPUT_TOKEN_CAP);
 };
 
-const getModelContextLength = (modelId: string): number => {
-  const model = ANTHROPIC_MODELS.find((m) => m.id === modelId);
-  return model?.contextLength ?? DEFAULT_CONTEXT_LENGTH;
+const getModelContextLength = (_modelId: string): number => {
+  return env.AI_CONTEXT_LIMIT;
 };
 
 const getCompactionReserveTokens = (modelId: string): number => {
-  return getEffectiveMaxOutputTokens(modelId);
+  return Math.min(
+    getEffectiveMaxOutputTokens(modelId),
+    Math.max(4096, Math.floor(getModelContextLength(modelId) * 0.25))
+  );
 };
 
 const getProviderOptions = (
   modelId: string,
-  provider: ProviderType,
-  reasoningMode: ReasoningMode
+  _reasoningMode: ReasoningMode
 ): { options: ProviderOptions; maxOutputTokens: number } => {
-  const thinkingEnabled = reasoningMode !== "off";
-  const effectiveMaxTokens = getEffectiveMaxOutputTokens(modelId);
-
-  const getAnthropicProviderOptions = (): ProviderOptions => {
-    if (!thinkingEnabled) {
-      return undefined;
-    }
-
-    const isOpus = modelId.includes("opus");
-    if (isOpus) {
-      return { anthropic: { effort: "high" } };
-    }
-
-    return {
-      anthropic: {
-        thinking: {
-          type: "enabled",
-          budgetTokens: ANTHROPIC_THINKING_BUDGET_TOKENS,
-        },
-      },
-    };
-  };
-
   return {
-    options: getAnthropicProviderOptions(),
-    maxOutputTokens: isAnthropicWithReasoning(modelId, provider, reasoningMode)
-      ? effectiveMaxTokens - ANTHROPIC_THINKING_BUDGET_TOKENS
-      : effectiveMaxTokens,
+    options: undefined,
+    maxOutputTokens: getCompactionReserveTokens(modelId),
   };
-};
-
-const fallbackAddEphemeralCacheControlToLastMessage = (params: {
-  messages: ModelMessage[];
-  model: ReturnType<AgentManager["buildModel"]>["model"];
-}): ModelMessage[] => {
-  const modelRecord = params.model as Record<string, unknown>;
-  const provider = modelRecord.provider;
-  const modelId = modelRecord.modelId;
-  const isAnthropic = [provider, modelId].some((value) => {
-    return (
-      typeof value === "string" &&
-      (value.includes("anthropic") || value.includes("claude"))
-    );
-  });
-
-  if (!isAnthropic || params.messages.length === 0) {
-    return params.messages;
-  }
-
-  return params.messages.map((message, index) => {
-    if (index !== params.messages.length - 1) {
-      return message;
-    }
-
-    return {
-      ...message,
-      providerOptions: {
-        ...(message.providerOptions ?? {}),
-        anthropic: { cacheControl: { type: "ephemeral" } },
-      },
-    } as ModelMessage;
-  });
-};
-
-const applyLastMessageCacheControl = (params: {
-  messages: ModelMessage[];
-  model: ReturnType<AgentManager["buildModel"]>["model"];
-}): ModelMessage[] => {
-  return typeof addEphemeralCacheControlToLastMessage === "function"
-    ? addEphemeralCacheControlToLastMessage(params)
-    : fallbackAddEphemeralCacheControlToLastMessage(params);
 };
 
 export const buildAgentModelProfile = (params: {
   model: ReturnType<AgentManager["buildModel"]>["model"];
   providerOptions: ProviderOptions;
 }): AgentModelProfile => {
-  const profileModel = params.model;
-
   return {
-    streamDefaults: {
-      providerOptions: params.providerOptions,
-    },
-    prepareStep: ({ messages }) => ({
-      messages: applyLastMessageCacheControl({
-        messages,
-        model: profileModel,
-      }),
-    }),
+    streamDefaults: params.providerOptions
+      ? {
+          providerOptions: params.providerOptions,
+        }
+      : {},
   };
 };
 
@@ -499,24 +391,28 @@ export class AgentManager {
   private memoryStoreKey: string | null = null;
   private modelId: string = DEFAULT_MODEL_ID;
   private modelType: ModelType = "serverless";
-  private provider: ProviderType = "anthropic";
+  private provider: ProviderType = DEFAULT_PROVIDER;
   private headlessMode = false;
   private reasoningMode: ReasoningMode = DEFAULT_REASONING_MODE;
   private toolRegistry: ToolRegistry = defaultToolRegistry;
   private toolFallbackMode: ToolFallbackMode = DEFAULT_TOOL_FALLBACK_MODE;
   private translationEnabled = true;
-  private readonly anthropicClient: ReturnType<typeof createAnthropic> | null;
+  private readonly modelProvider: ReturnType<
+    typeof createOpenAICompatible
+  > | null;
 
-  constructor(anthropicClient?: ReturnType<typeof createAnthropic> | null) {
-    this.anthropicClient =
-      anthropicClient !== undefined ? anthropicClient : anthropic;
+  constructor(
+    modelProvider?: ReturnType<typeof createOpenAICompatible> | null
+  ) {
+    this.modelProvider =
+      modelProvider !== undefined ? modelProvider : openAICompatible;
     this.applyBestReasoningModeForCurrentModel();
   }
 
   resetForTesting(): void {
     this.modelId = DEFAULT_MODEL_ID;
     this.modelType = "serverless";
-    this.provider = "anthropic";
+    this.provider = DEFAULT_PROVIDER;
     this.headlessMode = false;
     this.reasoningMode = DEFAULT_REASONING_MODE;
     this.toolRegistry = defaultToolRegistry;
@@ -541,20 +437,19 @@ export class AgentManager {
   }
 
   private getProviderModel(modelId: string) {
-    if (!this.anthropicClient) {
+    if (!this.modelProvider) {
       throw new Error(
-        "ANTHROPIC_API_KEY is not set. Please set it in your environment."
+        "AI_API_KEY is not set. Please set it in your environment."
       );
     }
 
-    return this.anthropicClient(modelId);
+    return this.modelProvider.chatModel(modelId);
   }
 
   private buildModel(reasoningMode: ReasoningMode = this.reasoningMode) {
     const model = this.getProviderModel(this.modelId);
     const { options, maxOutputTokens } = getProviderOptions(
       this.modelId,
-      this.provider,
       reasoningMode
     );
 
@@ -739,7 +634,6 @@ export class AgentManager {
 
   setProvider(provider: ProviderType): void {
     this.provider = provider;
-    this.modelId = DEFAULT_ANTHROPIC_MODEL_ID;
     this.applyBestReasoningModeForCurrentModel();
   }
 
@@ -760,7 +654,7 @@ export class AgentManager {
   }
 
   getSelectableReasoningModes(): ReasoningMode[] {
-    return [...ANTHROPIC_SELECTABLE_REASONING_MODES];
+    return [...SELECTABLE_REASONING_MODES];
   }
 
   setThinkingEnabled(enabled: boolean): void {
@@ -947,34 +841,32 @@ ${buildTodoContinuationPrompt(incompleteTodos)}`;
  * Factory function for creating a fresh AgentManager instance with custom provider clients.
  * Useful for test isolation and multi-agent scenarios.
  *
- * @param options - Optional provider credentials and base URLs.
+ * @param options - Optional AI backend credentials and base URL.
  *   If not provided, falls back to environment variables.
- * @returns A new AgentManager instance with fresh provider clients.
+ * @returns A new AgentManager instance with a fresh model provider.
  *
  * @example
  * ```typescript
- * // Test isolation: create a fresh instance per test
  * const manager = createAgentManager({
- *   anthropicApiKey: 'test-token',
- *   anthropicBaseUrl: 'http://localhost:8080',
+ *   aiApiKey: "test-token",
+ *   aiBaseUrl: "http://localhost:8080/v1",
  * });
  * ```
  */
 export function createAgentManager(options?: {
-  anthropicApiKey?: string;
-  anthropicBaseUrl?: string;
+  aiApiKey?: string;
+  aiBaseUrl?: string;
 }): AgentManager {
-  const anthropicApiKey = options?.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
-  const anthropicClient = anthropicApiKey
-    ? createAnthropic({
-        apiKey: anthropicApiKey,
-        ...((options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL)
-          ? { baseURL: options?.anthropicBaseUrl ?? env.ANTHROPIC_BASE_URL }
-          : {}),
+  const aiApiKey = options?.aiApiKey ?? env.AI_API_KEY;
+  const modelProvider = aiApiKey
+    ? createOpenAICompatible({
+        name: DEFAULT_PROVIDER,
+        apiKey: aiApiKey,
+        baseURL: options?.aiBaseUrl ?? env.AI_BASE_URL,
       })
     : null;
 
-  return new AgentManager(anthropicClient);
+  return new AgentManager(modelProvider);
 }
 
 export const agentManager = createAgentManager();

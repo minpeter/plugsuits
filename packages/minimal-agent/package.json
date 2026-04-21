@@ -8,7 +8,7 @@
   "scripts": {
     "benchmark": "node --conditions=@ai-sdk-tool/source --import tsx benchmark.ts",
     "build": "tsc && node ../../scripts/fix-esm-imports.mjs dist",
-    "dev": "node --watch --env-file=.env --conditions=@ai-sdk-tool/source --import tsx index.ts",
+    "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,7 +21,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^3.0.58",
     "@types/node": "^25.4.0",
     "citty": "^0.2.1",
     "typescript": "^5.9.3"

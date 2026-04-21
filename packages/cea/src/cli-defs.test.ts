@@ -167,16 +167,6 @@ describe("resolveSharedConfig", () => {
     expect(resolveSharedConfig(args).reasoningMode).toBeNull();
   });
 
-  it("maps provider anthropic", () => {
-    const args: SharedArgs = { provider: "anthropic" };
-    expect(resolveSharedConfig(args).provider).toBe("anthropic");
-  });
-
-  it("maps provider undefined to null", () => {
-    const args: SharedArgs = {};
-    expect(resolveSharedConfig(args).provider).toBeNull();
-  });
-
   it("maps model value", () => {
     const args: SharedArgs = { model: "foo" };
     expect(resolveSharedConfig(args).model).toBe("foo");

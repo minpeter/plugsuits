@@ -6,7 +6,7 @@ RESULTS_DIR="/Users/minpeter/github.com/minpeter/plugsuits/results/cross-agent"
 PROMPT="코드베이스를 탐색하고, 이 코드 베이스에 대해서 설명해줘"
 TIMEOUT=300
 LIMITS="${1:-32000,40000}"
-PLUGSUITS_MODEL="${2:-claude-sonnet-4-6}"
+PLUGSUITS_MODEL="${2:-openai/gpt-5.4}"
 
 TIMEOUT_CMD="gtimeout"
 if ! command -v gtimeout &>/dev/null; then
@@ -19,12 +19,12 @@ mkdir -p "$RESULTS_DIR"
 run_plugsuits() {
   local limit=$1
   local tag="plugsuits-${limit}"
-  echo "▶ [plugsuits] limit=${limit} model=${PLUGSUITS_MODEL} (anthropic native)"
+  echo "▶ [plugsuits] limit=${limit} model=${PLUGSUITS_MODEL} (shared AI_* config)"
   COMPACTION_DEBUG=1 CONTEXT_LIMIT_OVERRIDE=$limit \
     $TIMEOUT_CMD $TIMEOUT node --conditions=@ai-sdk-tool/source --import tsx \
     /Users/minpeter/github.com/minpeter/plugsuits/packages/cea/src/entrypoints/main.ts \
     -p "$PROMPT" --no-translate --max-iterations 12 \
-    -m "$PLUGSUITS_MODEL" --provider anthropic \
+    -m "$PLUGSUITS_MODEL" \
     > "$RESULTS_DIR/${tag}-output.jsonl" \
     2> "$RESULTS_DIR/${tag}-stderr.log" || true
   echo "  ✓ plugsuits@${limit} done"
@@ -36,7 +36,7 @@ run_pi_mono() {
   echo "▶ [pi-mono] limit=${limit} model=${PLUGSUITS_MODEL} (openai-compatible path)"
   cd "$EXAMPLES_DIR/pi-mono"
   CONTEXT_LIMIT_OVERRIDE=$limit \
-  OPENAI_API_KEY="${ANTHROPIC_API_KEY}" \
+  OPENAI_API_KEY="${AI_API_KEY:-${OPENAI_API_KEY:-}}" \
     $TIMEOUT_CMD $TIMEOUT node packages/coding-agent/dist/cli.js \
     -p "$PROMPT" --no-session \
     --provider openai --model "${PLUGSUITS_MODEL}" \
@@ -82,12 +82,12 @@ cat << HEADER
 ═══════════════════════════════════════════════════════
   Cross-Agent Compaction Benchmark
   Limits: $LIMITS
-  Model: $PLUGSUITS_MODEL (Anthropic)
+  Model: $PLUGSUITS_MODEL (shared AI_*)
   Timeout: ${TIMEOUT}s per run
   Results: $RESULTS_DIR
   
   Agents:
-    plugsuits  → anthropic provider (native)
+    plugsuits  → shared AI_* OpenAI-compatible runtime
     pi-mono    → openai-compatible provider
     gemini-cli → Google Gemini API (if key set)
     crush      → external config path

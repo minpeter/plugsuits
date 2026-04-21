@@ -43,7 +43,10 @@ class CodeEditingAgent(BaseInstalledAgent):
     def create_run_agent_commands(self, instruction: str) -> list[ExecInput]:
         prompt = shlex.quote(instruction)
         env = {
-            "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY", ""),
+            "AI_API_KEY": os.getenv("AI_API_KEY", ""),
+            "AI_BASE_URL": os.getenv("AI_BASE_URL", ""),
+            "AI_MODEL": os.getenv("AI_MODEL", ""),
+            "AI_CONTEXT_LIMIT": os.getenv("AI_CONTEXT_LIMIT", ""),
             "PATH": "/usr/local/bin:/usr/bin:/bin",
             "ATIF_OUTPUT_PATH": "/logs/agent/trajectory.json",
         }
@@ -54,7 +57,7 @@ class CodeEditingAgent(BaseInstalledAgent):
             flags.append("--think")
         if os.getenv("AGENT_ENABLE_TOOL_FALLBACK", "").lower() in ("1", "true", "yes"):
             flags.append("--tool-fallback")
-        cmd = f"cd /agent && node --conditions=@ai-sdk-tool/source --import tsx /agent/packages/cea/src/entrypoints/main.ts -p {prompt} --provider anthropic {model_arg} {' '.join(flags)} 2>&1 | tee /logs/agent/output.jsonl"
+        cmd = f"cd /agent && node --conditions=@ai-sdk-tool/source --import tsx /agent/packages/cea/src/entrypoints/main.ts -p {prompt} {model_arg} {' '.join(flags)} 2>&1 | tee /logs/agent/output.jsonl"
         return [
             ExecInput(command="mkdir -p /logs/agent"),
             ExecInput(command=cmd, env=env),

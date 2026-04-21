@@ -174,8 +174,8 @@ function readConfig(): HarnessConfig {
     maxIterations: Number(
       parseArg("--max-iterations") ?? DEFAULT_MAX_ITERATIONS
     ),
-    modelId: parseArg("-m") ?? parseArg("--model") ?? "claude-sonnet-4-6",
-    provider: parseArg("--provider") ?? "anthropic",
+    modelId: parseArg("-m") ?? parseArg("--model") ?? "openai/gpt-5.4",
+    provider: "openai-compatible",
     runs: Number(parseArg("--runs") ?? DEFAULT_RUNS),
     scenarioIds: (getArgList("--scenarios") ?? [
       "bug-trace",
@@ -256,8 +256,6 @@ async function spawnRun(params: {
     String(params.maxIterations),
     "-m",
     params.modelId,
-    "--provider",
-    params.provider,
   ];
 
   const env = {

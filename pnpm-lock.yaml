@@ -50,9 +50,6 @@ importers:
       '@ai-sdk-tool/tui':
         specifier: workspace:*
         version: link:../tui
-      '@ai-sdk/anthropic':
-        specifier: ^3.0.58
-        version: 3.0.58(zod@4.3.6)
       '@ai-sdk/openai-compatible':
         specifier: ^2.0.35
         version: 2.0.35(zod@4.3.6)
@@ -177,9 +174,6 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^3.0.58
-        version: 3.0.58(zod@4.3.6)
       '@types/node':
         specifier: ^25.4.0
         version: 25.4.0
@@ -257,12 +251,6 @@ packages:
   '@ai-sdk-tool/parser@4.1.5':
     resolution: {integrity: sha512-mS9VrUw8tAMcmMhS2wqM89eF/5qgaCW4BqLan1FsYaRsgZ3UV5+jRgkHaa9IHsx//W+7wP92GzLFK53fWNUrHw==}
     engines: {node: '>=18'}
-
-  '@ai-sdk/anthropic@3.0.58':
-    resolution: {integrity: sha512-/53SACgmVukO4bkms4dpxpRlYhW8Ct6QZRe6sj1Pi5H00hYhxIrqfiLbZBGxkdRvjsBQeP/4TVGsXgH5rQeb8Q==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
 
   '@ai-sdk/gateway@3.0.66':
     resolution: {integrity: sha512-SIQ0YY0iMuv+07HLsZ+bB990zUJ6S4ujORAh+Jv1V2KGNn73qQKnGO0JBk+w+Res8YqOFSycwDoWcFlQrVxS4A==}
@@ -1757,12 +1745,6 @@ snapshots:
     transitivePeerDependencies:
       - babel-plugin-macros
       - zod
-
-  '@ai-sdk/anthropic@3.0.58(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.19(zod@4.3.6)
-      zod: 4.3.6
 
   '@ai-sdk/gateway@3.0.66(zod@4.3.6)':
     dependencies:

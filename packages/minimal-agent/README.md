@@ -1,17 +1,18 @@
 # Minimal Agent
 
-Minimal Anthropic-backed example agent built on the workspace packages.
+Minimal OpenAI-compatible example agent built on the workspace packages.
 
 ## Requirements
 
 - Node.js 22+
 - pnpm 10+
-- `ANTHROPIC_API_KEY`
+- `AI_API_KEY`
 
 Optional:
 
-- `ANTHROPIC_BASE_URL`
-- `ANTHROPIC_MODEL`
+- `AI_BASE_URL`
+- `AI_MODEL`
+- `AI_CONTEXT_LIMIT`
 
 ## Scripts
 
