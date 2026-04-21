@@ -182,7 +182,7 @@ try {
 
 - File edits in CEA favor hashline-aware operations (`LINE#HASH` + `expected_file_hash`) for stale-safe modifications.
 - Manual tool-loop continuation is intentionally constrained to normalized `tool-calls` finish reasons.
-- Headless mode emits structured ATIF JSONL lifecycle types (`metadata`, `step`, `approval`, `compaction`, `error`, `interrupt`) consumed by benchmark tooling.
+- Headless mode emits a JSONL event stream with lifecycle types `metadata`, `step`, `approval`, `compaction`, `error`, `interrupt`, and `turn-start`. The persisted `trajectory.json` produced by `TrajectoryCollector` follows Harbor's ATIF-v1.4 schema (<https://www.harborframework.com/docs/agents/trajectory-format>): `approval`, `compaction`, and `interrupt` are bundled into `extra.*` buckets; `turn-start` and `error` are JSONL-only.
 - `SkillsEngine` discovers skills from up to five directories: bundled, global skills, global commands, project skills, project commands.
 
 ## COMMANDS

@@ -170,6 +170,14 @@ function getRecommendedMaxOutputTokens(
   return history.getRecommendedMaxOutputTokens(messages);
 }
 
+/**
+ * Routes a JSONL stream event to the ATIF-v1.4 trajectory collector, if
+ * persistence is enabled. The `default` case INTENTIONALLY drops event
+ * types that are not part of ATIF v1.4 (e.g. `turn-start`, `error`) — they
+ * stay on the JSONL stream only. Adding a case here must be accompanied by
+ * a matching `extra.*` persistence path in `TrajectoryCollector.finalize`
+ * so `trajectory.json` stays ATIF v1.4 compliant.
+ */
 function collectTrajectoryEvent(
   collector: TrajectoryCollector | null,
   event: TrajectoryEvent
@@ -294,6 +302,9 @@ async function runTodoReminderLoop(params: {
 
 export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   const emitEventSink = config.emitEvent ?? defaultEmitEvent;
+  // When `atifOutputPath` is set, the collected trajectory is written to
+  // disk in ATIF v1.4 format. The JSONL stream to stdout is a separate
+  // surface (internal protocol, not ATIF) and continues regardless.
   const trajectoryCollector = config.atifOutputPath
     ? new TrajectoryCollector()
     : null;
@@ -316,6 +327,8 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
   let totalIterationCount = 0;
   type StreamTurnResult = Awaited<ReturnType<typeof processStream>>;
   type StreamUsage = StreamTurnResult["usage"] | undefined;
+  let usageProbeGeneration = 0;
+
   const measureUsageIfAvailable = async (
     messages: ModelMessage[]
   ): Promise<boolean> => {
@@ -323,10 +336,27 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
       return false;
     }
 
+    usageProbeGeneration += 1;
+    const thisGeneration = usageProbeGeneration;
+    const historyWithRevision = config.messageHistory as {
+      getRevision?: () => number;
+    };
+    const startingRevision = historyWithRevision.getRevision?.();
+
     const measured = normalizeUsageMeasurement(
       await config.measureUsage(messages)
     );
     if (!measured) {
+      return false;
+    }
+
+    if (thisGeneration !== usageProbeGeneration) {
+      return false;
+    }
+    if (
+      startingRevision !== undefined &&
+      historyWithRevision.getRevision?.() !== startingRevision
+    ) {
       return false;
     }
 
@@ -635,6 +665,7 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
     }
     let overflowRetried = false;
     let noOutputRetryCount = 0;
+    let hasEmittedTurnStart = false;
     const executeStream = async (
       streamMessages: ModelMessage[],
       streamMaxOutputTokens: number | undefined
@@ -699,6 +730,23 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
             );
           }),
         ]);
+
+        if (!hasEmittedTurnStart) {
+          hasEmittedTurnStart = true;
+          emitAndCollect({
+            type: "turn-start",
+            phase,
+            timestamp: new Date().toISOString(),
+          });
+          try {
+            await config.onStreamStart?.(phase);
+          } catch (hookError) {
+            console.error(
+              "[headless] onStreamStart threw; continuing stream:",
+              hookError
+            );
+          }
+        }
         const nextStepId = stepId + 1;
         const processStreamResult = await processStream({
           emitEvent: emitAndCollect,

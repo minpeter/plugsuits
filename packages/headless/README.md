@@ -50,7 +50,7 @@ await runHeadless({
 });
 ```
 
-**Example output (ATIF-v1.6):**
+**Example output (JSONL stream):**
 
 ```jsonl
 {"type":"metadata","timestamp":"2026-04-03T10:00:00.000Z","session_id":"ses-abc123","agent":{"name":"code-editing-agent","version":"1.0.0","model_name":"gpt-4o"}}
@@ -169,7 +169,7 @@ registerSignalHandlers({
 
 ## JSONL Event Types
 
-Headless output now follows the **ATIF-v1.6** protocol documented in `packages/headless/AGENTS.md`.
+The runner streams an internal JSONL event protocol documented in `packages/headless/AGENTS.md`. The persisted `trajectory.json` produced by `TrajectoryCollector` conforms to Harbor's **ATIF-v1.4** schema (<https://www.harborframework.com/docs/agents/trajectory-format>). Lifecycle annotations on the JSONL stream split into two categories: `approval`, `compaction`, and `interrupt` are persisted into `trajectory.extra.*` buckets (not as `steps[*].source` values); `turn-start` and `error` are transient and stay JSONL-only.
 
 ### Event overview
 
@@ -182,6 +182,7 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
 | `compaction` | system | Lifecycle event for history compaction |
 | `error` | system | Fatal error or iteration-limit event |
 | `interrupt` | system | Intentional caller interruption (`caller-abort`) |
+| `turn-start` | system | Lifecycle annotation emitted right after `agent.stream()` is dispatched, before the first chunk arrives |
 
 ### `metadata`
 
@@ -278,6 +279,16 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
 }
 ```
 
+### `turn-start`
+
+```typescript
+{
+  type: "turn-start",
+  timestamp: string,
+  phase: "new-turn" | "intermediate-step",
+}
+```
+
 ### TypeScript types
 
 ```typescript
@@ -291,6 +302,7 @@ import type {
   CompactionEvent,
   ErrorEvent,
   InterruptEvent,
+  TurnStartEvent,
 } from "@ai-sdk-tool/headless";
 ```
 

@@ -7,6 +7,7 @@ import type {
   LanguageModel,
   ModelMessage,
   streamText,
+  TextStreamPart,
   ToolCallPart,
   ToolSet,
 } from "ai";
@@ -158,6 +159,26 @@ export interface LoopHooks {
     | Promise<
         { shouldContinue?: boolean; recovery?: ModelMessage[] } | undefined
       >;
+  /**
+   * Fires exactly once per loop iteration, on the **first** part of any
+   * kind emitted from `stream.fullStream`. The part itself is passed as
+   * the first argument so consumers can inspect `part.type` if they only
+   * care about visible output — e.g., ignore framing parts (`start`,
+   * `text-start`, …) and react only to `text-delta`, `tool-call`, etc.
+   *
+   * Important: the hook fires on the very first part regardless of its
+   * visibility. Filtering inside the callback lets you *decide what to
+   * do* with that first part; it does NOT cause the hook to re-fire on
+   * a later visible part.
+   *
+   * Observer-only contract: errors thrown from the callback are logged
+   * via `console.error` and swallowed so a buggy observer cannot abort a
+   * valid stream.
+   */
+  onFirstStreamPart?: (
+    part: TextStreamPart<ToolSet>,
+    context: LoopContinueContext
+  ) => void | Promise<void>;
   onInterrupt?: (
     interruption: {
       iteration: number;
@@ -169,6 +190,24 @@ export interface LoopHooks {
     context: LoopContinueContext
   ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onStepComplete?: (step: LoopStepInfo) => void | Promise<void>;
+  /**
+   * Fires immediately after {@link Agent.stream} is invoked and before the
+   * `fullStream` iteration begins. This is the closest hook to "LLM request
+   * sent, waiting for first chunk" — intended for consumers that need to
+   * display a loading indicator during the prompt-processing latency gap.
+   *
+   * Observer-only contract: this hook must not influence the stream. Errors
+   * thrown from the callback are logged via `console.error` and swallowed
+   * so a buggy observer cannot abort a valid stream.
+   *
+   * The callback is awaited before iteration starts, so keep it fast.
+   *
+   * Note: only runtimes that drive their turns through `runAgentLoop`
+   * observe this hook. The TUI (`createAgentTUI`) implements its own
+   * stream loop and exposes an independent `AgentTUIConfig.onStreamStart`
+   * with a `phase` argument.
+   */
+  onStreamStart?: (context: LoopContinueContext) => void | Promise<void>;
   onToolCall?: (
     call: ToolCallPart,
     context: LoopContinueContext

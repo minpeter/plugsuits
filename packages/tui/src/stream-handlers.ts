@@ -417,10 +417,12 @@ export const isVisibleStreamPart = (
     case "text-end":
     case "reasoning-end":
     case "start":
-    case "text-start":
-    case "reasoning-start":
     case "tool-input-end":
       return false;
+    case "text-start":
+      return true;
+    case "reasoning-start":
+      return flags.showReasoning;
     case "reasoning-delta":
       return flags.showReasoning;
     case "tool-result":

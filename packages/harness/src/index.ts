@@ -1,4 +1,4 @@
-export type { LanguageModelUsage } from "ai";
+export type { LanguageModelUsage, TextStreamPart } from "ai";
 export { createAgent } from "./agent";
 export type { BackgroundMemoryExtractorConfig } from "./background-memory-extractor";
 export { BackgroundMemoryExtractor } from "./background-memory-extractor";

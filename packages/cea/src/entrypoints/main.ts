@@ -627,7 +627,7 @@ const mainCommand = defineCommand({
     atif: {
       type: "boolean",
       description:
-        "Generate trajectory.json in ATIF-v1.6 format (Harbor compatible)",
+        "Generate trajectory.json in ATIF-v1.4 format (Harbor compatible)",
       default: false,
     },
   },

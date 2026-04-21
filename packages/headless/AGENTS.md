@@ -9,9 +9,20 @@ This package provides a non-interactive, JSONL event-streaming runtime for agent
 
 The package depends on `@ai-sdk-tool/harness` for `CheckpointHistory`, `AgentStreamResult`, and `shouldContinueManualToolLoop`. The agent itself is passed in as a config parameter.
 
-## JSONL EVENT PROTOCOL (ATIF-v1.6)
+## JSONL EVENT PROTOCOL
 
-Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 specification for trajectory logging.
+Every event is a JSON object on its own line.
+
+> **This JSONL stream is NOT the ATIF schema.** ATIF is the format of the
+> persisted `trajectory.json` file produced by `TrajectoryCollector` — see
+> [Harbor's ATIF specification](https://www.harborframework.com/docs/agents/trajectory-format).
+> The current ATIF version is **v1.4**. This JSONL protocol is an internal
+> streaming contract used by the runner to drive UI, telemetry, and the
+> trajectory collector. Persisted lifecycle annotations (`approval`,
+> `compaction`, `interrupt`) are bundled into ATIF `extra.*` buckets by the
+> collector — they are NOT `steps[*].source` values, but they do survive
+> on disk. Transient annotations (`turn-start`, `error`) stay JSONL-only
+> and are never written to `trajectory.json`.
 
 ### Design Decisions
 - **NO sessionId on individual events**: A single `MetadataEvent` at the start carries the `session_id`.
@@ -31,6 +42,7 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 | `compaction` | system | Lifecycle event for history compaction |
 | `error` | system | Fatal or iteration-limit error |
 | `interrupt` | system | Intentional caller interruption (`caller-abort`) |
+| `turn-start` | system | Lifecycle annotation emitted right after `agent.stream()` is invoked, before the first chunk arrives |
 
 ### Examples
 
@@ -77,6 +89,11 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 {"type":"error","timestamp":"2026-04-03T10:00:20.000Z","error":"Max iterations (50) reached"}
 ```
 
+**TurnStartEvent**:
+```json
+{"type":"turn-start","timestamp":"2026-04-03T10:00:04.500Z","phase":"new-turn"}
+```
+
 ## KEY EXPORTS
 
 ### `runHeadless(config: HeadlessRunnerConfig): Promise<void>`
@@ -114,7 +131,7 @@ import type {
 | `runner.ts` | `runHeadless` | Main agent loop with JSONL emission |
 | `emit.ts` | `emitEvent` | Default stdout JSONL event sink |
 | `signals.ts` | `registerSignalHandlers` | Process signal lifecycle management |
-| `types.ts` | `TrajectoryEvent`, etc. | ATIF-v1.6 event type definitions |
+| `types.ts` | `TrajectoryEvent`, etc. | JSONL stream event types (internal) + ATIF-v1.4 persisted types |
 
 ## CONVENTIONS
 
@@ -130,3 +147,16 @@ import type {
 - Estimating token counts (use `metrics` from SDK only).
 - Manual `step_id` management outside the runner.
 - Using `console.log` for non-event output.
+
+## ATIF v1.4 COMPLIANCE (persisted trajectory.json)
+
+`TrajectoryCollector` writes the only output that MUST conform to Harbor's ATIF v1.4 spec (<https://www.harborframework.com/docs/agents/trajectory-format>). When editing `trajectory-collector.ts` or `collectTrajectoryEvent` in `runner.ts`, keep the following invariants:
+
+- **schema_version is the literal `"ATIF-v1.4"`**. Never bump unilaterally — bump only when the upstream Harbor spec bumps and this implementation has been audited against the new version's required/optional fields.
+- **`steps[*].source` ∈ `{user, agent, system}`**. Never widen this set; new event types go to `extra.*` or are dropped from persistence.
+- **Persisted lifecycle annotations live under `extra.*`**: `approval_events`, `compaction_events`, `interrupt_events`. Extending this set is acceptable (ATIF `extra` is forward-compatible) but each new bucket requires a new collector method and a corresponding `collectTrajectoryEvent` case.
+- **Adding a JSONL event type is additive for stdout** but requires an explicit routing decision in `collectTrajectoryEvent`: persist under `extra.*`, or drop. Leaving the `default: return;` fallthrough is a valid choice for transient signals (the pattern `turn-start` uses).
+- **`final_metrics` keys are null-when-absent, not omitted**. The shape is load-bearing for downstream tools (Harbor validator, scorer).
+- **Metrics come from SDK `stream.usage`** — never estimated; never hand-filled.
+
+Violating these invariants silently breaks Harbor benchmark runs, since the persisted trajectory will fail `harbor.utils.trajectory_validator` or produce unusable scorer output.

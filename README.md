@@ -104,7 +104,7 @@ Available commands:
 pnpm run headless -- "Fix the type error in src/index.ts"
 ```
 
-Outputs structured ATIF JSONL events (`metadata`, `step`, `approval`, `compaction`, `error`, `interrupt`) for programmatic consumption.
+Outputs a JSONL event stream (`metadata`, `step`, `approval`, `compaction`, `error`, `interrupt`, `turn-start`) for programmatic consumption. The persisted `trajectory.json` conforms to Harbor's ATIF-v1.4 schema.
 
 ## Architecture
 

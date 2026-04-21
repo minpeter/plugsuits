@@ -25,7 +25,7 @@ def parse_timestamp(ts: str | None) -> datetime | None:
 
 
 def score_trajectory(trajectory: dict) -> dict:
-    """Compute performance metrics from an ATIF-v1.6 trajectory dict."""
+    """Compute performance metrics from an ATIF-v1.4 trajectory dict."""
     steps = trajectory.get("steps", [])
     fm = trajectory.get("final_metrics", {}) or {}
     compaction_events = trajectory.get("extra", {}).get("compaction_events", [])

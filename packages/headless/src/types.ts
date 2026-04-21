@@ -1,10 +1,23 @@
 import type { BeforeTurnResult } from "@ai-sdk-tool/harness";
 
 /**
- * ATIF-v1.6 native event types for trajectory logging.
+ * JSONL streaming protocol for headless trajectory logging.
+ *
+ * Note: this is NOT the ATIF schema itself. The persisted trajectory
+ * written to disk via {@link TrajectoryCollector} conforms to ATIF-v1.4
+ * (https://www.harborframework.com/docs/agents/trajectory-format). The
+ * event union below is the internal stdout JSONL contract that the
+ * runner emits during execution; the collector consumes these events
+ * and produces the ATIF trajectory as output.
+ *
+ * Lifecycle annotations split into two categories:
+ *   - `approval`, `compaction`, `interrupt` are persisted under
+ *     `trajectory.extra.*` buckets (not as `steps[*].source` values).
+ *   - `turn-start` and `error` stay JSONL-only and are dropped by the
+ *     collector.
  *
  * All emitted step events (UserStepEvent, AgentStepEvent) conform to the ATIF specification.
- * Metadata is emitted once at run start. Compaction and error events are lifecycle annotations.
+ * Metadata is emitted once at run start.
  */
 
 // ============================================================================
@@ -37,12 +50,21 @@ export interface ObservationData {
 
 /**
  * Token usage metrics from the agent's model invocation.
- * All fields come from the SDK's stream.usage and are never estimated.
+ *
+ * Fields follow ATIF-v1.4 (https://www.harborframework.com/docs/agents/trajectory-format).
+ * `completion_token_ids` was added in v1.3 (RL), `prompt_token_ids` in v1.4.
+ *
+ * Numeric fields come from the SDK's stream.usage and are never estimated.
+ * Token-id and logprob fields are only populated when the provider exposes
+ * them; consumers must treat them as opt-in.
  */
 export interface StepMetrics {
   cached_tokens?: number;
+  completion_token_ids?: number[];
   completion_tokens?: number;
   cost_usd?: number;
+  logprobs?: number[];
+  prompt_token_ids?: number[];
   prompt_tokens?: number;
 }
 
@@ -128,6 +150,18 @@ export interface InterruptEvent {
   type: "interrupt";
 }
 
+/**
+ * Emitted immediately after the agent's LLM request is dispatched but before
+ * any stream chunk has arrived. Consumers can use this as a "prompt
+ * processing started" signal to render a loading indicator. Lifecycle
+ * annotation — carries no `step_id`.
+ */
+export interface TurnStartEvent {
+  phase: "new-turn" | "intermediate-step";
+  timestamp: string;
+  type: "turn-start";
+}
+
 export type { HistorySnapshot } from "@ai-sdk-tool/harness";
 
 export interface HeadlessRunnerConfig {
@@ -158,6 +192,9 @@ export interface HeadlessRunnerConfig {
     phase: "new-turn" | "intermediate-step"
   ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onInterrupt?: (event: InterruptEvent) => Promise<void> | void;
+  onStreamStart?: (
+    phase: "new-turn" | "intermediate-step"
+  ) => void | Promise<void>;
   onTodoReminder?: () => Promise<{
     hasReminder: boolean;
     message: string | null;
@@ -197,7 +234,20 @@ export interface MetadataEvent {
 // ============================================================================
 
 /**
- * The complete union of all trajectory event types.
+ * The complete union of all JSONL stream event types.
+ *
+ * This union defines the INTERNAL JSONL protocol — it is NOT the ATIF
+ * schema. Adding a new event type here is additive and non-breaking, but
+ * the corresponding switch in `collectTrajectoryEvent` must explicitly
+ * decide whether the new type is:
+ *
+ *   • persisted into an ATIF v1.4 `extra.*` bucket (lifecycle annotation
+ *     that Harbor accepts as forward-compatible extension), or
+ *   • dropped (lives only on the JSONL stream; `trajectory.json` stays
+ *     ATIF v1.4 compliant).
+ *
+ * It MUST NEVER be persisted as a top-level ATIF field or as a new
+ * `steps[*].source` value — that would violate the Harbor spec.
  */
 export type TrajectoryEvent =
   | StepEvent
@@ -205,4 +255,5 @@ export type TrajectoryEvent =
   | ErrorEvent
   | ApprovalEvent
   | InterruptEvent
-  | MetadataEvent;
+  | MetadataEvent
+  | TurnStartEvent;
