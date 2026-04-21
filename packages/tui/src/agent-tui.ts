@@ -44,6 +44,7 @@ import {
 import { createAliasAwareAutocompleteProvider } from "./autocomplete";
 import { buildTuiCommandSet } from "./command-set";
 import { createSpinnerTicker, type SpinnerTicker } from "./pending-spinner";
+import { createSpinnerOrchestrator } from "./spinner-orchestrator";
 import {
   addChatComponent,
   createInfoMessage,
@@ -1227,16 +1228,18 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     };
 
     const baseLoaderMessage = loaderMessage ?? foregroundStatusMessage;
-    let reasoningActive = false;
-    let reasoningRevivedSpinner = false;
-    let toolPendingCount = 0;
-    let toolRevivedSpinner = false;
 
-    const restoreBaseSpinner = (): void => {
-      if (baseLoaderMessage) {
-        foregroundStatus?.setMessage(baseLoaderMessage);
-      }
-    };
+    const orchestrator = createSpinnerOrchestrator(
+      {
+        clearStatus,
+        hasSpinner: () => foregroundStatus !== null,
+        setMessage: (message) => {
+          foregroundStatus?.setMessage(message);
+        },
+        showLoader,
+      },
+      baseLoaderMessage
+    );
 
     const state: PiTuiStreamState = {
       flags,
@@ -1247,51 +1250,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       ensureToolView,
       getToolView: (toolCallId: string) => toolViews.get(toolCallId),
       chatContainer,
-      onReasoningStart: () => {
-        reasoningActive = true;
-        if (foregroundStatus) {
-          foregroundStatus.setMessage("Thinking...");
-        } else {
-          showLoader("Thinking...");
-          reasoningRevivedSpinner = true;
-        }
-      },
-      onReasoningEnd: () => {
-        reasoningActive = false;
-        if (reasoningRevivedSpinner) {
-          clearStatus();
-          reasoningRevivedSpinner = false;
-          return;
-        }
-        restoreBaseSpinner();
-      },
-      onToolPendingStart: () => {
-        toolPendingCount += 1;
-        if (reasoningActive) {
-          return;
-        }
-        if (foregroundStatus) {
-          foregroundStatus.setMessage("Executing...");
-        } else {
-          showLoader("Executing...");
-          toolRevivedSpinner = true;
-        }
-      },
-      onToolPendingEnd: () => {
-        toolPendingCount = Math.max(0, toolPendingCount - 1);
-        if (toolPendingCount > 0) {
-          return;
-        }
-        if (reasoningActive) {
-          return;
-        }
-        if (toolRevivedSpinner) {
-          clearStatus();
-          toolRevivedSpinner = false;
-          return;
-        }
-        restoreBaseSpinner();
-      },
+      onReasoningStart: orchestrator.onReasoningStart,
+      onReasoningEnd: orchestrator.onReasoningEnd,
+      onToolPendingStart: orchestrator.onToolPendingStart,
+      onToolPendingEnd: orchestrator.onToolPendingEnd,
     };
 
     try {
