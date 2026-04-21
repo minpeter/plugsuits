@@ -801,14 +801,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       chatContainer.removeChild(foregroundStatus);
       foregroundStatus = null;
     }
+    foregroundStatusMessage = null;
   };
 
   const clearStatus = (): void => {
-    foregroundStatusMessage = null;
-    if (!(foregroundStatus || foregroundSpinnerSpacer)) {
-      tui.requestRender();
-      return;
-    }
     detachForegroundSpinner();
     tui.requestRender();
   };
@@ -1317,7 +1313,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         return;
       }
       hasClearedStreamingLoader = true;
-      clearStatus();
+      detachForegroundSpinner();
     };
   };
 
