@@ -173,6 +173,22 @@ class IdleStatusPlaceholder extends Text {
   }
 }
 
+/**
+ * Compact single-line variant of {@link IdleStatusPlaceholder} used
+ * immediately after a successful assistant turn completes, so the final
+ * response sits with just one blank line above the editor instead of two.
+ * The next user submission restores the full-height placeholder.
+ */
+class CompactIdleStatusPlaceholder extends Text {
+  constructor() {
+    super("", 1, 0);
+  }
+
+  render(_width: number): string[] {
+    return [""];
+  }
+}
+
 const truncatePlainToWidth = (text: string, maxWidth: number): string => {
   if (maxWidth <= 0) {
     return "";
@@ -789,14 +805,17 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     );
 
   const idleStatusPlaceholder = new IdleStatusPlaceholder();
-  let suppressIdleStatusPlaceholder = false;
+  const compactIdleStatusPlaceholder = new CompactIdleStatusPlaceholder();
+  let idleStatusPlaceholderMode: "normal" | "suppressed" | "compact" = "normal";
 
   const renderForegroundStatus = (): void => {
     statusContainer.clear();
     if (foregroundStatus) {
       statusContainer.addChild(foregroundStatus);
-    } else if (!suppressIdleStatusPlaceholder) {
+    } else if (idleStatusPlaceholderMode === "normal") {
       statusContainer.addChild(idleStatusPlaceholder);
+    } else if (idleStatusPlaceholderMode === "compact") {
+      statusContainer.addChild(compactIdleStatusPlaceholder);
     }
     tui.requestRender();
   };
@@ -1352,7 +1371,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         0
       )
     );
-    suppressIdleStatusPlaceholder = true;
+    idleStatusPlaceholderMode = "suppressed";
     renderForegroundStatus();
   };
 
@@ -1494,6 +1513,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     addAbnormalFinishReasonMessage(params.finishReason);
+
+    idleStatusPlaceholderMode = "compact";
+    renderForegroundStatus();
 
     return "completed";
   };
@@ -1855,8 +1877,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       return true;
     }
 
-    if (suppressIdleStatusPlaceholder) {
-      suppressIdleStatusPlaceholder = false;
+    if (idleStatusPlaceholderMode !== "normal") {
+      idleStatusPlaceholderMode = "normal";
       renderForegroundStatus();
     }
 
