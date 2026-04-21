@@ -1179,7 +1179,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const renderAgentStream = async (
     stream: AsyncIterable<unknown>,
     flags: PiTuiRenderFlags,
-    phase: "new-turn" | "intermediate-step",
     onFirstVisiblePart?: () => void,
     loaderMessage?: string
   ): Promise<void> => {
@@ -1270,11 +1269,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           type: string;
         };
 
-        if (
-          !firstTextStartSeen &&
-          phase === "intermediate-step" &&
-          part.type === "text-start"
-        ) {
+        if (part.type === "start-step") {
+          firstTextStartSeen = false;
+        }
+
+        if (!firstTextStartSeen && part.type === "text-start") {
           firstTextStartSeen = true;
           idleStatusPlaceholderMode = "suppressed";
           renderForegroundStatus();
@@ -1621,7 +1620,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           showSources: false,
           showFiles: false,
         },
-        phase,
         clearStreamingLoader,
         "Working..."
       );
