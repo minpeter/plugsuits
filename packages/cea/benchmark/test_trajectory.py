@@ -10,6 +10,14 @@ import sys
 from pathlib import Path
 
 
+def _is_real_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_real_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def validate_trajectory(path: str) -> list[str]:
     """Validate trajectory.json against ATIF-v1.4 spec. Returns list of errors."""
     errors = []
@@ -84,7 +92,7 @@ def validate_trajectory(path: str) -> list[str]:
         if not isinstance(fm, dict):
             errors.append("final_metrics must be a dictionary")
             return errors
-        if not isinstance(fm.get("total_steps"), int):
+        if not _is_real_int(fm.get("total_steps")):
             errors.append("final_metrics.total_steps: must be an integer")
         for token_field in (
             "total_prompt_tokens",
@@ -93,7 +101,7 @@ def validate_trajectory(path: str) -> list[str]:
             "total_cost_usd",
         ):
             value = fm.get(token_field)
-            if value is not None and not isinstance(value, (int, float)):
+            if value is not None and not _is_real_number(value):
                 errors.append(
                     f"final_metrics.{token_field}: must be a number or null, got {type(value).__name__}"
                 )
@@ -115,7 +123,7 @@ def validate_trajectory(path: str) -> list[str]:
             "cost_usd",
         ):
             value = metrics.get(num_field)
-            if value is not None and not isinstance(value, (int, float)):
+            if value is not None and not _is_real_number(value):
                 errors.append(
                     f"steps[{i}].metrics.{num_field}: must be a number when present"
                 )

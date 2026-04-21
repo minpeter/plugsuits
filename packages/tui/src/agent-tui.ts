@@ -918,8 +918,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
               "Compacting...",
               "running"
             );
-            if (foregroundStatusMessage !== null) {
+            if (
+              foregroundStatusBeforeBlocking === null &&
+              foregroundStatusMessage !== null
+            ) {
               foregroundStatusBeforeBlocking = foregroundStatusMessage;
+            }
+            if (foregroundStatusMessage !== null) {
               showLoader("Compacting...");
             }
             userCompactionCallbacks?.onBlockingChange?.(event);
@@ -929,7 +934,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           blockingCompactionActive = false;
           clearBackgroundStatus("blocking-compaction");
           if (foregroundStatusBeforeBlocking !== null) {
-            showLoader(foregroundStatusBeforeBlocking);
+            if (foregroundStatusMessage !== null) {
+              showLoader(foregroundStatusBeforeBlocking);
+            }
             foregroundStatusBeforeBlocking = null;
           }
           updateHeader();
@@ -1031,6 +1038,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
   };
 
+  let usageProbeGeneration = 0;
+
   const measureUsageIfAvailable = async (
     messages: ModelMessage[]
   ): Promise<boolean> => {
@@ -1038,10 +1047,17 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       return false;
     }
 
+    usageProbeGeneration += 1;
+    const thisGeneration = usageProbeGeneration;
+
     const measured = normalizeUsageMeasurement(
       await config.measureUsage(messages)
     );
     if (!measured) {
+      return false;
+    }
+
+    if (thisGeneration !== usageProbeGeneration) {
       return false;
     }
 
@@ -1532,9 +1548,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       const budget = await resolveTurnBudget(phase, messagesForLLM);
       messagesForLLM = budget.messagesForLLM;
 
-      showLoader("Working...");
-      await config.onStreamStart?.(phase);
-
       const stream = await config.agent.stream(
         mergeAgentStreamOptions({
           abortSignal: streamAbortController.signal,
@@ -1543,6 +1556,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           turnOverrides,
         })
       );
+
+      showLoader("Working...");
+      await config.onStreamStart?.(phase);
 
       const clearStreamingLoader = createStreamingLoaderClearer();
 
@@ -1851,6 +1867,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   try {
     await config.onSetup?.();
+    updateHeader();
 
     runBackgroundStartupProbe();
 

@@ -166,6 +166,60 @@ describe("runHeadless", () => {
     expect(agentIndex).toBeGreaterThan(turnStartIndex);
   });
 
+  it("does not emit turn-start when agent.stream() rejects before dispatch", async () => {
+    const events: TrajectoryEvent[] = [];
+    const history = new CheckpointHistory();
+    const streamError = new Error("Provider refused the request");
+
+    await runHeadless({
+      agent: {
+        stream: () => Promise.reject(streamError),
+      },
+      emitEvent: (event) => {
+        events.push(event);
+      },
+      initialUserMessage: { content: "hi" },
+      messageHistory: history,
+      modelId: "mock-model",
+      sessionId: "session-stream-failure",
+    }).catch(() => undefined);
+
+    expect(events.some((e) => e.type === "turn-start")).toBe(false);
+  });
+
+  it("emits turn-start after agent.stream() succeeds (before first chunk)", async () => {
+    const events: TrajectoryEvent[] = [];
+    const history = new CheckpointHistory();
+    const eventOrder: string[] = [];
+    let streamCallCount = 0;
+
+    await runHeadless({
+      agent: {
+        stream: () => {
+          streamCallCount += 1;
+          eventOrder.push("agent.stream() called");
+          return createMockStream([{ role: "assistant", content: "response" }]);
+        },
+      },
+      emitEvent: (event) => {
+        if (event.type === "turn-start") {
+          eventOrder.push("turn-start emitted");
+        }
+        events.push(event);
+      },
+      initialUserMessage: { content: "hi" },
+      messageHistory: history,
+      modelId: "mock-model",
+      sessionId: "session-turn-start-order-vs-stream",
+    });
+
+    expect(streamCallCount).toBe(1);
+    const streamIdx = eventOrder.indexOf("agent.stream() called");
+    const turnStartIdx = eventOrder.indexOf("turn-start emitted");
+    expect(streamIdx).toBeGreaterThanOrEqual(0);
+    expect(turnStartIdx).toBeGreaterThan(streamIdx);
+  });
+
   it("emits an intermediate-step turn-start on tool-continuation turns", async () => {
     const events: TrajectoryEvent[] = [];
     const history = new CheckpointHistory();

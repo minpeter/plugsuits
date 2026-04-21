@@ -671,16 +671,6 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           };
         }
 
-        if (!hasEmittedTurnStart) {
-          hasEmittedTurnStart = true;
-          emitAndCollect({
-            type: "turn-start",
-            phase,
-            timestamp: new Date().toISOString(),
-          });
-          await config.onStreamStart?.(phase);
-        }
-
         const streamPromise = Promise.resolve(
           config.agent.stream(streamOptions)
         );
@@ -710,6 +700,16 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
             );
           }),
         ]);
+
+        if (!hasEmittedTurnStart) {
+          hasEmittedTurnStart = true;
+          emitAndCollect({
+            type: "turn-start",
+            phase,
+            timestamp: new Date().toISOString(),
+          });
+          await config.onStreamStart?.(phase);
+        }
         const nextStepId = stepId + 1;
         const processStreamResult = await processStream({
           emitEvent: emitAndCollect,
