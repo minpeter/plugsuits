@@ -9,6 +9,8 @@ import {
   withStoredSchemaVersion,
 } from "./user-preferences";
 
+const SIMULATED_DISK_ERROR_PATTERN = /simulated disk error/;
+
 describe("user-preferences", () => {
   let tmpDir: string;
   let userFilePath: string;
@@ -166,5 +168,56 @@ describe("user-preferences", () => {
       reasoningMode: "interleaved",
       toolFallbackMode: "morphxml",
     });
+  });
+
+  it("concurrent patchWorkspacePreferences on different fields does not lose updates", async () => {
+    const { workspaceStore } = createUserPreferencesStore({
+      userFilePath,
+      workspaceFilePath,
+    });
+    await Promise.all([
+      patchWorkspacePreferences(workspaceStore, { translateEnabled: false }),
+      patchWorkspacePreferences(workspaceStore, { reasoningMode: "on" }),
+      patchWorkspacePreferences(workspaceStore, {
+        toolFallbackMode: "morphxml",
+      }),
+    ]);
+    expect(await workspaceStore.load()).toEqual({
+      translateEnabled: false,
+      reasoningMode: "on",
+      toolFallbackMode: "morphxml",
+    });
+  });
+
+  it("concurrent patchWorkspacePreferences on the same field is last-writer-wins deterministically", async () => {
+    const { workspaceStore } = createUserPreferencesStore({
+      userFilePath,
+      workspaceFilePath,
+    });
+    await Promise.all([
+      patchWorkspacePreferences(workspaceStore, { reasoningMode: "off" }),
+      patchWorkspacePreferences(workspaceStore, { reasoningMode: "on" }),
+    ]);
+    const final = await workspaceStore.load();
+    expect(final?.reasoningMode).toBe("on");
+  });
+
+  it("patchWorkspacePreferences surfaces save errors to the caller", async () => {
+    const { workspaceStore } = createUserPreferencesStore({
+      userFilePath,
+      workspaceFilePath,
+    });
+    const originalSave = workspaceStore.save.bind(workspaceStore);
+    (workspaceStore as { save: typeof workspaceStore.save }).save = () =>
+      Promise.reject(new Error("simulated disk error"));
+    await expect(
+      patchWorkspacePreferences(workspaceStore, { translateEnabled: false })
+    ).rejects.toThrow(SIMULATED_DISK_ERROR_PATTERN);
+    (workspaceStore as { save: typeof workspaceStore.save }).save =
+      originalSave;
+    await patchWorkspacePreferences(workspaceStore, {
+      translateEnabled: false,
+    });
+    expect(await workspaceStore.load()).toEqual({ translateEnabled: false });
   });
 });

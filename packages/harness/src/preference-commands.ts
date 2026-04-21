@@ -7,6 +7,41 @@ const DEFAULT_FALSY_VALUES = ["off", "disable", "false"] as const;
 const toTitleCase = (value: string): string =>
   value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
 
+const formatError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const applyFieldChange = async <T extends object, K extends keyof T, V>(
+  preferences: LayeredPreferences<T>,
+  field: K,
+  next: V,
+  previous: V,
+  setRuntime: (value: V) => void | Promise<void>,
+  featureName: string
+): Promise<CommandResult | null> => {
+  try {
+    await preferences.patch({ [field]: next } as unknown as Partial<T>);
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to persist ${featureName.toLowerCase()}: ${formatError(error)}`,
+    };
+  }
+
+  try {
+    await setRuntime(next);
+  } catch (error) {
+    await preferences
+      .patch({ [field]: previous } as unknown as Partial<T>)
+      .catch(() => undefined);
+    return {
+      success: false,
+      message: `Failed to apply ${featureName.toLowerCase()}: ${formatError(error)}`,
+    };
+  }
+
+  return null;
+};
+
 export interface TogglePreferenceCommandConfig<
   T extends object,
   K extends keyof T,
@@ -24,6 +59,20 @@ export interface TogglePreferenceCommandConfig<
   set: (next: boolean) => void | Promise<void>;
   truthyValues?: readonly string[];
 }
+
+const parseToggleArgument = (
+  raw: string,
+  truthy: Set<string>,
+  falsy: Set<string>
+): boolean | null => {
+  if (truthy.has(raw)) {
+    return true;
+  }
+  if (falsy.has(raw)) {
+    return false;
+  }
+  return null;
+};
 
 export function createTogglePreferenceCommand<
   T extends object,
@@ -50,13 +99,7 @@ export function createTogglePreferenceCommand<
         };
       }
 
-      let next: boolean | null = null;
-      if (truthy.has(raw)) {
-        next = true;
-      } else if (falsy.has(raw)) {
-        next = false;
-      }
-
+      const next = parseToggleArgument(raw, truthy, falsy);
       if (next === null) {
         return {
           success: false,
@@ -64,10 +107,17 @@ export function createTogglePreferenceCommand<
         };
       }
 
-      await config.set(next);
-      await config.preferences.patch({
-        [config.field]: next,
-      } as unknown as Partial<T>);
+      const failure = await applyFieldChange(
+        config.preferences,
+        config.field,
+        next,
+        config.get(),
+        config.set,
+        featureName
+      );
+      if (failure) {
+        return failure;
+      }
 
       return {
         success: true,
@@ -97,6 +147,13 @@ export interface EnumPreferenceCommandConfig<
   values: readonly V[];
 }
 
+const buildDefaultEnumParser =
+  <V extends string>(values: readonly V[]) =>
+  (raw: string): V | null => {
+    const normalized = raw.toLowerCase();
+    return values.find((value) => value.toLowerCase() === normalized) ?? null;
+  };
+
 export function createEnumPreferenceCommand<
   T extends object,
   K extends keyof T,
@@ -106,14 +163,7 @@ export function createEnumPreferenceCommand<
   const usage = config.values.join("|");
   const description =
     config.description ?? `Set ${featureName.toLowerCase()} (${usage}).`;
-
-  const defaultParse = (raw: string): V | null => {
-    const normalized = raw.toLowerCase();
-    return (
-      config.values.find((value) => value.toLowerCase() === normalized) ?? null
-    );
-  };
-  const parse = config.parse ?? defaultParse;
+  const parse = config.parse ?? buildDefaultEnumParser(config.values);
 
   return {
     name: config.name,
@@ -153,10 +203,17 @@ export function createEnumPreferenceCommand<
         };
       }
 
-      await config.set(next);
-      await config.preferences.patch({
-        [config.field]: next,
-      } as unknown as Partial<T>);
+      const failure = await applyFieldChange(
+        config.preferences,
+        config.field,
+        next,
+        current,
+        config.set,
+        featureName
+      );
+      if (failure) {
+        return failure;
+      }
 
       return {
         success: true,

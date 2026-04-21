@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -79,7 +85,7 @@ export class FilePreferencesStore<T> implements PreferencesStore<T> {
 
   clear(): Promise<void> {
     try {
-      writeFileSync(this.filePath, "{}\n", "utf8");
+      rmSync(this.filePath, { force: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error;
@@ -230,16 +236,21 @@ export function createLayeredPreferences<T extends object>(
     merge: options.merge ?? shallowMergePreferences,
   });
 
-  const patch = async (partial: Partial<T>): Promise<T> => {
-    const existing = (await workspaceStore.load()) ?? ({} as T);
-    const merged: T = { ...(existing as object) } as T;
-    for (const [key, value] of Object.entries(partial as object)) {
-      if (value !== undefined) {
-        (merged as Record<string, unknown>)[key] = value;
+  let patchQueue: Promise<unknown> = Promise.resolve();
+  const patch = (partial: Partial<T>): Promise<T> => {
+    const next = patchQueue.then(async () => {
+      const existing = (await workspaceStore.load()) ?? ({} as T);
+      const merged: T = { ...(existing as object) } as T;
+      for (const [key, value] of Object.entries(partial as object)) {
+        if (value !== undefined) {
+          (merged as Record<string, unknown>)[key] = value;
+        }
       }
-    }
-    await workspaceStore.save(merged);
-    return merged;
+      await workspaceStore.save(merged);
+      return merged;
+    });
+    patchQueue = next.catch(() => undefined);
+    return next;
   };
 
   return {

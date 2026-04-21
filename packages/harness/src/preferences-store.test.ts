@@ -20,6 +20,7 @@ import {
 
 const EMPTY_STORES_PATTERN = /at least one/;
 const WRITE_LAYER_OUT_OF_RANGE_PATTERN = /out of range/;
+const SIMULATED_DISK_FAILURE_PATTERN = /simulated disk failure/;
 
 interface TestPrefs extends Record<string, unknown> {
   reasoningMode?: "off" | "on" | "interleaved";
@@ -134,6 +135,38 @@ describe("FilePreferencesStore", () => {
     const raw = readFileSync(filePath, "utf8");
     expect(raw).toContain("\n");
     expect(raw.trim().startsWith("{")).toBe(true);
+  });
+
+  it("clear() followed by load() returns null (matches InMemory semantics)", async () => {
+    await store.save({ translateEnabled: true, reasoningMode: "on" });
+    await store.clear();
+    expect(await store.load()).toBeNull();
+  });
+
+  it("clear() deletes the file on disk (not just empties it)", async () => {
+    await store.save({ translateEnabled: true });
+    expect(existsSync(filePath)).toBe(true);
+    await store.clear();
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("clear() is a no-op when the file does not exist", async () => {
+    await expect(store.clear()).resolves.toBeUndefined();
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("survives a simulated process restart (new instance, same path)", async () => {
+    await store.save({
+      translateEnabled: true,
+      reasoningMode: "on",
+      toolFallbackMode: "morphxml",
+    });
+    const fresh = new FilePreferencesStore<TestPrefs>({ filePath });
+    expect(await fresh.load()).toEqual({
+      translateEnabled: true,
+      reasoningMode: "on",
+      toolFallbackMode: "morphxml",
+    });
   });
 });
 
@@ -424,5 +457,57 @@ describe("createLayeredPreferences", () => {
       reasoningMode: "bogus" as TestPrefs["reasoningMode"],
     });
     expect(await store.load()).toBeNull();
+  });
+
+  it("concurrent patch() calls on the same bundle never lose updates", async () => {
+    const { patch, workspaceStore } = createLayeredPreferences<TestPrefs>({
+      homeDir: homeDirOverride,
+      cwd: cwdOverride,
+    });
+    await Promise.all([
+      patch({ translateEnabled: false }),
+      patch({ reasoningMode: "on" }),
+      patch({ toolFallbackMode: "morphxml" }),
+    ]);
+    expect(await workspaceStore.load()).toEqual({
+      translateEnabled: false,
+      reasoningMode: "on",
+      toolFallbackMode: "morphxml",
+    });
+  });
+
+  it("concurrent patch() writes on the same key apply last-writer-wins deterministically", async () => {
+    const { patch, workspaceStore } = createLayeredPreferences<TestPrefs>({
+      homeDir: homeDirOverride,
+      cwd: cwdOverride,
+    });
+    await Promise.all([
+      patch({ reasoningMode: "on" }),
+      patch({ reasoningMode: "off" }),
+    ]);
+    const result = await workspaceStore.load();
+    expect(result?.reasoningMode).toBe("off");
+  });
+
+  it("patch() rejections do not poison the queue for later calls", async () => {
+    const { patch, workspaceStore } = createLayeredPreferences<TestPrefs>({
+      homeDir: homeDirOverride,
+      cwd: cwdOverride,
+    });
+    const originalSave = workspaceStore.save.bind(workspaceStore);
+    let shouldFailNextSave = true;
+    (workspaceStore as { save: typeof workspaceStore.save }).save = (value) => {
+      if (shouldFailNextSave) {
+        shouldFailNextSave = false;
+        return Promise.reject(new Error("simulated disk failure"));
+      }
+      return originalSave(value);
+    };
+
+    await expect(patch({ translateEnabled: true })).rejects.toThrow(
+      SIMULATED_DISK_FAILURE_PATTERN
+    );
+    await patch({ translateEnabled: false });
+    expect(await workspaceStore.load()).toEqual({ translateEnabled: false });
   });
 });

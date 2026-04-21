@@ -9,6 +9,7 @@
     "benchmark": "node --conditions=@ai-sdk-tool/source --import tsx benchmark.ts",
     "build": "tsc && node ../../scripts/fix-esm-imports.mjs dist",
     "dev": "node --watch --conditions=@ai-sdk-tool/source --import tsx index.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,8 +23,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "citty": "^0.2.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": ">=22.19.0"

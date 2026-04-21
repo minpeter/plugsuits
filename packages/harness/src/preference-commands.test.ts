@@ -302,3 +302,138 @@ describe("createEnumPreferenceCommand", () => {
     expect(await preferences.workspaceStore.load()).toEqual({ mode: "auto" });
   });
 });
+
+describe("preference command persist-first contract", () => {
+  const makeBundleWithFailingPatch = <T extends object>(
+    failure: Error
+  ): LayeredPreferences<T> => {
+    const workspaceStore = new InMemoryPreferencesStore<T>();
+    return {
+      paths: {
+        userFilePath: "<memory-user>",
+        workspaceFilePath: "<memory-ws>",
+      },
+      store: workspaceStore,
+      userStore: new InMemoryPreferencesStore<T>(),
+      workspaceStore,
+      patch: () => Promise.reject(failure),
+    };
+  };
+
+  it("toggle: runtime is NOT mutated when persistence fails", async () => {
+    const bundle = makeBundleWithFailingPatch<TogglePrefs>(
+      new Error("disk full")
+    );
+    const runtime = { enabled: false };
+    const command = createTogglePreferenceCommand<TogglePrefs, "enabled">({
+      name: "feature",
+      preferences: bundle,
+      field: "enabled",
+      get: () => runtime.enabled,
+      set: (next) => {
+        runtime.enabled = next;
+      },
+    });
+    const result = await command.execute({ args: ["on"] });
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("disk full");
+    expect(runtime.enabled).toBe(false);
+  });
+
+  it("enum: runtime is NOT mutated when persistence fails", async () => {
+    const bundle = makeBundleWithFailingPatch<EnumPrefs>(
+      new Error("disk full")
+    );
+    const runtime = { mode: "off" as "off" | "on" | "auto" };
+    const command = createEnumPreferenceCommand<
+      EnumPrefs,
+      "mode",
+      "off" | "on" | "auto"
+    >({
+      name: "mode",
+      preferences: bundle,
+      field: "mode",
+      values: ["off", "on", "auto"],
+      get: () => runtime.mode,
+      set: (next) => {
+        runtime.mode = next;
+      },
+    });
+    const result = await command.execute({ args: ["on"] });
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("disk full");
+    expect(runtime.mode).toBe("off");
+  });
+
+  it("toggle: disk is rolled back when runtime set() throws after persist", async () => {
+    const workspaceStore = new InMemoryPreferencesStore<TogglePrefs>();
+    await workspaceStore.save({ enabled: true });
+    const patchCalls: Partial<TogglePrefs>[] = [];
+    const bundle: LayeredPreferences<TogglePrefs> = {
+      paths: {
+        userFilePath: "<memory-user>",
+        workspaceFilePath: "<memory-ws>",
+      },
+      store: workspaceStore,
+      userStore: new InMemoryPreferencesStore<TogglePrefs>(),
+      workspaceStore,
+      patch: async (partial) => {
+        patchCalls.push(partial);
+        const existing = (await workspaceStore.load()) ?? {};
+        const merged = { ...existing, ...partial };
+        await workspaceStore.save(merged);
+        return merged;
+      },
+    };
+
+    const runtime = { enabled: true };
+    const command = createTogglePreferenceCommand<TogglePrefs, "enabled">({
+      name: "feature",
+      preferences: bundle,
+      field: "enabled",
+      get: () => runtime.enabled,
+      set: () => {
+        throw new Error("runtime refused");
+      },
+    });
+    const result = await command.execute({ args: ["off"] });
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("runtime refused");
+    expect(patchCalls).toEqual([{ enabled: false }, { enabled: true }]);
+    expect((await workspaceStore.load())?.enabled).toBe(true);
+    expect(runtime.enabled).toBe(true);
+  });
+
+  it("toggle: command execute() returns success only when disk AND runtime both succeed", async () => {
+    const workspaceStore = new InMemoryPreferencesStore<TogglePrefs>();
+    const bundle: LayeredPreferences<TogglePrefs> = {
+      paths: {
+        userFilePath: "<memory-user>",
+        workspaceFilePath: "<memory-ws>",
+      },
+      store: workspaceStore,
+      userStore: new InMemoryPreferencesStore<TogglePrefs>(),
+      workspaceStore,
+      patch: async (partial) => {
+        const existing = (await workspaceStore.load()) ?? {};
+        const merged = { ...existing, ...partial };
+        await workspaceStore.save(merged);
+        return merged;
+      },
+    };
+    const runtime = { enabled: false };
+    const command = createTogglePreferenceCommand<TogglePrefs, "enabled">({
+      name: "feature",
+      preferences: bundle,
+      field: "enabled",
+      get: () => runtime.enabled,
+      set: (next) => {
+        runtime.enabled = next;
+      },
+    });
+    const result = await command.execute({ args: ["on"] });
+    expect(result.success).toBe(true);
+    expect(runtime.enabled).toBe(true);
+    expect((await workspaceStore.load())?.enabled).toBe(true);
+  });
+});

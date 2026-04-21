@@ -81,6 +81,10 @@ import { resetMissingLinesFailures } from "../tools/modify/edit-file-diagnostics
 import { cleanup } from "../tools/utils/execute/process-manager";
 import { createUserPreferencesStore } from "../user-preferences";
 import { initializeTools } from "../utils/tools-manager";
+import {
+  applyPersistedPreferencesToAgentManager,
+  applySharedConfigToAgentManager,
+} from "./preferences-startup";
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_BOLD = "\x1b[1m";
@@ -613,41 +617,6 @@ const __cliVersion: string = JSON.parse(
   readFileSync(join(__cliDirname, "../../package.json"), "utf-8")
 ).version;
 
-const applyPersistedPreferencesToAgentManager = async (): Promise<void> => {
-  const storedPreferences = await userPreferencesBundle.store
-    .load()
-    .catch((error) => {
-      console.error("[preferences] Failed to load user preferences:", error);
-      return null;
-    });
-  if (storedPreferences?.translateEnabled !== undefined) {
-    agentManager.setTranslationEnabled(storedPreferences.translateEnabled);
-  }
-  if (storedPreferences?.reasoningMode !== undefined) {
-    agentManager.setReasoningMode(storedPreferences.reasoningMode);
-  }
-  if (storedPreferences?.toolFallbackMode !== undefined) {
-    agentManager.setToolFallbackMode(storedPreferences.toolFallbackMode);
-  }
-};
-
-const applySharedConfigToAgentManager = (
-  config: ReturnType<typeof resolveSharedConfig>
-): void => {
-  if (config.model) {
-    agentManager.setModelId(config.model);
-  }
-  if (config.reasoningMode !== null) {
-    agentManager.setReasoningMode(config.reasoningMode);
-  }
-  if (config.toolFallbackModeExplicit && config.toolFallbackMode !== null) {
-    agentManager.setToolFallbackMode(config.toolFallbackMode);
-  }
-  if (config.translateUserPrompts !== null) {
-    agentManager.setTranslationEnabled(config.translateUserPrompts);
-  }
-};
-
 const mainCommand = defineCommand({
   meta: {
     name: "plugsuits",
@@ -686,8 +655,12 @@ const mainCommand = defineCommand({
     });
     await replaceCurrentSessionHistory(sessionManager.getId());
 
-    await applyPersistedPreferencesToAgentManager();
+    await applyPersistedPreferencesToAgentManager(
+      agentManager,
+      userPreferencesBundle.store
+    );
     applySharedConfigToAgentManager(
+      agentManager,
       resolveSharedConfig(args as SharedArgs, {
         rawArgs: process.argv.slice(2),
       })

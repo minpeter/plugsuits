@@ -180,12 +180,12 @@ importers:
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
-      citty:
-        specifier: ^0.2.2
-        version: 0.2.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@7.3.1(@types/node@25.6.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/tgbot:
     dependencies:

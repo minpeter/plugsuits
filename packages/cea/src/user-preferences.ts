@@ -87,19 +87,32 @@ export const createUserPreferencesStore = (
   };
 };
 
-export const patchWorkspacePreferences = async (
+const patchQueues = new WeakMap<
+  PreferencesStore<UserPreferences>,
+  Promise<unknown>
+>();
+
+export const patchWorkspacePreferences = (
   workspaceStore: PreferencesStore<UserPreferences>,
   patch: UserPreferences
 ): Promise<UserPreferences> => {
-  const existing = (await workspaceStore.load()) ?? {};
-  const merged: UserPreferences = { ...existing };
-  for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined) {
-      (merged as Record<string, unknown>)[key] = value;
+  const previous = patchQueues.get(workspaceStore) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    const existing = (await workspaceStore.load()) ?? {};
+    const merged: UserPreferences = { ...existing };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined) {
+        (merged as Record<string, unknown>)[key] = value;
+      }
     }
-  }
-  await workspaceStore.save(merged);
-  return merged;
+    await workspaceStore.save(merged);
+    return merged;
+  });
+  patchQueues.set(
+    workspaceStore,
+    next.catch(() => undefined)
+  );
+  return next;
 };
 
 export const withStoredSchemaVersion = (
