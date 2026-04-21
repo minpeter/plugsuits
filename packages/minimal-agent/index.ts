@@ -60,7 +60,7 @@ const agent = defineAgent({
 const runtime = await createAgentRuntime({
   name: "minimal-agent",
   agents: [agent],
-  persistence: { snapshotStore: new FileSnapshotStore(".plugsuits/sessions") },
+  persistence: { snapshotStore: new FileSnapshotStore(env.SESSION_DIR) },
 });
 const session = await runtime.openSession();
 

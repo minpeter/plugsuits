@@ -11,6 +11,7 @@ __pycache__
 .cea
 .sisyphus/
 .plugsuits
+.minimal-agent
 *.tsbuildinfo
 .turbo
 work/

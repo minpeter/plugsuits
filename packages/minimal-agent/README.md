@@ -13,6 +13,7 @@ Optional:
 - `AI_BASE_URL`
 - `AI_MODEL`
 - `AI_CONTEXT_LIMIT`
+- `SESSION_DIR` — directory where session snapshots are written. Defaults to `.minimal-agent/sessions` in the current working directory.
 
 ## Scripts
 
