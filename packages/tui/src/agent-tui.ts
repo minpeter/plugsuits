@@ -403,7 +403,7 @@ const addSystemMessage = (chatContainer: Container, message: string): void => {
 const addNewSessionMessage = (chatContainer: Container): void => {
   addChatComponent(
     chatContainer,
-    new Text(style(ANSI_BRIGHT_CYAN, "✓ New session started"), 1, 1)
+    new Text(style(ANSI_BRIGHT_CYAN, "✓ New session started"), 1, 0)
   );
 };
 
