@@ -65,6 +65,7 @@ function createState(overrides: Partial<PiTuiStreamState> = {}): {
       showToolResults: true,
     },
     getToolView: (toolCallId) => toolViews.get(toolCallId),
+    pendingToolCallIds: new Set(),
     resetAssistantView: () => undefined,
     streamedToolCallIds: new Set(),
     ...overrides,
@@ -111,10 +112,19 @@ describe("stream-handlers", () => {
   // Regression: approval-gated flows (tool-call → tool-approval-request) used
   // to strand the pending counter at 1 and leave the foreground spinner stuck
   // on "Executing..." while execution was actually paused awaiting approval.
-  it("fires onToolPendingEnd when a tool enters the approval gate", () => {
+  it("fires onToolPendingEnd when a tool enters the approval gate for a tracked call", () => {
     const onToolPendingEnd = vi.fn();
     const { state } = createState({ onToolPendingEnd });
 
+    handleToolCall(
+      {
+        type: "tool-call",
+        toolCallId: "call_approval",
+        toolName: "shell_execute",
+        input: { command: "rm -rf /" },
+      } as never,
+      state
+    );
     handleToolApprovalRequest(
       {
         type: "tool-approval-request",
@@ -127,6 +137,74 @@ describe("stream-handlers", () => {
     );
 
     expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression: approval-request events can appear without a matching
+  // tool-call (e.g. early in streamed tests). An unmatched approval must
+  // NOT decrement the pending counter, otherwise it can clear the
+  // Executing... indicator for other tools still executing in parallel.
+  it("does not fire onToolPendingEnd for an approval-request with no matching tool-call", () => {
+    const onToolPendingEnd = vi.fn();
+    const { state } = createState({ onToolPendingEnd });
+
+    handleToolApprovalRequest(
+      {
+        type: "tool-approval-request",
+        toolCallId: "untracked",
+        toolName: "shell_execute",
+        reason: "ghost",
+        providerExecuted: false,
+      } as never,
+      state
+    );
+
+    expect(onToolPendingEnd).not.toHaveBeenCalled();
+  });
+
+  it("approval for unmatched id does not affect another tool's pending counter", () => {
+    let pending = 0;
+    const { state } = createState({
+      onToolPendingStart: () => {
+        pending += 1;
+      },
+      onToolPendingEnd: () => {
+        pending -= 1;
+      },
+    });
+
+    handleToolCall(
+      {
+        type: "tool-call",
+        toolCallId: "call_A",
+        toolName: "shell_execute",
+        input: { command: "ls" },
+      } as never,
+      state
+    );
+    expect(pending).toBe(1);
+
+    handleToolApprovalRequest(
+      {
+        type: "tool-approval-request",
+        toolCallId: "call_UNRELATED",
+        toolName: "shell_execute",
+        reason: "ghost approval",
+        providerExecuted: false,
+      } as never,
+      state
+    );
+    expect(pending).toBe(1);
+
+    handleToolResult(
+      {
+        type: "tool-result",
+        toolCallId: "call_A",
+        toolName: "shell_execute",
+        output: "ok",
+      } as never,
+      state
+    );
+    expect(pending).toBe(0);
   });
 
   it("tool-call → tool-approval-request leaves the pending counter at zero", () => {
@@ -181,10 +259,26 @@ describe("stream-handlers", () => {
     expect(onToolPendingStart).toHaveBeenCalledTimes(1);
   });
 
-  it("fires onToolPendingEnd when a tool-result arrives", () => {
+  const dispatchToolCall = (
+    state: PiTuiStreamState,
+    toolCallId: string
+  ): void => {
+    handleToolCall(
+      {
+        type: "tool-call",
+        toolCallId,
+        toolName: "shell_execute",
+        input: { command: "ls" },
+      } as never,
+      state
+    );
+  };
+
+  it("fires onToolPendingEnd when a tool-result arrives for a tracked call", () => {
     const onToolPendingEnd = vi.fn();
     const { state } = createState({ onToolPendingEnd });
 
+    dispatchToolCall(state, "call_1");
     handleToolResult(
       {
         type: "tool-result",
@@ -198,10 +292,11 @@ describe("stream-handlers", () => {
     expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("fires onToolPendingEnd when a tool-error arrives", () => {
+  it("fires onToolPendingEnd when a tool-error arrives for a tracked call", () => {
     const onToolPendingEnd = vi.fn();
     const { state } = createState({ onToolPendingEnd });
 
+    dispatchToolCall(state, "call_1");
     handleToolError(
       {
         type: "tool-error",
@@ -215,10 +310,11 @@ describe("stream-handlers", () => {
     expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("fires onToolPendingEnd when tool output is denied", () => {
+  it("fires onToolPendingEnd when tool output is denied for a tracked call", () => {
     const onToolPendingEnd = vi.fn();
     const { state } = createState({ onToolPendingEnd });
 
+    dispatchToolCall(state, "call_1");
     handleToolOutputDenied(
       {
         type: "tool-output-denied",
@@ -246,6 +342,7 @@ describe("stream-handlers", () => {
       },
     });
 
+    dispatchToolCall(state, "call_1");
     handleToolResult(
       {
         type: "tool-result",
@@ -257,6 +354,47 @@ describe("stream-handlers", () => {
     );
 
     expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression: a second terminal event for the same tool call (e.g. stream
+  // replay or buggy provider) must NOT double-decrement the pending counter.
+  it("does not fire onToolPendingEnd twice for the same tool call", () => {
+    const onToolPendingEnd = vi.fn();
+    const { state } = createState({ onToolPendingEnd });
+
+    dispatchToolCall(state, "call_1");
+    handleToolResult(
+      {
+        type: "tool-result",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+        output: "files",
+      } as never,
+      state
+    );
+    handleToolResult(
+      {
+        type: "tool-result",
+        toolCallId: "call_1",
+        toolName: "shell_execute",
+        output: "files",
+      } as never,
+      state
+    );
+
+    expect(onToolPendingEnd).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression: a second tool-call for the same id must NOT double-increment
+  // the pending counter (dispatch is idempotent on the id).
+  it("does not fire onToolPendingStart twice for the same tool call id", () => {
+    const onToolPendingStart = vi.fn();
+    const { state } = createState({ onToolPendingStart });
+
+    dispatchToolCall(state, "call_1");
+    dispatchToolCall(state, "call_1");
+
+    expect(onToolPendingStart).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -434,11 +572,23 @@ describe("Tool pending counter invariants (parallel tool calls)", () => {
     expect(onToolPendingStart).toHaveBeenCalledTimes(2);
   });
 
-  it("each terminal tool part fires exactly one onToolPendingEnd", () => {
+  it("each tracked terminal tool part fires exactly one onToolPendingEnd", () => {
     const onToolPendingEnd = vi.fn();
     const { state } = createState({ onToolPendingEnd });
 
-    STREAM_HANDLERS["tool-result"](
+    for (const id of ["p1", "p2", "p3"]) {
+      handleToolCall(
+        {
+          type: "tool-call",
+          toolCallId: id,
+          toolName: "x",
+          input: {},
+        } as never,
+        state
+      );
+    }
+
+    handleToolResult(
       {
         type: "tool-result",
         toolCallId: "p1",
@@ -447,7 +597,7 @@ describe("Tool pending counter invariants (parallel tool calls)", () => {
       } as never,
       state
     );
-    STREAM_HANDLERS["tool-error"](
+    handleToolError(
       {
         type: "tool-error",
         toolCallId: "p2",
@@ -456,7 +606,7 @@ describe("Tool pending counter invariants (parallel tool calls)", () => {
       } as never,
       state
     );
-    STREAM_HANDLERS["tool-output-denied"](
+    handleToolOutputDenied(
       {
         type: "tool-output-denied",
         toolCallId: "p3",

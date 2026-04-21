@@ -107,6 +107,7 @@ export interface PiTuiStreamState {
   onReasoningStart?: () => void;
   onToolPendingEnd?: () => void;
   onToolPendingStart?: () => void;
+  pendingToolCallIds: Set<string>;
   resetAssistantView: (suppressLeadingSpacer?: boolean) => void;
   streamedToolCallIds: Set<string>;
 }
@@ -241,6 +242,16 @@ export const handleToolInputEnd: StreamPartHandler = (part, state) => {
   }
 };
 
+const firePendingEndIfTracked = (
+  state: PiTuiStreamState,
+  toolCallId: string
+): void => {
+  if (!state.pendingToolCallIds.delete(toolCallId)) {
+    return;
+  }
+  state.onToolPendingEnd?.();
+};
+
 export const handleToolCall: StreamPartHandler = (part, state) => {
   const toolCallPart = part as Extract<StreamPart, { type: "tool-call" }>;
   const inputState = state.activeToolInputs.get(toolCallPart.toolCallId);
@@ -262,12 +273,15 @@ export const handleToolCall: StreamPartHandler = (part, state) => {
     view.setToolName(toolCallPart.toolName);
   }
 
-  state.onToolPendingStart?.();
+  if (!state.pendingToolCallIds.has(toolCallPart.toolCallId)) {
+    state.pendingToolCallIds.add(toolCallPart.toolCallId);
+    state.onToolPendingStart?.();
+  }
 };
 
 export const handleToolResult: StreamPartHandler = (part, state) => {
   const toolResultPart = part as Extract<StreamPart, { type: "tool-result" }>;
-  state.onToolPendingEnd?.();
+  firePendingEndIfTracked(state, toolResultPart.toolCallId);
 
   if (!state.flags.showToolResults) {
     return;
@@ -283,7 +297,7 @@ export const handleToolResult: StreamPartHandler = (part, state) => {
 
 export const handleToolError: StreamPartHandler = (part, state) => {
   const toolErrorPart = part as Extract<StreamPart, { type: "tool-error" }>;
-  state.onToolPendingEnd?.();
+  firePendingEndIfTracked(state, toolErrorPart.toolCallId);
   state.resetAssistantView(true);
   const view = state.ensureToolView(
     toolErrorPart.toolCallId,
@@ -297,7 +311,7 @@ export const handleToolOutputDenied: StreamPartHandler = (part, state) => {
     StreamPart,
     { type: "tool-output-denied" }
   >;
-  state.onToolPendingEnd?.();
+  firePendingEndIfTracked(state, deniedPart.toolCallId);
   state.resetAssistantView(true);
   const view = state.ensureToolView(deniedPart.toolCallId, deniedPart.toolName);
   view.setOutputDenied();
@@ -311,7 +325,7 @@ export const handleToolApprovalRequest: StreamPartHandler = (part, state) => {
     toolName: string;
   };
 
-  state.onToolPendingEnd?.();
+  firePendingEndIfTracked(state, approvalPart.toolCallId);
   state.resetAssistantView(true);
   const view = state.ensureToolView(
     approvalPart.toolCallId,

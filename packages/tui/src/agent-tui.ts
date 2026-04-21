@@ -1180,6 +1180,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   ): Promise<void> => {
     const activeToolInputs = new Map<string, ToolInputRenderState>();
     const streamedToolCallIds = new Set<string>();
+    const pendingToolCallIds = new Set<string>();
     const toolViews = new Map<string, BaseToolCallView>();
     let assistantView: AssistantStreamView | null = null;
     let suppressAssistantLeadingSpacer = false;
@@ -1245,6 +1246,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       flags,
       activeToolInputs,
       streamedToolCallIds,
+      pendingToolCallIds,
       resetAssistantView,
       ensureAssistantView,
       ensureToolView,
