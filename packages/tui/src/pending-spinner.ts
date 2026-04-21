@@ -45,10 +45,13 @@ export const createSpinnerTicker = (
     emit();
   }
 
-  let intervalHandle: ReturnType<typeof setInterval> | null = setInterval(() => {
-    frameIndex = (frameIndex + 1) % PENDING_SPINNER_FRAMES.length;
-    emit();
-  }, intervalMs);
+  let intervalHandle: ReturnType<typeof setInterval> | null = setInterval(
+    () => {
+      frameIndex = (frameIndex + 1) % PENDING_SPINNER_FRAMES.length;
+      emit();
+    },
+    intervalMs
+  );
 
   return {
     stop(): void {

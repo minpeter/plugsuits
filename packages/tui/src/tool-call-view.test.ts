@@ -19,6 +19,8 @@ const markdownTheme: MarkdownTheme = {
   underline: (t) => t,
 };
 
+const BRAILLE_SPINNER_GLYPHS = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/;
+
 describe("BaseToolCallView rendering", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -191,7 +193,7 @@ describe("BaseToolCallView render shape fixtures", () => {
 
     const output = view.render(120).join("\n");
     expect(output).not.toContain("Executing");
-    expect(output).not.toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
+    expect(output).not.toMatch(BRAILLE_SPINNER_GLYPHS);
   });
 
   // Regression: raw fallback used to carry a trailing blank line from

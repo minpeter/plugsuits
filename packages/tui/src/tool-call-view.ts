@@ -159,7 +159,6 @@ export class BaseToolCallView extends Container {
   private readonly content: TrimmedMarkdown;
   private readonly markdownTheme: MarkdownTheme;
   private readonly renderers?: ToolRendererMap;
-  private readonly requestRender: (() => void) | undefined;
   private readonly showRawToolIo: boolean;
   private displayMode: "content" | "pretty" = "content";
   private error: unknown;
@@ -179,7 +178,7 @@ export class BaseToolCallView extends Container {
     callId: string,
     toolName: string,
     markdownTheme: MarkdownTheme,
-    requestRender?: () => void,
+    _requestRender?: () => void,
     showRawToolIo?: boolean,
     renderers?: ToolRendererMap
   ) {
@@ -187,7 +186,6 @@ export class BaseToolCallView extends Container {
     this.callId = callId;
     this.toolName = toolName;
     this.markdownTheme = markdownTheme;
-    this.requestRender = requestRender;
     this.showRawToolIo = showRawToolIo ?? false;
     this.renderers = renderers;
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);

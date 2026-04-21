@@ -22,9 +22,10 @@ const markdownTheme = {
 
 const SPINNER_PREPENDED_BLANK = 1;
 
-const renderSpinnerLayout = (label: string, width: number): string[] => {
-  return ["", ` ${stylePendingIndicator("⠋", label)} `.padEnd(width, " ")];
-};
+const renderSpinnerLayout = (label: string, width: number): string[] => [
+  "",
+  ` ${stylePendingIndicator("⠋", label)} `.padEnd(width, " "),
+];
 
 const countTrailingBlanks = (lines: string[]): number => {
   let n = 0;

@@ -1,9 +1,4 @@
 import {
-  createSpinnerTicker,
-  type SpinnerTicker,
-  stylePendingIndicator,
-} from "@ai-sdk-tool/tui";
-import {
   Container,
   Markdown,
   type MarkdownTheme,
@@ -111,8 +106,6 @@ const TAB_PATTERN = /\t/g;
 const MAX_READ_PREVIEW_LINES = 10;
 const MAX_WRITE_FILE_PREVIEW_LINES = 200;
 const MAX_WRITE_FILE_PREVIEW_CHARS = 100_000;
-const TOOL_PENDING_MESSAGE = "Executing...";
-const TOOL_PENDING_MARKER = "__tool_pending_status__";
 const HASHLINE_TAG_ONLY_PATTERN = /^(.*\d+#[ZPMQVRWSNKTXJBYH]{2})\s*$/;
 const HASHLINE_PIPE_ONLY_PATTERN = /^\|\s*(.*)$/;
 const HASHLINE_TAG_PIPE_ONLY_PATTERN =
@@ -621,7 +614,7 @@ const renderGrepOutput = (output: string): GrepRenderPayload | null => {
   };
 };
 
-const renderPendingOutput = (): string => TOOL_PENDING_MARKER;
+const renderPendingOutput = (): string => "";
 
 const ANSI_RESET = "\x1b[0m";
 const ANSI_DIM = "\x1b[2m";
@@ -985,7 +978,6 @@ class ToolCallView extends Container {
   private readonly readBlock: Container;
   private readonly readBody: TruncatedReadBody;
   private readonly readHeader: TrimmedMarkdown;
-  private readonly requestRender: () => void;
   private readonly showRawToolIo: boolean;
   private error: unknown;
   private finalInput: unknown;
@@ -1000,13 +992,12 @@ class ToolCallView extends Container {
     callId: string,
     toolName: string,
     markdownTheme: MarkdownTheme,
-    requestRender: () => void,
+    _requestRender: () => void,
     showRawToolIo: boolean
   ) {
     super();
     this.callId = callId;
     this.toolName = toolName;
-    this.requestRender = requestRender;
     this.showRawToolIo = showRawToolIo;
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.readHeader = new TrimmedMarkdown("", 1, 0, markdownTheme);

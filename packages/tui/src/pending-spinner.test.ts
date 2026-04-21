@@ -70,7 +70,7 @@ describe("pending-spinner fixtures", () => {
     const frames: string[] = [];
     const ticker = createSpinnerTicker((frame) => frames.push(frame));
 
-    for (let i = 0; i < PENDING_SPINNER_FRAMES.length; i++) {
+    for (const _ of PENDING_SPINNER_FRAMES) {
       vi.advanceTimersByTime(PENDING_SPINNER_INTERVAL_MS);
     }
 
@@ -100,10 +100,9 @@ describe("pending-spinner fixtures", () => {
 
   it("emitInitialFrame: false skips the synchronous first call", () => {
     const frames: string[] = [];
-    const ticker = createSpinnerTicker(
-      (frame) => frames.push(frame),
-      { emitInitialFrame: false }
-    );
+    const ticker = createSpinnerTicker((frame) => frames.push(frame), {
+      emitInitialFrame: false,
+    });
 
     expect(frames).toEqual([]);
     vi.advanceTimersByTime(PENDING_SPINNER_INTERVAL_MS);
@@ -113,10 +112,9 @@ describe("pending-spinner fixtures", () => {
 
   it("respects a custom intervalMs", () => {
     const frames: string[] = [];
-    const ticker = createSpinnerTicker(
-      (frame) => frames.push(frame),
-      { intervalMs: 200 }
-    );
+    const ticker = createSpinnerTicker((frame) => frames.push(frame), {
+      intervalMs: 200,
+    });
 
     vi.advanceTimersByTime(80);
     expect(frames).toEqual(["⠋"]);
