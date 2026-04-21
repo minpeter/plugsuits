@@ -182,6 +182,7 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
 | `compaction` | system | Lifecycle event for history compaction |
 | `error` | system | Fatal error or iteration-limit event |
 | `interrupt` | system | Intentional caller interruption (`caller-abort`) |
+| `turn-start` | system | Lifecycle annotation emitted right after `agent.stream()` is dispatched, before the first chunk arrives |
 
 ### `metadata`
 
@@ -278,6 +279,16 @@ Headless output now follows the **ATIF-v1.6** protocol documented in `packages/h
 }
 ```
 
+### `turn-start`
+
+```typescript
+{
+  type: "turn-start",
+  timestamp: string,
+  phase: "new-turn" | "intermediate-step",
+}
+```
+
 ### TypeScript types
 
 ```typescript
@@ -291,6 +302,7 @@ import type {
   CompactionEvent,
   ErrorEvent,
   InterruptEvent,
+  TurnStartEvent,
 } from "@ai-sdk-tool/headless";
 ```
 

@@ -128,6 +128,18 @@ export interface InterruptEvent {
   type: "interrupt";
 }
 
+/**
+ * Emitted immediately after the agent's LLM request is dispatched but before
+ * any stream chunk has arrived. Consumers can use this as a "prompt
+ * processing started" signal to render a loading indicator. Lifecycle
+ * annotation — carries no `step_id`.
+ */
+export interface TurnStartEvent {
+  phase: "new-turn" | "intermediate-step";
+  timestamp: string;
+  type: "turn-start";
+}
+
 export type { HistorySnapshot } from "@ai-sdk-tool/harness";
 
 export interface HeadlessRunnerConfig {
@@ -158,6 +170,9 @@ export interface HeadlessRunnerConfig {
     phase: "new-turn" | "intermediate-step"
   ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onInterrupt?: (event: InterruptEvent) => Promise<void> | void;
+  onStreamStart?: (
+    phase: "new-turn" | "intermediate-step"
+  ) => void | Promise<void>;
   onTodoReminder?: () => Promise<{
     hasReminder: boolean;
     message: string | null;
@@ -205,4 +220,5 @@ export type TrajectoryEvent =
   | ErrorEvent
   | ApprovalEvent
   | InterruptEvent
-  | MetadataEvent;
+  | MetadataEvent
+  | TurnStartEvent;

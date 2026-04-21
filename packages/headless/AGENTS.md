@@ -31,6 +31,7 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 | `compaction` | system | Lifecycle event for history compaction |
 | `error` | system | Fatal or iteration-limit error |
 | `interrupt` | system | Intentional caller interruption (`caller-abort`) |
+| `turn-start` | system | Lifecycle annotation emitted right after `agent.stream()` is invoked, before the first chunk arrives |
 
 ### Examples
 
@@ -75,6 +76,11 @@ Every event is a JSON object on its own line. Events conform to the ATIF-v1.6 sp
 **ErrorEvent**:
 ```json
 {"type":"error","timestamp":"2026-04-03T10:00:20.000Z","error":"Max iterations (50) reached"}
+```
+
+**TurnStartEvent**:
+```json
+{"type":"turn-start","timestamp":"2026-04-03T10:00:04.500Z","phase":"new-turn"}
 ```
 
 ## KEY EXPORTS

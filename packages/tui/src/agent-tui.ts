@@ -105,6 +105,10 @@ interface ContextPressureThresholds {
 const style = (prefix: string, text: string): string =>
   `${prefix}${text}${ANSI_RESET}`;
 
+const ignore = (): void => {
+  return;
+};
+
 class StatusSpinner extends Text {
   private readonly frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   private currentFrame = 0;
@@ -652,6 +656,9 @@ export interface AgentTUIConfig {
     iteration: number;
     phase: "new-turn" | "intermediate-step";
   }) => Promise<void> | void;
+  onStreamStart?: (
+    phase: "new-turn" | "intermediate-step"
+  ) => void | Promise<void>;
   onTurnComplete?: (
     messages: CheckpointMessage[],
     usage?: {
@@ -1041,6 +1048,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
     const messages = config.messageHistory.getMessagesForLLM();
     await measureUsageIfAvailable(messages);
+  };
+
+  const runBackgroundStartupProbe = (): void => {
+    measureUsageIfAvailable([]).then(ignore, ignore);
   };
 
   const cancelActiveStream = (): boolean => {
@@ -1495,11 +1506,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     overflowRetried = false,
     noOutputRetryCount = 0
   ): Promise<"completed" | "continue" | "interrupted"> => {
+    showLoader("Processing...");
+
     const preparedTurn = await prepareMessages(phase);
     let messagesForLLM = preparedTurn.messages;
     const turnOverrides = preparedTurn.turnOverrides;
 
-    showLoader("Working...");
     const streamAbortController = new AbortController();
     activeStreamController = streamAbortController;
     streamInterruptRequested = false;
@@ -1507,6 +1519,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     try {
       const budget = await resolveTurnBudget(phase, messagesForLLM);
       messagesForLLM = budget.messagesForLLM;
+
+      showLoader("Working...");
+      await config.onStreamStart?.(phase);
+
       const stream = await config.agent.stream(
         mergeAgentStreamOptions({
           abortSignal: streamAbortController.signal,
@@ -1823,8 +1839,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   try {
     await config.onSetup?.();
-    await measureUsageIfAvailable([]);
-    updateHeader();
+
+    runBackgroundStartupProbe();
 
     while (!shouldExit) {
       const input = await waitForInput();

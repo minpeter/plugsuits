@@ -44,8 +44,10 @@ export async function runAgentLoop(
     agent,
     abortSignal,
     onError,
+    onFirstStreamPart,
     onInterrupt,
     onStepComplete,
+    onStreamStart,
     onToolCall,
     onToolLifecycle,
   } = options;
@@ -98,7 +100,16 @@ export async function runAgentLoop(
 
       const stream = agent.stream(streamOptions);
 
+      await onStreamStart?.(context);
+
+      let firstPartSeen = false;
+
       for await (const part of stream.fullStream) {
+        if (!firstPartSeen) {
+          firstPartSeen = true;
+          await onFirstStreamPart?.(context);
+        }
+
         const lifecycle = getToolLifecycleState(
           part as { toolCallId?: string; toolName?: string; type: string }
         );

@@ -670,6 +670,13 @@ export async function runHeadless(config: HeadlessRunnerConfig): Promise<void> {
           };
         }
 
+        emitAndCollect({
+          type: "turn-start",
+          phase,
+          timestamp: new Date().toISOString(),
+        });
+        await config.onStreamStart?.(phase);
+
         const streamPromise = Promise.resolve(
           config.agent.stream(streamOptions)
         );

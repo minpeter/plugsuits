@@ -158,6 +158,15 @@ export interface LoopHooks {
     | Promise<
         { shouldContinue?: boolean; recovery?: ModelMessage[] } | undefined
       >;
+  /**
+   * Fires exactly once per loop iteration when the first part of any kind
+   * arrives from `stream.fullStream`. Consumers can use this to clear a
+   * prompt-processing indicator the moment any byte of output begins
+   * arriving. Note: the SDK may emit invisible framing parts (`start`,
+   * `text-start`, …) before user-facing content; consumers that want to
+   * wait for *visible* output should filter on part type themselves.
+   */
+  onFirstStreamPart?: (context: LoopContinueContext) => void | Promise<void>;
   onInterrupt?: (
     interruption: {
       iteration: number;
@@ -169,6 +178,15 @@ export interface LoopHooks {
     context: LoopContinueContext
   ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onStepComplete?: (step: LoopStepInfo) => void | Promise<void>;
+  /**
+   * Fires immediately after {@link Agent.stream} is invoked and before the
+   * `fullStream` iteration begins. This is the closest hook to "LLM request
+   * sent, waiting for first chunk" — intended for consumers that need to
+   * display a loading indicator during the prompt-processing latency gap.
+   *
+   * The callback is awaited before iteration starts, so keep it fast.
+   */
+  onStreamStart?: (context: LoopContinueContext) => void | Promise<void>;
   onToolCall?: (
     call: ToolCallPart,
     context: LoopContinueContext
