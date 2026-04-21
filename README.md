@@ -38,7 +38,7 @@ No framework overhead. No abstraction tax. Just the interface between model and 
 
 ### Prerequisites
 
-- Node.js >= 22
+- Node.js >= 18
 - pnpm >= 10
 - An API key for your chosen AI gateway/provider
 
@@ -93,7 +93,7 @@ You: /help
 Available commands:
   /help       Show this help message
   /clear      Clear conversation
-  /reasoning  Toggle reasoning mode
+  /reasoning-mode  Set reasoning mode
   /translate  Toggle translation mode
   /quit       Exit
 ```
@@ -170,14 +170,12 @@ The context compaction system can be debugged by setting environment variables:
 COMPACTION_DEBUG=1 pnpm dev
 
 # Override the context limit to simulate a smaller context window
-COMPACTION_DEBUG=1 CONTEXT_LIMIT_OVERRIDE=32768 pnpm -F plugsuits dev -- -m zai-org/GLM-5
+CONTEXT_LIMIT_OVERRIDE=32768 pnpm -F plugsuits dev -- -m zai-org/GLM-5
 ```
 
-`COMPACTION_DEBUG=1` enables:
-- `[compaction-debug]` logs on stderr showing `needsCompaction`, `speculative?`, and `checkAndCompact` decisions each turn
-- `CONTEXT_LIMIT_OVERRIDE` support — forces the context limit to the given value regardless of the model's actual limit, useful for triggering compaction with fewer messages
+`COMPACTION_DEBUG=1` enables `[compaction-debug]` logs on stderr showing `needsCompaction`, `speculative?`, and `checkAndCompact` decisions each turn.
 
-Both the TUI footer and the compaction engine will reflect the overridden limit. `CONTEXT_LIMIT_OVERRIDE` has no effect without `COMPACTION_DEBUG=1`.
+`CONTEXT_LIMIT_OVERRIDE` works independently and forces the context limit to the given value regardless of the model's actual limit. Both the TUI footer and the compaction engine will reflect the overridden limit.
 
 ## Built With
 

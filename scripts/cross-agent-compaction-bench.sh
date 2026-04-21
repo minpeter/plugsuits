@@ -36,7 +36,7 @@ run_pi_mono() {
   echo "▶ [pi-mono] limit=${limit} model=${PLUGSUITS_MODEL} (openai-compatible path)"
   cd "$EXAMPLES_DIR/pi-mono"
   CONTEXT_LIMIT_OVERRIDE=$limit \
-  OPENAI_API_KEY="${AI_API_KEY:-}" \
+  OPENAI_API_KEY="${AI_API_KEY:-${OPENAI_API_KEY:-}}" \
     $TIMEOUT_CMD $TIMEOUT node packages/coding-agent/dist/cli.js \
     -p "$PROMPT" --no-session \
     --provider openai --model "${PLUGSUITS_MODEL}" \

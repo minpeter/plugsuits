@@ -202,7 +202,7 @@ const getProviderOptions = (
 ): { options: ProviderOptions; maxOutputTokens: number } => {
   return {
     options: undefined,
-    maxOutputTokens: getEffectiveMaxOutputTokens(modelId),
+    maxOutputTokens: getCompactionReserveTokens(modelId),
   };
 };
 
