@@ -31,9 +31,6 @@ import {
 import type { EditorTheme, MarkdownTheme } from "@mariozechner/pi-tui";
 import {
   Container,
-  Input,
-  Key,
-  matchesKey,
   type SelectItem,
   SelectList,
   Spacer,
