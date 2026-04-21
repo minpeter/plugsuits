@@ -32,11 +32,12 @@ export interface TrajectoryJson {
     approval_events?: ApprovalEvent[];
     compaction_events?: CompactionEvent[];
     interrupt_events?: InterruptEvent[];
-  };
+  } & Record<string, unknown>;
   final_metrics: {
-    total_prompt_tokens: number | null;
-    total_completion_tokens: number | null;
     total_cached_tokens: number | null;
+    total_completion_tokens: number | null;
+    total_cost_usd: number | null;
+    total_prompt_tokens: number | null;
     total_steps: number;
   };
   schema_version: "ATIF-v1.4";
@@ -103,14 +104,16 @@ export class TrajectoryCollector {
   }
 
   private collectFinalMetrics(): {
-    total_prompt_tokens: number | null;
-    total_completion_tokens: number | null;
     total_cached_tokens: number | null;
+    total_completion_tokens: number | null;
+    total_cost_usd: number | null;
+    total_prompt_tokens: number | null;
     total_steps: number;
   } {
     const prompt: MetricAccumulator = { hasValue: false, total: 0 };
     const completion: MetricAccumulator = { hasValue: false, total: 0 };
     const cached: MetricAccumulator = { hasValue: false, total: 0 };
+    const cost: MetricAccumulator = { hasValue: false, total: 0 };
 
     for (const step of this.steps) {
       if (!("metrics" in step)) {
@@ -125,12 +128,14 @@ export class TrajectoryCollector {
       addMetric(prompt, metrics.prompt_tokens);
       addMetric(completion, metrics.completion_tokens);
       addMetric(cached, metrics.cached_tokens);
+      addMetric(cost, metrics.cost_usd);
     }
 
     return {
       total_prompt_tokens: toMetricTotal(prompt),
       total_completion_tokens: toMetricTotal(completion),
       total_cached_tokens: toMetricTotal(cached),
+      total_cost_usd: toMetricTotal(cost),
       total_steps: this.steps.length,
     };
   }

@@ -568,6 +568,109 @@ describe("TrajectoryCollector ATIF compliance", () => {
     });
   });
 
+  it("finalize() aggregates total_cost_usd across step metrics", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-cost",
+      agent: { name: "a", version: "1", model_name: "m" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hi",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "a",
+      metrics: { cost_usd: 0.12, prompt_tokens: 100 },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 3,
+      timestamp,
+      source: "agent",
+      message: "b",
+      metrics: { cost_usd: 0.08, prompt_tokens: 80 },
+    });
+
+    const trajectory = collector.finalize();
+    expect(trajectory.final_metrics.total_cost_usd).toBeCloseTo(0.2, 10);
+    expect(trajectory.final_metrics.total_prompt_tokens).toBe(180);
+  });
+
+  it("finalize() returns null total_cost_usd when no step reported a cost", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-no-cost",
+      agent: { name: "a", version: "1", model_name: "m" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hi",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "a",
+      metrics: { prompt_tokens: 100 },
+    });
+
+    const trajectory = collector.finalize();
+    expect(trajectory.final_metrics.total_cost_usd).toBeNull();
+  });
+
+  it("finalize() preserves ATIF-v1.4 optional fields (logprobs, prompt_token_ids, completion_token_ids)", () => {
+    const collector = new TrajectoryCollector();
+    collector.addMetadata({
+      type: "metadata",
+      timestamp,
+      session_id: "ses-v14",
+      agent: { name: "a", version: "1", model_name: "m" },
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 1,
+      timestamp,
+      source: "user",
+      message: "hi",
+    });
+    collector.addStep({
+      type: "step",
+      step_id: 2,
+      timestamp,
+      source: "agent",
+      message: "reply",
+      metrics: {
+        completion_token_ids: [1722, 310, 5533],
+        logprobs: [-0.1, -0.05, -0.02],
+        prompt_token_ids: [1, 2, 3],
+        prompt_tokens: 3,
+      },
+    });
+
+    const trajectory = collector.finalize();
+    const agentStep = trajectory.steps[1];
+    expect(agentStep?.metrics?.logprobs).toStrictEqual([-0.1, -0.05, -0.02]);
+    expect(agentStep?.metrics?.prompt_token_ids).toStrictEqual([1, 2, 3]);
+    expect(agentStep?.metrics?.completion_token_ids).toStrictEqual([
+      1722, 310, 5533,
+    ]);
+  });
+
   it("finalize() observation source_call_ids reference valid tool_call_ids", () => {
     const collector = new TrajectoryCollector();
     collector.addMetadata({

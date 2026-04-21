@@ -46,12 +46,21 @@ export interface ObservationData {
 
 /**
  * Token usage metrics from the agent's model invocation.
- * All fields come from the SDK's stream.usage and are never estimated.
+ *
+ * Fields follow ATIF-v1.4 (https://www.harborframework.com/docs/agents/trajectory-format).
+ * `completion_token_ids` was added in v1.3 (RL), `prompt_token_ids` in v1.4.
+ *
+ * Numeric fields come from the SDK's stream.usage and are never estimated.
+ * Token-id and logprob fields are only populated when the provider exposes
+ * them; consumers must treat them as opt-in.
  */
 export interface StepMetrics {
   cached_tokens?: number;
+  completion_token_ids?: number[];
   completion_tokens?: number;
   cost_usd?: number;
+  logprobs?: number[];
+  prompt_token_ids?: number[];
   prompt_tokens?: number;
 }
 
