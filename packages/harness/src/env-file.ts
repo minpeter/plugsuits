@@ -9,12 +9,7 @@ const decodeQuotedValue = (value: string, quote: string): string => {
     return value;
   }
 
-  return value
-    .replaceAll("\\n", "\n")
-    .replaceAll("\\r", "\r")
-    .replaceAll("\\t", "\t")
-    .replaceAll('\\"', '"')
-    .replaceAll("\\\\", "\\");
+  return value.replaceAll("\\n", "\n");
 };
 
 const stripInlineComment = (value: string): string => {
@@ -22,17 +17,9 @@ const stripInlineComment = (value: string): string => {
   return (commentIndex >= 0 ? value.slice(0, commentIndex) : value).trimEnd();
 };
 
-const isEscaped = (value: string, index: number): boolean => {
-  let slashCount = 0;
-  for (let i = index - 1; i >= 0 && value[i] === "\\"; i -= 1) {
-    slashCount += 1;
-  }
-  return slashCount % 2 === 1;
-};
-
 const findClosingQuoteIndex = (value: string, quote: string): number => {
   for (let index = 0; index < value.length; index += 1) {
-    if (value[index] === quote && !isEscaped(value, index)) {
+    if (value[index] === quote) {
       return index;
     }
   }

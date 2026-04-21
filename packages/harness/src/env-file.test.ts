@@ -34,4 +34,20 @@ AI_API_KEY=secret`)
       AI_API_KEY: "secret",
     });
   });
+
+  it("treats backslash quote as the closing quote", () => {
+    expect(
+      parseEnvFile(`A="x\\" # note
+B=next`)
+    ).toEqual({
+      A: "x\\",
+      B: "next",
+    });
+  });
+
+  it("matches native loader escape handling for common double-quoted values", () => {
+    expect(parseEnvFile('VALUE="a\\n\\t\\r\\\\b"')).toEqual({
+      VALUE: "a\n\\t\\r\\\\b",
+    });
+  });
 });
