@@ -111,68 +111,6 @@ const ignore = (): void => {
   return;
 };
 
-class StatusSpinner extends Text {
-  private readonly tui: TUI;
-  private readonly spinnerColorFn: (text: string) => string;
-  private readonly messageColorFn: (text: string) => string;
-  private readonly ticker: SpinnerTicker;
-  private currentFrame = "";
-  private message: string;
-
-  constructor(
-    tui: TUI,
-    spinnerColorFn: (text: string) => string,
-    messageColorFn: (text: string) => string,
-    message: string
-  ) {
-    super("", 1, 0);
-    this.tui = tui;
-    this.spinnerColorFn = spinnerColorFn;
-    this.messageColorFn = messageColorFn;
-    this.message = message;
-    this.ticker = createSpinnerTicker((frame) => {
-      this.currentFrame = frame;
-      this.updateDisplay();
-    });
-  }
-
-  stop(): void {
-    this.ticker.stop();
-  }
-
-  setMessage(message: string): void {
-    this.message = message;
-    this.updateDisplay();
-  }
-
-  render(width: number): string[] {
-    return ["", ...super.render(width)];
-  }
-
-  private updateDisplay(): void {
-    this.setText(
-      `${this.spinnerColorFn(this.currentFrame)} ${this.messageColorFn(this.message)}`
-    );
-    this.tui.requestRender();
-  }
-}
-
-/**
- * Fixed-height placeholder that occupies the same 2 vertical lines as
- * {@link StatusSpinner} while idle. Keeping the status slot at a constant
- * height prevents layout shift when the spinner is mounted/unmounted, and
- * guarantees a persistent blank buffer directly above the prompt editor.
- */
-class IdleStatusPlaceholder extends Text {
-  constructor() {
-    super("", 1, 0);
-  }
-
-  render(_width: number): string[] {
-    return ["", ""];
-  }
-}
-
 const truncatePlainToWidth = (text: string, maxWidth: number): string => {
   if (maxWidth <= 0) {
     return "";
@@ -208,6 +146,7 @@ class FooterStatusBar extends Text {
   private readonly ticker: SpinnerTicker;
   private currentFrame = "";
   private entries: FooterStatusEntry[] = [];
+  private foregroundMessage: string | null = null;
   private rightText: string | undefined;
   private rightTextPressure:
     | "critical"
@@ -233,6 +172,16 @@ class FooterStatusBar extends Text {
     this.tui.requestRender();
   }
 
+  setForegroundMessage(message: string | null): void {
+    this.foregroundMessage = message;
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  getForegroundMessage(): string | null {
+    return this.foregroundMessage;
+  }
+
   setRightText(
     text: string | undefined,
     pressure?: "critical" | "elevated" | "normal" | "warning"
@@ -247,8 +196,19 @@ class FooterStatusBar extends Text {
     this.ticker.stop();
   }
 
+  private resolveLeadingEntry(): FooterStatusEntry | undefined {
+    if (this.foregroundMessage !== null) {
+      return { message: this.foregroundMessage, state: "running" };
+    }
+    return this.entries[0];
+  }
+
   render(width: number): string[] {
-    if (this.entries.length === 0 && !this.rightText) {
+    if (
+      this.entries.length === 0 &&
+      this.foregroundMessage === null &&
+      !this.rightText
+    ) {
       return [];
     }
 
@@ -282,13 +242,13 @@ class FooterStatusBar extends Text {
       };
     };
 
-    const firstEntry = this.entries[0];
-    if (firstEntry || rightTextStyled) {
+    const leadingEntry = this.resolveLeadingEntry();
+    if (leadingEntry || rightTextStyled) {
       const maxLeftWidth = rightTextPlain
         ? Math.max(0, contentWidth - visibleWidth(rightTextPlain) - 1)
         : contentWidth;
-      const left = firstEntry
-        ? renderLeftEntry(firstEntry, maxLeftWidth)
+      const left = leadingEntry
+        ? renderLeftEntry(leadingEntry, maxLeftWidth)
         : null;
       const leftWidth = left ? visibleWidth(left.plain) : 0;
       const gap = rightTextPlain
@@ -298,7 +258,9 @@ class FooterStatusBar extends Text {
       lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
     }
 
-    for (const entry of this.entries.slice(1)) {
+    const remainingEntries =
+      this.foregroundMessage === null ? this.entries.slice(1) : this.entries;
+    for (const entry of remainingEntries) {
       const left = renderLeftEntry(entry, contentWidth);
       const line = `${" ".repeat(1)}${left.styled}`;
       lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
@@ -403,7 +365,7 @@ const addSystemMessage = (chatContainer: Container, message: string): void => {
 const addNewSessionMessage = (chatContainer: Container): void => {
   addChatComponent(
     chatContainer,
-    new Text(style(ANSI_BRIGHT_CYAN, "✓ New session started"), 1, 1)
+    new Text(style(ANSI_BRIGHT_CYAN, "✓ New session started"), 1, 0)
   );
 };
 
@@ -431,8 +393,8 @@ export interface CommandPreprocessHooks {
   editorTheme: EditorTheme;
   handleCtrlCPress: () => void;
   isCtrlCInput: (data: string) => boolean;
+  overlayContainer: Container;
   showMessage: (message: string) => void;
-  statusContainer: Container;
   tui: TUI;
   updateHeader: () => void;
 }
@@ -682,7 +644,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   const headerContainer = new Container();
   const chatContainer = new Container();
-  const statusContainer = new Container();
+  const overlayContainer = new Container();
   const editorContainer = new Container();
   const footerContainer = new Container();
   const footerStatusBar = new FooterStatusBar(tui);
@@ -730,7 +692,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   tui.addChild(headerContainer);
   tui.addChild(chatContainer);
-  tui.addChild(statusContainer);
+  tui.addChild(overlayContainer);
   tui.addChild(editorContainer);
   tui.addChild(footerContainer);
   tui.setFocus(editor);
@@ -741,7 +703,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   let streamInterruptRequested = false;
   let inputResolver: null | ((value: string | null) => void) = null;
   let lastCtrlCPressAt = 0;
-  let foregroundStatus: StatusSpinner | null = null;
   let foregroundStatusMessage: string | null = null;
   let foregroundStatusBeforeBlocking: string | null = null;
   const backgroundStatuses = new Map<string, FooterStatusEntry>();
@@ -780,24 +741,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     );
   };
 
-  const createStatusSpinner = (message: string): StatusSpinner =>
-    new StatusSpinner(
-      tui,
-      (text: string) => style(ANSI_CYAN, text),
-      (text: string) => style(ANSI_DIM, text),
-      message
-    );
-
-  const idleStatusPlaceholder = new IdleStatusPlaceholder();
-
-  const renderForegroundStatus = (): void => {
-    statusContainer.clear();
-    statusContainer.addChild(foregroundStatus ?? idleStatusPlaceholder);
-    tui.requestRender();
-  };
-
-  renderForegroundStatus();
-
   const renderFooterStatuses = (): void => {
     footerStatusBar.setEntries([...backgroundStatuses.values()]);
   };
@@ -821,22 +764,12 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   const clearStatus = (): void => {
     foregroundStatusMessage = null;
-    if (!foregroundStatus) {
-      tui.requestRender();
-      return;
-    }
-    foregroundStatus.stop();
-    foregroundStatus = null;
-    renderForegroundStatus();
+    footerStatusBar.setForegroundMessage(null);
   };
 
   const showLoader = (message: string): void => {
-    if (foregroundStatus) {
-      foregroundStatus.stop();
-    }
-    foregroundStatus = createStatusSpinner(message);
     foregroundStatusMessage = message;
-    renderForegroundStatus();
+    footerStatusBar.setForegroundMessage(message);
   };
 
   const clearPromptInput = (): void => {
@@ -1078,7 +1011,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     }
 
     streamInterruptRequested = true;
-    addSystemMessage(chatContainer, "⚡ Interrupted");
     activeStreamController.abort("User requested stream interruption");
     return true;
   };
@@ -1233,9 +1165,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     const orchestrator = createSpinnerOrchestrator(
       {
         clearStatus,
-        hasSpinner: () => foregroundStatus !== null,
+        hasSpinner: () => foregroundStatusMessage !== null,
         setMessage: (message) => {
-          foregroundStatus?.setMessage(message);
+          foregroundStatusMessage = message;
+          footerStatusBar.setForegroundMessage(message);
         },
         showLoader,
       },
@@ -1679,7 +1612,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       },
       clearStatus,
       tui,
-      statusContainer,
+      overlayContainer,
       editorTheme,
       isCtrlCInput,
       handleCtrlCPress,
@@ -1702,6 +1635,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     } else {
       config.messageHistory.clear();
     }
+    clearStatus();
     chatContainer.clear();
     addNewSessionMessage(chatContainer);
     await config.onCommandAction?.(commandResult.action);

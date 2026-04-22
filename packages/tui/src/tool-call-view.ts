@@ -2,10 +2,16 @@ import {
   Container,
   Markdown,
   type MarkdownTheme,
+  Text,
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
 import { parsePartialJson } from "ai";
+import {
+  createSpinnerTicker,
+  type SpinnerTicker,
+  stylePendingIndicator,
+} from "./pending-spinner";
 
 const UNKNOWN_TOOL_NAME = "tool";
 const TRAILING_NEWLINES = /\n+$/;
@@ -160,14 +166,17 @@ export class BaseToolCallView extends Container {
   private readonly markdownTheme: MarkdownTheme;
   private readonly renderers?: ToolRendererMap;
   private readonly showRawToolIo: boolean;
-  private displayMode: "content" | "pretty" = "content";
+  private displayMode: "content" | "pretty" | "pending" = "content";
   private error: unknown;
   private finalInput: unknown;
   private inputBuffer = "";
   private output: unknown;
   private outputDenied = false;
   private parsedInput: unknown;
+  private pendingIndicator: Text | null = null;
+  private pendingTicker: SpinnerTicker | null = null;
   private prettyBlockActive = false;
+  private readonly requestRender: () => void;
   private readBlock: Container | null = null;
   private readBody: BackgroundBody | null = null;
   private readHeader: TrimmedMarkdown | null = null;
@@ -178,7 +187,7 @@ export class BaseToolCallView extends Container {
     callId: string,
     toolName: string,
     markdownTheme: MarkdownTheme,
-    _requestRender?: () => void,
+    requestRender?: () => void,
     showRawToolIo?: boolean,
     renderers?: ToolRendererMap
   ) {
@@ -188,13 +197,14 @@ export class BaseToolCallView extends Container {
     this.markdownTheme = markdownTheme;
     this.showRawToolIo = showRawToolIo ?? false;
     this.renderers = renderers;
+    this.requestRender = requestRender ?? (() => undefined);
     this.content = new TrimmedMarkdown("", 1, 0, markdownTheme);
     this.addChild(this.content);
     this.refresh();
   }
 
   dispose(): void {
-    return;
+    this.stopPendingIndicator();
   }
 
   async appendInputChunk(chunk: string): Promise<void> {
@@ -295,17 +305,56 @@ export class BaseToolCallView extends Container {
     this.readBlock = block;
   }
 
-  private setDisplayMode(mode: "content" | "pretty"): void {
+  private setDisplayMode(mode: "content" | "pretty" | "pending"): void {
     if (this.displayMode === mode) {
       return;
     }
     this.displayMode = mode;
     this.clear();
+    if (mode === "pending") {
+      this.addChild(this.ensurePendingIndicator());
+      return;
+    }
+    this.stopPendingIndicator();
     if (mode === "pretty" && this.readBlock) {
       this.addChild(this.readBlock);
     } else {
       this.addChild(this.content);
     }
+  }
+
+  private ensurePendingIndicator(): Text {
+    if (this.pendingIndicator && this.pendingTicker) {
+      return this.pendingIndicator;
+    }
+    const indicator = new Text("", 1, 0);
+    this.pendingIndicator = indicator;
+    this.pendingTicker = createSpinnerTicker((frame) => {
+      indicator.setText(stylePendingIndicator(frame, "Preparing tool call…"));
+      this.requestRender();
+    });
+    return indicator;
+  }
+
+  private stopPendingIndicator(): void {
+    if (this.pendingTicker) {
+      this.pendingTicker.stop();
+      this.pendingTicker = null;
+    }
+    this.pendingIndicator = null;
+  }
+
+  private isEmptyState(): boolean {
+    return (
+      this.finalInput === undefined &&
+      this.output === undefined &&
+      this.error === undefined &&
+      !this.outputDenied &&
+      this.parsedInput === undefined &&
+      this.inputBuffer.length === 0 &&
+      !this.prettyBlockActive &&
+      this.renderedOverride === null
+    );
   }
 
   private resolveBestInput(): unknown {
@@ -355,6 +404,11 @@ export class BaseToolCallView extends Container {
   }
 
   private refresh(): void {
+    if (this.isEmptyState()) {
+      this.setDisplayMode("pending");
+      return;
+    }
+
     const bestInput = this.resolveBestInput();
 
     if (!this.showRawToolIo && this.tryRenderWithCustomRenderer(bestInput)) {

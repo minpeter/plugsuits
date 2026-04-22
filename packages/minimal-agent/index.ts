@@ -59,7 +59,7 @@ const showReasoningSelector = (
   selectorContainer.addChild(new Spacer(1));
   selectorContainer.addChild(selectList);
 
-  hooks.statusContainer.addChild(selectorContainer);
+  hooks.overlayContainer.addChild(selectorContainer);
   hooks.tui.requestRender();
 
   return new Promise<boolean | null>((resolve) => {
@@ -72,7 +72,7 @@ const showReasoningSelector = (
       }
       settled = true;
       removeInputListener?.();
-      hooks.statusContainer.removeChild(selectorContainer);
+      hooks.overlayContainer.removeChild(selectorContainer);
       hooks.tui.requestRender();
       resolve(value);
     };

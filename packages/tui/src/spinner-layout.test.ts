@@ -1,4 +1,4 @@
-import { Container } from "@mariozechner/pi-tui";
+import { Container, Spacer, Text } from "@mariozechner/pi-tui";
 import { describe, expect, it } from "vitest";
 import { stylePendingIndicator } from "./pending-spinner";
 import { BaseToolCallView } from "./tool-call-view";
@@ -20,12 +20,18 @@ const markdownTheme = {
   underline: (t: string) => t,
 };
 
-const SPINNER_PREPENDED_BLANK = 1;
+const SEPARATOR_BLANK = 1;
 
-const renderSpinnerLayout = (label: string, width: number): string[] => [
-  "",
-  ` ${stylePendingIndicator("⠋", label)} `.padEnd(width, " "),
-];
+const mountInlineSpinner = (chat: Container, label: string): (() => void) => {
+  const spacer = new Spacer(1);
+  const spinner = new Text(` ${stylePendingIndicator("⠋", label)} `, 0, 0);
+  chat.addChild(spacer);
+  chat.addChild(spinner);
+  return () => {
+    chat.removeChild(spacer);
+    chat.removeChild(spinner);
+  };
+};
 
 const countTrailingBlanks = (lines: string[]): number => {
   let n = 0;
@@ -58,12 +64,12 @@ const countLeadingBlanksBefore = (
   return n;
 };
 
-describe("Screen layout: blank line count between tool block and foreground spinner", () => {
-  // Regression: user reported "공백 2개" between tool block and Executing...
-  // The foreground spinner prepends exactly 1 blank line via
-  // StatusSpinner.render() → ["", ...super.render(width)]. Any additional
-  // blank coming from chatContainer's last child pushes the spinner down.
-  it("pretty-block pending: exactly 1 blank line above the spinner", () => {
+describe("Inline spinner layout inside chatContainer", () => {
+  // The spinner now mounts INSIDE chatContainer as the last child (after a
+  // Spacer(1) separator). This keeps the status slot inline with chat so
+  // clearing the spinner lets subsequent chat content take its place without
+  // any upward layout shift.
+  it("pretty-block pending: exactly 1 blank line between tool block and spinner", () => {
     const view = new BaseToolCallView(
       "call_layout_pending",
       "shell_execute",
@@ -78,15 +84,13 @@ describe("Screen layout: blank line count between tool block and foreground spin
 
     const chat = new Container();
     chat.addChild(view);
+    mountInlineSpinner(chat, "Executing...");
 
-    const chatLines = chat.render(80);
-    const spinnerLines = renderSpinnerLayout("Executing...", 80);
-    const combined = [...chatLines, ...spinnerLines];
-
-    const blanksAboveSpinner = countLeadingBlanksBefore(combined, (line) =>
+    const lines = chat.render(80);
+    const blanksAboveSpinner = countLeadingBlanksBefore(lines, (line) =>
       line.includes("Executing")
     );
-    expect(blanksAboveSpinner).toBe(SPINNER_PREPENDED_BLANK);
+    expect(blanksAboveSpinner).toBe(SEPARATOR_BLANK);
 
     view.dispose();
   });
@@ -104,15 +108,13 @@ describe("Screen layout: blank line count between tool block and foreground spin
 
     const chat = new Container();
     chat.addChild(view);
+    mountInlineSpinner(chat, "Working...");
 
-    const chatLines = chat.render(80);
-    const spinnerLines = renderSpinnerLayout("Working...", 80);
-    const combined = [...chatLines, ...spinnerLines];
-
-    const blanksAboveSpinner = countLeadingBlanksBefore(combined, (line) =>
+    const lines = chat.render(80);
+    const blanksAboveSpinner = countLeadingBlanksBefore(lines, (line) =>
       line.includes("Working")
     );
-    expect(blanksAboveSpinner).toBe(SPINNER_PREPENDED_BLANK);
+    expect(blanksAboveSpinner).toBe(SEPARATOR_BLANK);
 
     view.dispose();
   });
@@ -128,15 +130,42 @@ describe("Screen layout: blank line count between tool block and foreground spin
 
     const chat = new Container();
     chat.addChild(view);
+    mountInlineSpinner(chat, "Executing...");
 
-    const chatLines = chat.render(120);
-    const spinnerLines = renderSpinnerLayout("Executing...", 120);
-    const combined = [...chatLines, ...spinnerLines];
-
-    const blanksAboveSpinner = countLeadingBlanksBefore(combined, (line) =>
+    const lines = chat.render(120);
+    const blanksAboveSpinner = countLeadingBlanksBefore(lines, (line) =>
       line.includes("Executing")
     );
-    expect(blanksAboveSpinner).toBe(SPINNER_PREPENDED_BLANK);
+    expect(blanksAboveSpinner).toBe(SEPARATOR_BLANK);
+
+    view.dispose();
+  });
+});
+
+describe("Inline spinner detach leaves no residual children", () => {
+  // Mounting and unmounting the spinner repeatedly must not leak the
+  // separator Spacer or the spinner itself into chatContainer. If it did,
+  // each tool cycle would accumulate blank lines above subsequent content.
+  it("mount/unmount cycles leave chat with only its original children", () => {
+    const view = new BaseToolCallView(
+      "call_cycle",
+      "shell_execute",
+      markdownTheme,
+      () => undefined
+    );
+    view.setFinalInput({ command: "ls" });
+
+    const chat = new Container();
+    chat.addChild(view);
+    const childrenBefore = chat.render(80).length;
+
+    for (let i = 0; i < 3; i++) {
+      const detach = mountInlineSpinner(chat, "Working...");
+      detach();
+    }
+
+    const childrenAfter = chat.render(80).length;
+    expect(childrenAfter).toBe(childrenBefore);
 
     view.dispose();
   });
@@ -144,8 +173,8 @@ describe("Screen layout: blank line count between tool block and foreground spin
 
 describe("Chat container trailing shape (so the spinner only adds its own blank)", () => {
   // Regression: BaseToolCallView.render() must NEVER emit a trailing blank
-  // line. Any trailing blank would combine with StatusSpinner's own leading
-  // blank and show as 2+ blank lines above the spinner.
+  // line. A trailing blank would combine with the inline separator Spacer(1)
+  // and show as 2+ blank lines above the spinner.
   it.each([
     {
       name: "raw fallback with input only",

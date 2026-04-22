@@ -211,4 +211,42 @@ describe("BaseToolCallView render shape fixtures", () => {
     const lastLine = lines.at(-1) ?? "";
     expect(lastLine.trim().length).toBeGreaterThan(0);
   });
+
+  // Regression: a freshly-created tool view used to render as zero lines
+  // until a tool-input-delta arrived, causing the editor to briefly jump up
+  // by the height the tool block eventually took. The pending indicator
+  // reserves one visible line the moment the view mounts.
+  it("renders a pending indicator before any input has arrived", () => {
+    const view = new BaseToolCallView(
+      "call_pending",
+      "shell_execute",
+      markdownTheme,
+      () => undefined
+    );
+
+    const output = view.render(120).join("\n");
+    expect(output).toMatch(BRAILLE_SPINNER_GLYPHS);
+    expect(output).toContain("Preparing tool call");
+
+    view.dispose();
+  });
+
+  it("replaces the pending indicator once real input arrives", () => {
+    const view = new BaseToolCallView(
+      "call_pending_replace",
+      "shell_execute",
+      markdownTheme,
+      () => undefined
+    );
+
+    expect(view.render(120).join("\n")).toContain("Preparing tool call");
+
+    view.setFinalInput({ command: "sleep 3" });
+
+    const output = view.render(120).join("\n");
+    expect(output).not.toContain("Preparing tool call");
+    expect(output).not.toMatch(BRAILLE_SPINNER_GLYPHS);
+
+    view.dispose();
+  });
 });

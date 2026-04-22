@@ -814,7 +814,7 @@ const mainCommand = defineCommand({
       selectorContainer.addChild(selectList);
 
       hooks.clearStatus();
-      hooks.statusContainer.addChild(selectorContainer);
+      hooks.overlayContainer.addChild(selectorContainer);
       hooks.tui.requestRender();
 
       return await new Promise<ReasoningMode | null>((resolve) => {
@@ -829,7 +829,7 @@ const mainCommand = defineCommand({
           if (removeInputListener) {
             removeInputListener();
           }
-          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.overlayContainer.removeChild(selectorContainer);
           hooks.tui.requestRender();
           resolve(value);
         };
@@ -897,7 +897,7 @@ const mainCommand = defineCommand({
       selectorContainer.addChild(new Spacer(1));
       selectorContainer.addChild(selectList);
 
-      hooks.statusContainer.addChild(selectorContainer);
+      hooks.overlayContainer.addChild(selectorContainer);
       hooks.tui.requestRender();
 
       return await new Promise<ToolFallbackMode | null>((resolve) => {
@@ -912,7 +912,7 @@ const mainCommand = defineCommand({
           if (removeInputListener) {
             removeInputListener();
           }
-          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.overlayContainer.removeChild(selectorContainer);
           hooks.tui.requestRender();
           resolve(value);
         };
@@ -970,7 +970,7 @@ const mainCommand = defineCommand({
       selectorContainer.addChild(new Spacer(1));
       selectorContainer.addChild(selectList);
 
-      hooks.statusContainer.addChild(selectorContainer);
+      hooks.overlayContainer.addChild(selectorContainer);
       hooks.tui.requestRender();
 
       return await new Promise<boolean | null>((resolve) => {
@@ -985,7 +985,7 @@ const mainCommand = defineCommand({
           if (removeInputListener) {
             removeInputListener();
           }
-          hooks.statusContainer.removeChild(selectorContainer);
+          hooks.overlayContainer.removeChild(selectorContainer);
           hooks.tui.requestRender();
           resolve(value);
         };
