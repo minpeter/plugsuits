@@ -612,6 +612,31 @@ export function formatCompactionAppliedNotice(params: {
     : `↻ Blocking compaction applied: ${params.detail}`;
 }
 
+export function throwIfTurnInterrupted(params: {
+  streamAbortController: AbortController;
+  streamInterruptRequested: boolean;
+}): void {
+  if (
+    !(
+      params.streamInterruptRequested ||
+      params.streamAbortController.signal.aborted
+    )
+  ) {
+    return;
+  }
+
+  const reason = params.streamAbortController.signal.reason;
+  if (reason instanceof Error) {
+    throw reason;
+  }
+
+  const error = new Error(
+    typeof reason === "string" ? reason : "User requested stream interruption"
+  );
+  error.name = "AbortError";
+  throw error;
+}
+
 export async function retryStreamTurnOnContextOverflow<T>(params: {
   error: unknown;
   overflowRetried: boolean;
@@ -1308,27 +1333,52 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   };
 
   const prepareMessages = async (
-    phase: "new-turn" | "intermediate-step"
+    phase: "new-turn" | "intermediate-step",
+    streamAbortController: AbortController
   ): Promise<{
     messages: ModelMessage[];
     turnOverrides?: BeforeTurnResult;
   }> => {
     const turnOverrides = await config.onBeforeTurn?.(phase);
+    throwIfTurnInterrupted({
+      streamAbortController,
+      streamInterruptRequested,
+    });
     const readyResult = applyReadySpeculativeCompaction();
     if (readyResult.stale) {
       startSpeculativeCompaction();
     }
     if (readyResult.applied) {
       await measureUsageAfterCompaction();
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested,
+      });
     }
 
     await blockAtHardContextLimit(0, phase);
+    throwIfTurnInterrupted({
+      streamAbortController,
+      streamInterruptRequested,
+    });
 
     let messagesForLLM = config.messageHistory.getMessagesForLLM();
     const didProbe = await measureUsageIfAvailable(messagesForLLM);
+    throwIfTurnInterrupted({
+      streamAbortController,
+      streamInterruptRequested,
+    });
     await compactBeforeNextTurnIfNeeded();
+    throwIfTurnInterrupted({
+      streamAbortController,
+      streamInterruptRequested,
+    });
     if (didProbe) {
       await blockAtHardContextLimit(1, phase);
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested,
+      });
     }
     messagesForLLM = config.messageHistory.getMessagesForLLM();
 
@@ -1409,7 +1459,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
   const resolveTurnBudget = async (
     phase: "new-turn" | "intermediate-step",
-    messagesForLLM: ModelMessage[]
+    messagesForLLM: ModelMessage[],
+    streamAbortController: AbortController
   ): Promise<{ maxOutputTokens?: number; messagesForLLM: ModelMessage[] }> => {
     let nextMessages = messagesForLLM;
     let maxOutputTokens =
@@ -1417,6 +1468,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
     if (maxOutputTokens !== undefined && maxOutputTokens <= 512) {
       await blockAtHardContextLimit(1, phase);
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested,
+      });
       nextMessages = config.messageHistory.getMessagesForLLM();
       maxOutputTokens = Math.max(
         512,
@@ -1567,12 +1622,20 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     try {
       showLoader("Processing...");
 
-      const preparedTurn = await prepareMessages(phase);
+      const preparedTurn = await prepareMessages(phase, streamAbortController);
       let messagesForLLM = preparedTurn.messages;
       const turnOverrides = preparedTurn.turnOverrides;
 
-      const budget = await resolveTurnBudget(phase, messagesForLLM);
+      const budget = await resolveTurnBudget(
+        phase,
+        messagesForLLM,
+        streamAbortController
+      );
       messagesForLLM = budget.messagesForLLM;
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested,
+      });
 
       const stream = await config.agent.stream(
         mergeAgentStreamOptions({

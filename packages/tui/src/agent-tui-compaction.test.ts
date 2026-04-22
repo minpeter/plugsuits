@@ -12,6 +12,7 @@ import {
   retryStreamTurnOnNoOutput,
   shouldDisplayBackgroundCompactionStatus,
   summarizeFooterStatuses,
+  throwIfTurnInterrupted,
 } from "./agent-tui";
 
 function createPreparedCompaction(id: string): PreparedCompaction {
@@ -135,6 +136,40 @@ describe("agent-tui compaction core", () => {
       primary: { message: "Working", state: "running" },
       secondaryBadge: "bg compacting +2",
     });
+  });
+
+  it("throws before the stream starts when interrupt was requested during processing", () => {
+    const streamAbortController = new AbortController();
+
+    expect(() =>
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested: true,
+      })
+    ).toThrow("User requested stream interruption");
+  });
+
+  it("throws when the turn abort signal has already been aborted", () => {
+    const streamAbortController = new AbortController();
+    streamAbortController.abort("aborted during processing");
+
+    expect(() =>
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested: false,
+      })
+    ).toThrow("aborted during processing");
+  });
+
+  it("does nothing when processing is still active and not interrupted", () => {
+    const streamAbortController = new AbortController();
+
+    expect(() =>
+      throwIfTurnInterrupted({
+        streamAbortController,
+        streamInterruptRequested: false,
+      })
+    ).not.toThrow();
   });
 
   it("runs blocking compaction then retries once on overflow errors", async () => {
