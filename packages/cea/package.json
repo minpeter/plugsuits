@@ -40,10 +40,10 @@
   "dependencies": {
     "@ai-sdk-tool/harness": "workspace:*",
     "@ai-sdk-tool/headless": "workspace:*",
-    "@ai-sdk-tool/parser": "^4.1.20",
+    "@ai-sdk-tool/parser": "^4.1.21",
     "@ai-sdk-tool/tui": "workspace:*",
     "@ai-sdk/openai-compatible": "^2.0.41",
-    "@mariozechner/pi-tui": "^0.68.0",
+    "@mariozechner/pi-tui": "^0.68.1",
     "@t3-oss/env-core": "^0.13.11",
     "ai": "^6.0.168",
     "citty": "^0.2.2",

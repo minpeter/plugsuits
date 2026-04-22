@@ -8,6 +8,7 @@ import {
 import {
   type AutocompleteItem,
   type AutocompleteProvider,
+  type AutocompleteSuggestions,
   CombinedAutocompleteProvider,
   type SlashCommand,
 } from "@mariozechner/pi-tui";
@@ -155,10 +156,10 @@ export const buildAliasToCanonicalNameMap = (
   return aliasToCanonicalName;
 };
 
-export const getAliasArgumentSuggestions = (
+export const getAliasArgumentSuggestions = async (
   textBeforeCursor: string,
   commandSuggestionsByName: Map<string, SlashCommand>
-): { items: AutocompleteItem[]; prefix: string } | null => {
+): Promise<{ items: AutocompleteItem[]; prefix: string } | null> => {
   const spaceIndex = textBeforeCursor.indexOf(" ");
   if (spaceIndex < 0) {
     return null;
@@ -176,7 +177,7 @@ export const getAliasArgumentSuggestions = (
   }
 
   const argumentPrefix = textBeforeCursor.slice(spaceIndex + 1);
-  const items = command.getArgumentCompletions(argumentPrefix);
+  const items = await command.getArgumentCompletions(argumentPrefix);
   if (!items || items.length === 0) {
     return null;
   }
@@ -249,15 +250,25 @@ export const createAliasAwareAutocompleteProvider = (
   const aliasToCanonicalName = buildAliasToCanonicalNameMap(commands);
 
   return {
-    getSuggestions: (lines, cursorLine, cursorCol) => {
+    getSuggestions: async (
+      lines,
+      cursorLine,
+      cursorCol,
+      options
+    ): Promise<AutocompleteSuggestions | null> => {
       const currentLine = lines[cursorLine] ?? "";
       const textBeforeCursor = currentLine.slice(0, cursorCol);
 
       if (!textBeforeCursor.startsWith("/")) {
-        return fallbackProvider.getSuggestions(lines, cursorLine, cursorCol);
+        return fallbackProvider.getSuggestions(
+          lines,
+          cursorLine,
+          cursorCol,
+          options
+        );
       }
 
-      const aliasArgumentSuggestions = getAliasArgumentSuggestions(
+      const aliasArgumentSuggestions = await getAliasArgumentSuggestions(
         textBeforeCursor,
         commandSuggestionsByName
       );
@@ -265,10 +276,11 @@ export const createAliasAwareAutocompleteProvider = (
         return aliasArgumentSuggestions;
       }
 
-      const defaultSuggestions = fallbackProvider.getSuggestions(
+      const defaultSuggestions = await fallbackProvider.getSuggestions(
         lines,
         cursorLine,
-        cursorCol
+        cursorCol,
+        options
       );
 
       if (textBeforeCursor.includes(" ")) {

@@ -35,7 +35,7 @@
   },
   "peerDependencies": {
     "@ai-sdk-tool/harness": "^1.2.4",
-    "@mariozechner/pi-tui": "^0.57.1",
+    "@mariozechner/pi-tui": "^0.68.1",
     "ai": "^6.0.116",
     "zod": "^4.3.6"
   },
