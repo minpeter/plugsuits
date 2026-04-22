@@ -1262,7 +1262,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     await measureUsageIfAvailable(messages);
   };
 
-  const runBackgroundStartupProbe = (): void => {
+  const runBackgroundUsageProbe = (): void => {
     measureUsageIfAvailable([]).then(ignore, ignore);
   };
 
@@ -1978,11 +1978,6 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         streamAbortController,
         streamInterruptRequested,
       });
-      await raceWithTurnInterrupt({
-        promise: measureUsageIfAvailable([], { requestRender: false }),
-        streamAbortController,
-        streamInterruptRequested,
-      });
     });
 
     terminal.write(
@@ -2010,6 +2005,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       addSystemMessage(chatContainer, commandResult.message);
     }
     tui.requestRender();
+
+    runBackgroundUsageProbe();
   };
 
   const handleCompactAction = async (
@@ -2233,7 +2230,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     await config.onSetup?.();
     updateHeader();
 
-    runBackgroundStartupProbe();
+    runBackgroundUsageProbe();
 
     while (!shouldExit) {
       const input = await waitForInput();
