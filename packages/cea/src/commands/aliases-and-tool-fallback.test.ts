@@ -42,10 +42,9 @@ describe("Command aliases", () => {
 
   it("renders merged display name in help output", async () => {
     const commandMap = new Map<string, Command>();
-    commandMap.set("clear", {
-      name: "clear",
-      displayName: "clear (new)",
-      aliases: ["new"],
+    commandMap.set("new", {
+      name: "new",
+      aliases: ["clear"],
       description: "Start a new session",
       execute: () => ({ success: true, action: { type: "new-session" } }),
     });
@@ -54,8 +53,8 @@ describe("Command aliases", () => {
     const result = await help.execute({ args: [] });
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("/clear (new) - Start a new session");
-    expect(result.message).not.toContain("/new - Start a new session");
+    expect(result.message).toContain("/new (clear) - Start a new session");
+    expect(result.message).not.toContain("/clear (new) - Start a new session");
   });
 });
 

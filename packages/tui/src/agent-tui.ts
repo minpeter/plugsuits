@@ -149,9 +149,27 @@ const DEFAULT_INTERRUPT_ABORT_MESSAGE = "User requested stream interruption";
 const DEFAULT_HELP_TEXT =
   "Enter to submit, Shift+Enter for newline, /help for commands, Esc to interrupt, Ctrl+C to clear, Ctrl+C twice to exit";
 
-export const buildScrollbackPreservingResetGap = (rows: number): string => {
-  const safeRows = Math.max(1, rows);
-  return `\x1b[${safeRows};1H${"\r\n".repeat(safeRows)}`;
+export const getRenderedViewportLineCount = (
+  tui: TUI,
+  terminalRows: number
+): number => {
+  const internalTui = tui as unknown as {
+    previousLines?: string[];
+  };
+  const renderedLineCount = internalTui.previousLines?.length ?? 0;
+  return Math.max(1, Math.min(renderedLineCount, Math.max(1, terminalRows)));
+};
+
+export const buildScrollbackPreservingResetGap = (
+  terminalRows: number,
+  renderedViewportLineCount = terminalRows
+): string => {
+  const safeTerminalRows = Math.max(1, terminalRows);
+  const safeRenderedLineCount = Math.max(
+    1,
+    Math.min(renderedViewportLineCount, safeTerminalRows)
+  );
+  return `\x1b[${safeTerminalRows};1H${"\r\n".repeat(safeRenderedLineCount)}\x1b[2J\x1b[H`;
 };
 
 export function resetTuiDiffStateForScrollbackPreservingRestart(
@@ -175,6 +193,11 @@ export function resetTuiDiffStateForScrollbackPreservingRestart(
   internalTui.maxLinesRendered = 0;
   internalTui.previousViewportTop = 0;
 }
+
+export const getStepPhaseForCompletedTurnCount = (
+  completedTurnCount: number
+): "intermediate-step" | "new-turn" =>
+  completedTurnCount === 0 ? "new-turn" : "intermediate-step";
 
 const stripStatusEllipsis = (message: string): string =>
   message.trim().replace(STATUS_ELLIPSIS_SUFFIX, "");
@@ -849,14 +872,16 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const title = new Text("", 1, 0);
   const help = new Text(style(ANSI_DIM, DEFAULT_HELP_TEXT), 1, 0);
 
-  const updateHeader = (): void => {
+  const updateHeader = (options?: { requestRender?: boolean }): void => {
     const headerTitle = config.header?.title ?? "Agent TUI";
     const subtitle = config.header?.subtitle;
     const footer = config.footer?.text?.trim();
     const contextPressure = resolveContextPressure();
     title.setText(formatHeaderTitleText(headerTitle, subtitle));
     footerStatusBar.setRightText(footer, contextPressure ?? undefined);
-    tui.requestRender();
+    if (options?.requestRender ?? true) {
+      tui.requestRender();
+    }
   };
 
   headerContainer.addChild(new Spacer(1));
@@ -1143,7 +1168,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   let usageProbeGeneration = 0;
 
   const measureUsageIfAvailable = async (
-    messages: ModelMessage[]
+    messages: ModelMessage[],
+    options?: { requestRender?: boolean }
   ): Promise<boolean> => {
     if (!config.measureUsage) {
       return false;
@@ -1175,7 +1201,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       outputTokens: measured.outputTokens,
       totalTokens: measured.totalTokens,
     });
-    updateHeader();
+    updateHeader({ requestRender: options?.requestRender ?? true });
     return true;
   };
 
@@ -1656,10 +1682,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     ).catch((error) => {
       console.error("onTurnComplete callback failed in TUI:", error);
     });
-    const stepPhase =
-      completedTurnCount === 0
-        ? ("new-turn" as const)
-        : ("intermediate-step" as const);
+    const stepPhase = getStepPhaseForCompletedTurnCount(completedTurnCount);
     Promise.resolve(
       config.onStepComplete?.({
         finishReason: params.finishReason,
@@ -1901,8 +1924,27 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       return;
     }
 
-    terminal.write(buildScrollbackPreservingResetGap(terminal.rows));
+    await runWithInterruptController(async (streamAbortController) => {
+      await raceWithTurnInterrupt({
+        promise: Promise.resolve(config.onCommandAction?.(action)),
+        streamAbortController,
+        streamInterruptRequested,
+      });
+      await raceWithTurnInterrupt({
+        promise: measureUsageIfAvailable([], { requestRender: false }),
+        streamAbortController,
+        streamInterruptRequested,
+      });
+    });
+
+    terminal.write(
+      buildScrollbackPreservingResetGap(
+        terminal.rows,
+        getRenderedViewportLineCount(tui, terminal.rows)
+      )
+    );
     compactionOrchestrator.discardAll();
+    completedTurnCount = 0;
     if (config.messageHistory.reset) {
       config.messageHistory.reset();
     } else {
@@ -1912,19 +1954,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     overlayContainer.clear();
     chatContainer.clear();
     addNewSessionMessage(chatContainer);
-    await runWithInterruptController(async (streamAbortController) => {
-      await raceWithTurnInterrupt({
-        promise: Promise.resolve(config.onCommandAction?.(action)),
-        streamAbortController,
-        streamInterruptRequested,
-      });
-      await raceWithTurnInterrupt({
-        promise: measureUsageIfAvailable([]),
-        streamAbortController,
-        streamInterruptRequested,
-      });
-    });
-    updateHeader();
+    updateHeader({ requestRender: false });
     resetTuiDiffStateForScrollbackPreservingRestart(tui);
     tui.requestRender();
 

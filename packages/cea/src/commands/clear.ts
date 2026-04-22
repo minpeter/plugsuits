@@ -6,9 +6,8 @@ const newSessionAction = (): CommandResult => ({
 });
 
 export const createClearCommand = (): Command => ({
-  name: "clear",
-  displayName: "clear (new)",
-  aliases: ["new"],
+  name: "new",
+  aliases: ["clear"],
   description: "Start a new session",
   execute: () => newSessionAction(),
 });

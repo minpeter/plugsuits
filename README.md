@@ -92,7 +92,7 @@ AI: Here's what's in the src directory...
 You: /help
 Available commands:
   /help       Show this help message
-  /clear      Clear conversation
+  /new        Start a new session
   /reasoning-mode  Set reasoning mode
   /translate  Toggle translation mode
   /quit       Exit
