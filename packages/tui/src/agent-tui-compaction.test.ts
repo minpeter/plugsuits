@@ -11,6 +11,7 @@ import {
   retryStreamTurnOnContextOverflow,
   retryStreamTurnOnNoOutput,
   shouldDisplayBackgroundCompactionStatus,
+  summarizeFooterStatuses,
 } from "./agent-tui";
 
 function createPreparedCompaction(id: string): PreparedCompaction {
@@ -82,6 +83,58 @@ describe("agent-tui compaction core", () => {
         state: "clear",
       })
     ).toBe(false);
+  });
+
+  it("prioritizes blocking compaction over background compaction in the footer", () => {
+    expect(
+      summarizeFooterStatuses({
+        entries: [{ message: "Background compaction...", state: "running" }],
+        foregroundMessage: "Compacting...",
+      })
+    ).toEqual({
+      primary: { message: "Compacting", state: "running" },
+      secondaryBadge: null,
+    });
+  });
+
+  it("surfaces background compaction as a lightweight badge beside active work", () => {
+    expect(
+      summarizeFooterStatuses({
+        entries: [{ message: "Background compaction...", state: "running" }],
+        foregroundMessage: "Thinking...",
+      })
+    ).toEqual({
+      primary: { message: "Thinking", state: "running" },
+      secondaryBadge: "bg compacting",
+    });
+  });
+
+  it("collapses background-only footer state into a single primary label", () => {
+    expect(
+      summarizeFooterStatuses({
+        entries: [{ message: "Background compaction...", state: "running" }],
+        foregroundMessage: null,
+      })
+    ).toEqual({
+      primary: { message: "Bg compacting", state: "running" },
+      secondaryBadge: null,
+    });
+  });
+
+  it("summarizes extra background compaction jobs without adding more footer lines", () => {
+    expect(
+      summarizeFooterStatuses({
+        entries: [
+          { message: "Background compaction...", state: "running" },
+          { message: "Background compaction...", state: "running" },
+          { message: "Background compaction...", state: "running" },
+        ],
+        foregroundMessage: "Working...",
+      })
+    ).toEqual({
+      primary: { message: "Working", state: "running" },
+      secondaryBadge: "bg compacting +2",
+    });
   });
 
   it("runs blocking compaction then retries once on overflow errors", async () => {

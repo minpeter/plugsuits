@@ -142,6 +142,83 @@ interface FooterStatusEntry {
   state: "ready" | "running";
 }
 
+const BACKGROUND_COMPACTION_STATUS_MESSAGE = "Background compaction...";
+const BLOCKING_COMPACTION_STATUS_MESSAGE = "Compacting...";
+const STATUS_ELLIPSIS_SUFFIX = /\.\.\.$/;
+
+const stripStatusEllipsis = (message: string): string =>
+  message.trim().replace(STATUS_ELLIPSIS_SUFFIX, "");
+
+const isBackgroundCompactionStatus = (message: string): boolean =>
+  stripStatusEllipsis(message).toLowerCase() === "background compaction";
+
+const formatPrimaryFooterStatusLabel = (message: string): string => {
+  if (isBackgroundCompactionStatus(message)) {
+    return "Bg compacting";
+  }
+  return stripStatusEllipsis(message);
+};
+
+const formatBackgroundCompactionBadge = (count: number): null | string => {
+  if (count > 1) {
+    return `bg compacting +${count - 1}`;
+  }
+  if (count === 1) {
+    return "bg compacting";
+  }
+  return null;
+};
+
+export function summarizeFooterStatuses(params: {
+  entries: Array<{ message: string; state: "ready" | "running" }>;
+  foregroundMessage: null | string;
+}): {
+  primary: null | { message: string; state: "ready" | "running" };
+  secondaryBadge: null | string;
+} {
+  if (params.foregroundMessage !== null) {
+    const backgroundCompactionCount = params.entries.filter(
+      (entry) =>
+        entry.state === "running" && isBackgroundCompactionStatus(entry.message)
+    ).length;
+    return {
+      primary: {
+        message: formatPrimaryFooterStatusLabel(params.foregroundMessage),
+        state: "running",
+      },
+      secondaryBadge:
+        stripStatusEllipsis(params.foregroundMessage) ===
+        stripStatusEllipsis(BLOCKING_COMPACTION_STATUS_MESSAGE)
+          ? null
+          : formatBackgroundCompactionBadge(backgroundCompactionCount),
+    };
+  }
+
+  const firstEntry = params.entries[0];
+  if (!firstEntry) {
+    return { primary: null, secondaryBadge: null };
+  }
+
+  const extraBackgroundCompactions = params.entries
+    .slice(1)
+    .filter(
+      (entry) =>
+        entry.state === "running" && isBackgroundCompactionStatus(entry.message)
+    ).length;
+
+  return {
+    primary: {
+      message: formatPrimaryFooterStatusLabel(firstEntry.message),
+      state: firstEntry.state,
+    },
+    secondaryBadge:
+      isBackgroundCompactionStatus(firstEntry.message) &&
+      extraBackgroundCompactions > 0
+        ? `bg compacting +${extraBackgroundCompactions}`
+        : null,
+  };
+}
+
 class FooterStatusBar extends Text {
   private readonly ticker: SpinnerTicker;
   private currentFrame = "";
@@ -196,13 +273,6 @@ class FooterStatusBar extends Text {
     this.ticker.stop();
   }
 
-  private resolveLeadingEntry(): FooterStatusEntry | undefined {
-    if (this.foregroundMessage !== null) {
-      return { message: this.foregroundMessage, state: "running" };
-    }
-    return this.entries[0];
-  }
-
   render(width: number): string[] {
     if (
       this.entries.length === 0 &&
@@ -224,45 +294,57 @@ class FooterStatusBar extends Text {
 
     const renderLeftEntry = (
       entry: FooterStatusEntry,
-      maxWidth: number
+      maxWidth: number,
+      secondaryBadge: string | null = null
     ): { plain: string; styled: string } => {
       const prefix = entry.state === "running" ? this.currentFrame : "";
       const prefixStyle =
         entry.state === "running" ? style(ANSI_CYAN, prefix) : "";
       const messageStylePrefix = this.resolveEntryStylePrefix(entry.level);
       const reservedPrefixWidth = prefix ? visibleWidth(prefix) + 1 : 0;
-      const maxMessageWidth = Math.max(0, maxWidth - reservedPrefixWidth);
+      const badgePlain = secondaryBadge ? ` · ${secondaryBadge}` : "";
+      const badgeStyled = secondaryBadge
+        ? style(ANSI_DIM, ` · ${secondaryBadge}`)
+        : "";
+      const maxMessageWidth = Math.max(
+        0,
+        maxWidth - reservedPrefixWidth - visibleWidth(badgePlain)
+      );
       const message = truncatePlainToWidth(entry.message, maxMessageWidth);
 
       return {
-        plain: prefix ? `${prefix}${message ? ` ${message}` : ""}` : message,
+        plain: prefix
+          ? `${prefix}${message ? ` ${message}` : ""}${badgePlain}`
+          : `${message}${badgePlain}`,
         styled: prefix
-          ? `${prefixStyle}${message ? ` ${style(messageStylePrefix, message)}` : ""}`
-          : style(messageStylePrefix, message),
+          ? `${prefixStyle}${message ? ` ${style(messageStylePrefix, message)}` : ""}${badgeStyled}`
+          : `${style(messageStylePrefix, message)}${badgeStyled}`,
       };
     };
 
-    const leadingEntry = this.resolveLeadingEntry();
-    if (leadingEntry || rightTextStyled) {
+    const display = summarizeFooterStatuses({
+      entries: this.entries,
+      foregroundMessage: this.foregroundMessage,
+    });
+    if (display.primary || rightTextStyled) {
       const maxLeftWidth = rightTextPlain
         ? Math.max(0, contentWidth - visibleWidth(rightTextPlain) - 1)
         : contentWidth;
-      const left = leadingEntry
-        ? renderLeftEntry(leadingEntry, maxLeftWidth)
+      const left = display.primary
+        ? renderLeftEntry(
+            {
+              message: display.primary.message,
+              state: display.primary.state,
+            },
+            maxLeftWidth,
+            display.secondaryBadge
+          )
         : null;
       const leftWidth = left ? visibleWidth(left.plain) : 0;
       const gap = rightTextPlain
         ? Math.max(1, contentWidth - leftWidth - visibleWidth(rightTextPlain))
         : 0;
       const line = `${" ".repeat(1)}${left?.styled ?? ""}${" ".repeat(gap)}${rightTextStyled}`;
-      lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
-    }
-
-    const remainingEntries =
-      this.foregroundMessage === null ? this.entries.slice(1) : this.entries;
-    for (const entry of remainingEntries) {
-      const left = renderLeftEntry(entry, contentWidth);
-      const line = `${" ".repeat(1)}${left.styled}`;
       lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
     }
 
@@ -829,11 +911,7 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           if (event.blocking) {
             blockingCompactionActive = true;
             backgroundStatuses.clear();
-            setBackgroundStatus(
-              "blocking-compaction",
-              "Compacting...",
-              "running"
-            );
+            renderFooterStatuses();
             if (
               foregroundStatusBeforeBlocking === null &&
               foregroundStatusMessage !== null
@@ -886,7 +964,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
           }
 
           if (state === "running") {
-            setBackgroundStatus(id, "Background compaction...", "running");
+            setBackgroundStatus(
+              id,
+              BACKGROUND_COMPACTION_STATUS_MESSAGE,
+              "running"
+            );
           } else {
             clearBackgroundStatus(id);
           }
