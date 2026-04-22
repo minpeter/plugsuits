@@ -7,7 +7,9 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   formatCompactionAppliedNotice,
+  isTurnInterruptedError,
   mergeAgentStreamOptions,
+  raceWithTurnInterrupt,
   retryStreamTurnOnContextOverflow,
   retryStreamTurnOnNoOutput,
   shouldDisplayBackgroundCompactionStatus,
@@ -170,6 +172,36 @@ describe("agent-tui compaction core", () => {
         streamInterruptRequested: false,
       })
     ).not.toThrow();
+  });
+
+  it("classifies turn abort errors consistently", () => {
+    const abortError = new Error("User requested stream interruption");
+    abortError.name = "AbortError";
+
+    expect(isTurnInterruptedError(abortError)).toBe(true);
+    expect(
+      isTurnInterruptedError(new Error("User requested stream interruption"))
+    ).toBe(true);
+    expect(isTurnInterruptedError(new Error("something else"))).toBe(false);
+  });
+
+  it("races a pending operation against the turn abort signal", async () => {
+    let resolvePromise: (() => void) | null = null;
+    const pending = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    const streamAbortController = new AbortController();
+
+    const raced = raceWithTurnInterrupt({
+      promise: pending,
+      streamAbortController,
+      streamInterruptRequested: false,
+    });
+
+    streamAbortController.abort("User requested stream interruption");
+
+    await expect(raced).rejects.toThrow("User requested stream interruption");
+    resolvePromise?.();
   });
 
   it("runs blocking compaction then retries once on overflow errors", async () => {

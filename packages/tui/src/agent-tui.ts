@@ -145,6 +145,7 @@ interface FooterStatusEntry {
 const BACKGROUND_COMPACTION_STATUS_MESSAGE = "Background compaction...";
 const BLOCKING_COMPACTION_STATUS_MESSAGE = "Compacting...";
 const STATUS_ELLIPSIS_SUFFIX = /\.\.\.$/;
+const DEFAULT_INTERRUPT_ABORT_MESSAGE = "User requested stream interruption";
 
 const stripStatusEllipsis = (message: string): string =>
   message.trim().replace(STATUS_ELLIPSIS_SUFFIX, "");
@@ -631,10 +632,62 @@ export function throwIfTurnInterrupted(params: {
   }
 
   const error = new Error(
-    typeof reason === "string" ? reason : "User requested stream interruption"
+    typeof reason === "string" ? reason : DEFAULT_INTERRUPT_ABORT_MESSAGE
   );
   error.name = "AbortError";
   throw error;
+}
+
+export function isTurnInterruptedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.message === DEFAULT_INTERRUPT_ABORT_MESSAGE)
+  );
+}
+
+export async function raceWithTurnInterrupt<T>(params: {
+  promise: Promise<T>;
+  streamAbortController: AbortController;
+  streamInterruptRequested: boolean;
+}): Promise<T> {
+  throwIfTurnInterrupted({
+    streamAbortController: params.streamAbortController,
+    streamInterruptRequested: params.streamInterruptRequested,
+  });
+
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      cleanup();
+      try {
+        throwIfTurnInterrupted({
+          streamAbortController: params.streamAbortController,
+          streamInterruptRequested: params.streamInterruptRequested,
+        });
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    const cleanup = (): void => {
+      params.streamAbortController.signal.removeEventListener("abort", onAbort);
+    };
+
+    params.streamAbortController.signal.addEventListener("abort", onAbort, {
+      once: true,
+    });
+
+    params.promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
 }
 
 export async function retryStreamTurnOnContextOverflow<T>(params: {
@@ -1112,13 +1165,30 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     measureUsageIfAvailable([]).then(ignore, ignore);
   };
 
+  const runWithInterruptController = async <T>(
+    fn: (streamAbortController: AbortController) => Promise<T>
+  ): Promise<T> => {
+    const streamAbortController = new AbortController();
+    const previousController = activeStreamController;
+    activeStreamController = streamAbortController;
+    try {
+      return await fn(streamAbortController);
+    } finally {
+      if (activeStreamController === streamAbortController) {
+        activeStreamController = previousController;
+      }
+      streamInterruptRequested = false;
+      clearStatus();
+    }
+  };
+
   const cancelActiveStream = (): boolean => {
     if (!activeStreamController || activeStreamController.signal.aborted) {
       return false;
     }
 
     streamInterruptRequested = true;
-    activeStreamController.abort("User requested stream interruption");
+    activeStreamController.abort(DEFAULT_INTERRUPT_ABORT_MESSAGE);
     return true;
   };
 
@@ -1339,7 +1409,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     messages: ModelMessage[];
     turnOverrides?: BeforeTurnResult;
   }> => {
-    const turnOverrides = await config.onBeforeTurn?.(phase);
+    const turnOverrides = await raceWithTurnInterrupt({
+      promise: Promise.resolve(config.onBeforeTurn?.(phase)),
+      streamAbortController,
+      streamInterruptRequested,
+    });
     throwIfTurnInterrupted({
       streamAbortController,
       streamInterruptRequested,
@@ -1349,32 +1423,52 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       startSpeculativeCompaction();
     }
     if (readyResult.applied) {
-      await measureUsageAfterCompaction();
+      await raceWithTurnInterrupt({
+        promise: measureUsageAfterCompaction(),
+        streamAbortController,
+        streamInterruptRequested,
+      });
       throwIfTurnInterrupted({
         streamAbortController,
         streamInterruptRequested,
       });
     }
 
-    await blockAtHardContextLimit(0, phase);
+    await raceWithTurnInterrupt({
+      promise: blockAtHardContextLimit(0, phase),
+      streamAbortController,
+      streamInterruptRequested,
+    });
     throwIfTurnInterrupted({
       streamAbortController,
       streamInterruptRequested,
     });
 
     let messagesForLLM = config.messageHistory.getMessagesForLLM();
-    const didProbe = await measureUsageIfAvailable(messagesForLLM);
+    const didProbe = await raceWithTurnInterrupt({
+      promise: measureUsageIfAvailable(messagesForLLM),
+      streamAbortController,
+      streamInterruptRequested,
+    });
     throwIfTurnInterrupted({
       streamAbortController,
       streamInterruptRequested,
     });
-    await compactBeforeNextTurnIfNeeded();
+    await raceWithTurnInterrupt({
+      promise: compactBeforeNextTurnIfNeeded(),
+      streamAbortController,
+      streamInterruptRequested,
+    });
     throwIfTurnInterrupted({
       streamAbortController,
       streamInterruptRequested,
     });
     if (didProbe) {
-      await blockAtHardContextLimit(1, phase);
+      await raceWithTurnInterrupt({
+        promise: blockAtHardContextLimit(1, phase),
+        streamAbortController,
+        streamInterruptRequested,
+      });
       throwIfTurnInterrupted({
         streamAbortController,
         streamInterruptRequested,
@@ -1467,7 +1561,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       config.messageHistory.getRecommendedMaxOutputTokens(nextMessages);
 
     if (maxOutputTokens !== undefined && maxOutputTokens <= 512) {
-      await blockAtHardContextLimit(1, phase);
+      await raceWithTurnInterrupt({
+        promise: blockAtHardContextLimit(1, phase),
+        streamAbortController,
+        streamInterruptRequested,
+      });
       throwIfTurnInterrupted({
         streamAbortController,
         streamInterruptRequested,
@@ -1582,9 +1680,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       error: params.error,
       overflowRetried: params.overflowRetried,
       runBlockingCompaction: async () => {
-        const result = await compactionOrchestrator.handleOverflow(
-          params.error
-        );
+        const result = await raceWithTurnInterrupt({
+          promise: compactionOrchestrator.handleOverflow(params.error),
+          streamAbortController: params.streamAbortController,
+          streamInterruptRequested,
+        });
         return result.success;
       },
       retry: async () => runSingleStreamTurn(params.phase, true),
@@ -1770,7 +1870,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const handleNewSessionAction = async (
     commandResult: CommandResult
   ): Promise<void> => {
-    if (!commandResult.action) {
+    const action = commandResult.action;
+    if (!action) {
       return;
     }
 
@@ -1783,8 +1884,18 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
     clearStatus();
     chatContainer.clear();
     addNewSessionMessage(chatContainer);
-    await config.onCommandAction?.(commandResult.action);
-    await measureUsageIfAvailable([]);
+    await runWithInterruptController(async (streamAbortController) => {
+      await raceWithTurnInterrupt({
+        promise: Promise.resolve(config.onCommandAction?.(action)),
+        streamAbortController,
+        streamInterruptRequested,
+      });
+      await raceWithTurnInterrupt({
+        promise: measureUsageIfAvailable([]),
+        streamAbortController,
+        streamInterruptRequested,
+      });
+    });
     updateHeader();
 
     if (commandResult.message) {
@@ -1796,15 +1907,24 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const handleCompactAction = async (
     commandResult: CommandResult
   ): Promise<void> => {
-    if (!commandResult.action) {
+    const action = commandResult.action;
+    if (!action) {
       return;
     }
 
     showLoader("Compacting...");
-    try {
-      const result = await compactionOrchestrator.manualCompact();
+    await runWithInterruptController(async (streamAbortController) => {
+      const result = await raceWithTurnInterrupt({
+        promise: compactionOrchestrator.manualCompact(),
+        streamAbortController,
+        streamInterruptRequested,
+      });
       if (result.success) {
-        await measureUsageAfterCompaction();
+        await raceWithTurnInterrupt({
+          promise: measureUsageAfterCompaction(),
+          streamAbortController,
+          streamInterruptRequested,
+        });
         startSpeculativeCompaction();
         if (commandResult.message) {
           addSystemMessage(chatContainer, commandResult.message);
@@ -1816,12 +1936,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         );
       }
 
-      await config.onCommandAction?.(commandResult.action);
+      await raceWithTurnInterrupt({
+        promise: Promise.resolve(config.onCommandAction?.(action)),
+        streamAbortController,
+        streamInterruptRequested,
+      });
       updateHeader();
       tui.requestRender();
-    } finally {
-      clearStatus();
-    }
+    });
   };
 
   const handleCommandResult = async (
@@ -1852,7 +1974,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   };
 
   const processCommandInput = async (trimmed: string): Promise<boolean> => {
-    const commandInput = await preprocessCommandInput(trimmed);
+    const commandInput = await runWithInterruptController(
+      (streamAbortController) =>
+        raceWithTurnInterrupt({
+          promise: preprocessCommandInput(trimmed),
+          streamAbortController,
+          streamInterruptRequested,
+        })
+    );
     if (commandInput === null) {
       tui.requestRender();
       return true;
@@ -1865,7 +1994,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
 
     if (isSkillCommandResult(commandResult)) {
       addUserMessage(chatContainer, markdownTheme, trimmed);
-      await blockOnlyIfAtHardContextLimit(commandResult.skillContent);
+      await runWithInterruptController((streamAbortController) =>
+        raceWithTurnInterrupt({
+          promise: blockOnlyIfAtHardContextLimit(commandResult.skillContent),
+          streamAbortController,
+          streamInterruptRequested,
+        })
+      );
       config.messageHistory.addUserMessage(commandResult.skillContent);
       compactionOrchestrator.notifyNewUserTurn();
       tui.requestRender();
@@ -1887,10 +2022,18 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       addUserMessage(chatContainer, markdownTheme, trimmed);
       tui.requestRender();
 
-      const result = await config.preprocessUserInput(trimmed, {
-        showStatus: (text: string) => showLoader(text),
-        clearStatus: () => clearStatus(),
-      });
+      const result = await runWithInterruptController((streamAbortController) =>
+        raceWithTurnInterrupt({
+          promise: Promise.resolve(
+            config.preprocessUserInput?.(trimmed, {
+              showStatus: (text: string) => showLoader(text),
+              clearStatus: () => clearStatus(),
+            })
+          ),
+          streamAbortController,
+          streamInterruptRequested,
+        })
+      );
 
       if (result) {
         if (result.success) {
@@ -1911,7 +2054,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       addUserMessage(chatContainer, markdownTheme, trimmed);
     }
 
-    await blockOnlyIfAtHardContextLimit(contentForModel);
+    await runWithInterruptController((streamAbortController) =>
+      raceWithTurnInterrupt({
+        promise: blockOnlyIfAtHardContextLimit(contentForModel),
+        streamAbortController,
+        streamInterruptRequested,
+      })
+    );
     config.messageHistory.addUserMessage(contentForModel);
     compactionOrchestrator.notifyNewUserTurn();
     tui.requestRender();
@@ -1938,7 +2087,13 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
         startSpeculativeCompaction();
       }
       if (inputReadyResult.applied) {
-        await measureUsageAfterCompaction();
+        await runWithInterruptController((streamAbortController) =>
+          raceWithTurnInterrupt({
+            promise: measureUsageAfterCompaction(),
+            streamAbortController,
+            streamInterruptRequested,
+          })
+        );
       }
 
       if (isCommand(trimmed)) {
@@ -1948,6 +2103,10 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       await processUserInputMessage(trimmed);
       return true;
     } catch (error) {
+      if (isTurnInterruptedError(error)) {
+        addInterruptedMessage();
+        return true;
+      }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       addSystemMessage(chatContainer, `Error: ${errorMessage}`);
