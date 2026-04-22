@@ -1,6 +1,6 @@
 {
   "name": "plugsuits",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "description": "A code-editing agent using Vercel AI SDK with shared AI_* runtime configuration",
   "type": "module",
   "main": "dist/index.js",
