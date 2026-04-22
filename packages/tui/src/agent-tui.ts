@@ -462,35 +462,6 @@ export const formatHeaderTitleText = (
     ? `${style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)}\n${style(ANSI_DIM, subtitle)}`
     : style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle);
 
-export const buildRestartSessionBlock = (params: {
-  headerTitle: string;
-  helpText?: string;
-  subtitle?: string;
-}): {
-  headerText: string;
-  helpText: string;
-  newSessionText: string;
-} => ({
-  headerText: formatHeaderTitleText(params.headerTitle, params.subtitle),
-  helpText: style(ANSI_DIM, params.helpText ?? DEFAULT_HELP_TEXT),
-  newSessionText: style(ANSI_BRIGHT_CYAN, "✓ New session started"),
-});
-
-const addRestartSessionBlock = (
-  chatContainer: Container,
-  params: {
-    headerTitle: string;
-    helpText?: string;
-    subtitle?: string;
-  }
-): void => {
-  const block = buildRestartSessionBlock(params);
-  chatContainer.addChild(new Spacer(1));
-  chatContainer.addChild(new Text(block.headerText, 1, 0));
-  chatContainer.addChild(new Text(block.helpText, 1, 0));
-  addChatComponent(chatContainer, new Text(block.newSessionText, 1, 0));
-};
-
 export type PreprocessResult =
   | {
       success: true;
@@ -1925,11 +1896,9 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       });
     });
     updateHeader();
-    addRestartSessionBlock(chatContainer, {
-      headerTitle: config.header?.title ?? "Agent TUI",
-      subtitle: config.header?.subtitle,
-      helpText: DEFAULT_HELP_TEXT,
-    });
+    terminal.clearScreen();
+    addNewSessionMessage(chatContainer);
+    tui.requestRender(true);
 
     if (commandResult.message) {
       addSystemMessage(chatContainer, commandResult.message);
