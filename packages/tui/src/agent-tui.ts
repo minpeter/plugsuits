@@ -154,6 +154,28 @@ export const buildScrollbackPreservingResetGap = (rows: number): string => {
   return `\x1b[${safeRows};1H${"\r\n".repeat(safeRows)}`;
 };
 
+export function resetTuiDiffStateForScrollbackPreservingRestart(
+  tui: TUI
+): void {
+  const internalTui = tui as unknown as {
+    cursorRow: number;
+    hardwareCursorRow: number;
+    maxLinesRendered: number;
+    previousHeight: number;
+    previousLines: string[];
+    previousViewportTop: number;
+    previousWidth: number;
+  };
+
+  internalTui.previousLines = [];
+  internalTui.previousWidth = 0;
+  internalTui.previousHeight = 0;
+  internalTui.cursorRow = 0;
+  internalTui.hardwareCursorRow = 0;
+  internalTui.maxLinesRendered = 0;
+  internalTui.previousViewportTop = 0;
+}
+
 const stripStatusEllipsis = (message: string): string =>
   message.trim().replace(STATUS_ELLIPSIS_SUFFIX, "");
 
@@ -1903,7 +1925,8 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       });
     });
     updateHeader();
-    tui.requestRender(true);
+    resetTuiDiffStateForScrollbackPreservingRestart(tui);
+    tui.requestRender();
 
     if (commandResult.message) {
       addSystemMessage(chatContainer, commandResult.message);
