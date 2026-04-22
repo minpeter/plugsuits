@@ -146,6 +146,8 @@ const BACKGROUND_COMPACTION_STATUS_MESSAGE = "Background compaction...";
 const BLOCKING_COMPACTION_STATUS_MESSAGE = "Compacting...";
 const STATUS_ELLIPSIS_SUFFIX = /\.\.\.$/;
 const DEFAULT_INTERRUPT_ABORT_MESSAGE = "User requested stream interruption";
+const DEFAULT_HELP_TEXT =
+  "Enter to submit, Shift+Enter for newline, /help for commands, Esc to interrupt, Ctrl+C to clear, Ctrl+C twice to exit";
 
 const stripStatusEllipsis = (message: string): string =>
   message.trim().replace(STATUS_ELLIPSIS_SUFFIX, "");
@@ -450,6 +452,43 @@ const addNewSessionMessage = (chatContainer: Container): void => {
     chatContainer,
     new Text(style(ANSI_BRIGHT_CYAN, "✓ New session started"), 1, 0)
   );
+};
+
+export const formatHeaderTitleText = (
+  headerTitle: string,
+  subtitle?: string
+): string =>
+  subtitle
+    ? `${style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)}\n${style(ANSI_DIM, subtitle)}`
+    : style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle);
+
+export const buildRestartSessionBlock = (params: {
+  headerTitle: string;
+  helpText?: string;
+  subtitle?: string;
+}): {
+  headerText: string;
+  helpText: string;
+  newSessionText: string;
+} => ({
+  headerText: formatHeaderTitleText(params.headerTitle, params.subtitle),
+  helpText: style(ANSI_DIM, params.helpText ?? DEFAULT_HELP_TEXT),
+  newSessionText: style(ANSI_BRIGHT_CYAN, "✓ New session started"),
+});
+
+const addRestartSessionBlock = (
+  chatContainer: Container,
+  params: {
+    headerTitle: string;
+    helpText?: string;
+    subtitle?: string;
+  }
+): void => {
+  const block = buildRestartSessionBlock(params);
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new Text(block.headerText, 1, 0));
+  chatContainer.addChild(new Text(block.helpText, 1, 0));
+  addChatComponent(chatContainer, new Text(block.newSessionText, 1, 0));
 };
 
 export type PreprocessResult =
@@ -810,25 +849,14 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
   const footerStatusBar = new FooterStatusBar(tui);
 
   const title = new Text("", 1, 0);
-  const help = new Text(
-    style(
-      ANSI_DIM,
-      "Enter to submit, Shift+Enter for newline, /help for commands, Esc to interrupt, Ctrl+C to clear, Ctrl+C twice to exit"
-    ),
-    1,
-    0
-  );
+  const help = new Text(style(ANSI_DIM, DEFAULT_HELP_TEXT), 1, 0);
 
   const updateHeader = (): void => {
     const headerTitle = config.header?.title ?? "Agent TUI";
     const subtitle = config.header?.subtitle;
     const footer = config.footer?.text?.trim();
     const contextPressure = resolveContextPressure();
-    title.setText(
-      subtitle
-        ? `${style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)}\n${style(ANSI_DIM, subtitle)}`
-        : style(`${ANSI_BOLD}${ANSI_BRIGHT_CYAN}`, headerTitle)
-    );
+    title.setText(formatHeaderTitleText(headerTitle, subtitle));
     footerStatusBar.setRightText(footer, contextPressure ?? undefined);
     tui.requestRender();
   };
@@ -1897,6 +1925,11 @@ export async function createAgentTUI(config: AgentTUIConfig): Promise<void> {
       });
     });
     updateHeader();
+    addRestartSessionBlock(chatContainer, {
+      headerTitle: config.header?.title ?? "Agent TUI",
+      subtitle: config.header?.subtitle,
+      helpText: DEFAULT_HELP_TEXT,
+    });
 
     if (commandResult.message) {
       addSystemMessage(chatContainer, commandResult.message);
