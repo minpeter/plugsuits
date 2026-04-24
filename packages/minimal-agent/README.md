@@ -13,7 +13,7 @@ Optional:
 - `AI_BASE_URL`
 - `AI_MODEL`
 - `AI_CONTEXT_LIMIT`
-- `SESSION_DIR` — directory where session snapshots are written. Defaults to `.minimal-agent/sessions` in the current working directory.
+- `MINIMAL_AGENT_DIR` — top-level directory for agent state (sessions, memory, etc.). Defaults to `.minimal-agent` in the current working directory. Session snapshots are written to `<MINIMAL_AGENT_DIR>/sessions/`. If a `.gitignore` exists nearby, the directory is appended automatically.
 
 ## Scripts
 

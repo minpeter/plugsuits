@@ -4,6 +4,8 @@ import { harnessEnv } from "@ai-sdk-tool/harness";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+const DEFAULT_TGBOT_DIR = join(tmpdir(), "tgbot");
+
 const TRAILING_SLASHES = /\/+$/;
 
 export const env = createEnv({
@@ -30,7 +32,7 @@ export const env = createEnv({
           .map((w) => w.trim().toLowerCase())
           .filter(Boolean)
       ),
-    SESSION_DIR: z.string().default(join(tmpdir(), "tgbot-sessions")),
+    TGBOT_DIR: z.string().min(1).default(DEFAULT_TGBOT_DIR),
     LOG_LEVEL: z
       .enum(["debug", "info", "warn", "error", "silent"])
       .default("info"),

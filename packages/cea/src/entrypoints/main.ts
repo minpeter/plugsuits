@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -142,16 +142,14 @@ if (!sessionManagerScope.__ceaSessionManager) {
   sessionManagerScope.__ceaSessionManager = new SessionManager();
 }
 const sessionManager = sessionManagerScope.__ceaSessionManager;
-const sessionStoreBaseDir = join(process.cwd(), ".plugsuits", "sessions");
-mkdirSync(sessionStoreBaseDir, { recursive: true });
-const store = new FileSnapshotStore(sessionStoreBaseDir);
+const store = new FileSnapshotStore(join(process.cwd(), ".plugsuits"));
 const userPreferencesBundle = createUserPreferencesStore();
 configurePreferencesPersistence({
   bundle: userPreferencesBundle.bundle,
   workspaceStore: userPreferencesBundle.workspaceStore,
 });
 const resolveSessionMemoryStorePath = (sessionId: string): string =>
-  join(sessionStoreBaseDir, sessionId, "session-memory.md");
+  join(store.sessionsDir, sessionId, "session-memory.md");
 const createSessionMemoryStore = (sessionId: string): FileMemoryStore =>
   new FileMemoryStore(resolveSessionMemoryStorePath(sessionId));
 let messageHistory: CheckpointHistory;

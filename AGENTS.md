@@ -120,7 +120,17 @@ const history = new CheckpointHistory({ compaction: {...} });
 
 // 2. File-persisted (recommended for most consumers)
 import { FileSnapshotStore } from "@ai-sdk-tool/harness/sessions";
-const store = new FileSnapshotStore(".plugsuits/sessions");
+// Pass a top-level directory (e.g. ".plugsuits", ".minimal-agent").
+// The store manages its internal layout: <root>/sessions/*.jsonl
+// Auto-gitignore: when the root dir lives inside a git worktree (detected by
+// a sibling `.git` marker, dir or file), the store appends the top-level dir
+// to that worktree's `.gitignore` if not already listed. The update is atomic
+// (lockfile + temp-file rename) and preserves LF/CRLF line endings. It
+// refuses to modify any ancestor `.gitignore` that is not at a verified
+// worktree root. Disable with `{ autoGitignore: false }`.
+const store = new FileSnapshotStore(".plugsuits");
+// store.sessionsDir is resolved, e.g. "<cwd>/.plugsuits/sessions"
+// (use for co-located files).
 const history = await CheckpointHistory.fromSnapshot(store, sessionId, { compaction });
 // After each turn — caller decides when:
 await store.save(sessionId, history.snapshot());

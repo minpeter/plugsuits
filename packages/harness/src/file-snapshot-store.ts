@@ -6,19 +6,38 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { MessageLine, SessionFileLine } from "./compaction-types";
+import { ensureDirIgnoredByGit } from "./gitignore-sync";
 import type { HistorySnapshot } from "./history-snapshot";
 import { encodeSessionId, type SessionData } from "./session-store";
 import type { SnapshotStore } from "./snapshot-store";
 import { createRuntimeUUID } from "./uuid";
 
-export class FileSnapshotStore implements SnapshotStore {
-  private readonly baseDir: string;
+export const SESSIONS_SUBDIR = "sessions";
 
-  constructor(baseDir: string) {
-    mkdirSync(baseDir, { recursive: true });
-    this.baseDir = baseDir;
+export interface FileSnapshotStoreOptions {
+  /**
+   * When true (default), append the configured top-level directory to the
+   * nearest ancestor `.gitignore` if not already listed. Best-effort — never
+   * fails initialization. Set to `false` to disable, e.g. in tests or when
+   * writing outside of a git worktree on purpose.
+   */
+  autoGitignore?: boolean;
+}
+
+export class FileSnapshotStore implements SnapshotStore {
+  readonly rootDir: string;
+  readonly sessionsDir: string;
+
+  constructor(rootDir: string, options: FileSnapshotStoreOptions = {}) {
+    this.rootDir = resolve(rootDir);
+    this.sessionsDir = join(this.rootDir, SESSIONS_SUBDIR);
+    mkdirSync(this.sessionsDir, { recursive: true });
+
+    if (options.autoGitignore !== false) {
+      ensureDirIgnoredByGit(this.rootDir);
+    }
   }
 
   load(sessionId: string): Promise<HistorySnapshot | null> {
@@ -109,17 +128,7 @@ export class FileSnapshotStore implements SnapshotStore {
 
   private getFilePath(sessionId: string): string {
     const encoded = encodeSessionId(sessionId);
-    const primary = join(this.baseDir, `${encoded}.jsonl`);
-    if (existsSync(primary)) {
-      return primary;
-    }
-
-    const legacy = join(this.baseDir, `${sessionId}.jsonl`);
-    if (existsSync(legacy)) {
-      return legacy;
-    }
-
-    return primary;
+    return join(this.sessionsDir, `${encoded}.jsonl`);
   }
 
   private loadSession(sessionId: string): SessionData | null {

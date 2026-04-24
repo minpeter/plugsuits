@@ -20,7 +20,7 @@ const provider = createOpenAICompatible({
   apiKey: env.AI_API_KEY,
 });
 const model = provider.chatModel(env.AI_MODEL);
-const snapshotStore = new FileSnapshotStore(env.SESSION_DIR);
+const snapshotStore = new FileSnapshotStore(env.TGBOT_DIR);
 const summarize = createModelSummarizer(model);
 const threadTrackers = new Map<string, SessionMemoryTracker>();
 const threadSaveChains = new Map<string, Promise<void>>();

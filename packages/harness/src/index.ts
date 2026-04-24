@@ -111,7 +111,14 @@ export type {
   ToolApprovalContext,
   ToolSourceCallContext,
 } from "./execution-context";
-export { FileSnapshotStore } from "./file-snapshot-store";
+export type { FileSnapshotStoreOptions } from "./file-snapshot-store";
+export { FileSnapshotStore, SESSIONS_SUBDIR } from "./file-snapshot-store";
+export {
+  ensureDirIgnoredByGit,
+  ensureGitignoreEntry,
+  findNearestGitignore,
+  gitignoreEntryForDir,
+} from "./gitignore-sync";
 export type {
   HistorySnapshot,
   SerializedMessage,

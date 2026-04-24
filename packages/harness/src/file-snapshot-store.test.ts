@@ -1,4 +1,13 @@
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,7 +20,7 @@ describe("FileSnapshotStore", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "file-snapshot-store-test-"));
-    store = new FileSnapshotStore(tmpDir);
+    store = new FileSnapshotStore(tmpDir, { autoGitignore: false });
   });
 
   afterEach(() => {
@@ -180,9 +189,9 @@ describe("FileSnapshotStore", () => {
     });
   });
 
-  it("loads existing legacy JSONL sessions", async () => {
-    const sessionId = "legacy_session";
-    const filePath = join(tmpDir, `${sessionId}.jsonl`);
+  it("loads existing JSONL sessions written in legacy line formats", async () => {
+    const sessionId = "legacy-session";
+    const filePath = join(tmpDir, "sessions", `${sessionId}.jsonl`);
 
     appendFileSync(
       filePath,
@@ -221,6 +230,98 @@ describe("FileSnapshotStore", () => {
       toolSchemasTokens: 0,
       compactionState: { summaryMessageId: "legacy-msg" },
     });
+  });
+
+  it("exposes rootDir and sessionsDir paths", () => {
+    expect(store.rootDir).toBe(tmpDir);
+    expect(store.sessionsDir).toBe(join(tmpDir, "sessions"));
+    expect(existsSync(store.sessionsDir)).toBe(true);
+  });
+
+  it("resolves relative root dirs at construction time", async () => {
+    const originalCwd = process.cwd();
+    const worktree = realpathSync(
+      mkdtempSync(join(tmpdir(), "file-snapshot-relative-"))
+    );
+    const otherDir = realpathSync(
+      mkdtempSync(join(tmpdir(), "file-snapshot-other-"))
+    );
+    try {
+      process.chdir(worktree);
+      const relativeStore = new FileSnapshotStore(".state", {
+        autoGitignore: false,
+      });
+
+      expect(relativeStore.rootDir).toBe(join(worktree, ".state"));
+      expect(relativeStore.sessionsDir).toBe(
+        join(worktree, ".state", "sessions")
+      );
+
+      process.chdir(otherDir);
+      await relativeStore.save("session-abc", {
+        messages: [],
+        revision: 0,
+        contextLimit: 0,
+        systemPromptTokens: 0,
+        toolSchemasTokens: 0,
+      });
+
+      expect(
+        existsSync(join(worktree, ".state", "sessions", "session-abc.jsonl"))
+      ).toBe(true);
+      expect(
+        existsSync(join(otherDir, ".state", "sessions", "session-abc.jsonl"))
+      ).toBe(false);
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(worktree, { recursive: true, force: true });
+      rmSync(otherDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes sessions into the <root>/sessions subdirectory", async () => {
+    const snapshot: HistorySnapshot = {
+      messages: [],
+      revision: 0,
+      contextLimit: 0,
+      systemPromptTokens: 0,
+      toolSchemasTokens: 0,
+    };
+    await store.save("session-abc", snapshot);
+
+    const sessionFile = join(tmpDir, "sessions", "session-abc.jsonl");
+    expect(existsSync(sessionFile)).toBe(true);
+  });
+
+  it("appends the top-level dir to the worktree .gitignore by default", () => {
+    const worktree = realpathSync(
+      mkdtempSync(join(tmpdir(), "file-snapshot-worktree-"))
+    );
+    try {
+      mkdirSync(join(worktree, ".git"));
+      const gitignorePath = join(worktree, ".gitignore");
+      writeFileSync(gitignorePath, "node_modules/\n", "utf8");
+      const root = join(worktree, ".test-store");
+      new FileSnapshotStore(root);
+      const contents = readFileSync(gitignorePath, "utf8");
+      expect(contents).toContain(".test-store");
+    } finally {
+      rmSync(worktree, { recursive: true, force: true });
+    }
+  });
+
+  it("skips gitignore update when root dir is outside any git worktree", () => {
+    const outside = realpathSync(
+      mkdtempSync(join(tmpdir(), "file-snapshot-no-repo-"))
+    );
+    try {
+      const gitignorePath = join(outside, ".gitignore");
+      writeFileSync(gitignorePath, "node_modules/\n", "utf8");
+      new FileSnapshotStore(join(outside, ".test-store"));
+      expect(readFileSync(gitignorePath, "utf8")).toBe("node_modules/\n");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("writes snapshot atomically over existing content", async () => {

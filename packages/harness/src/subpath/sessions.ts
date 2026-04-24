@@ -3,7 +3,14 @@ export type {
   OverflowRecoveryResult,
 } from "../checkpoint-history";
 export { CheckpointHistory } from "../checkpoint-history";
-export { FileSnapshotStore } from "../file-snapshot-store";
+export type { FileSnapshotStoreOptions } from "../file-snapshot-store";
+export { FileSnapshotStore, SESSIONS_SUBDIR } from "../file-snapshot-store";
+export {
+  ensureDirIgnoredByGit,
+  ensureGitignoreEntry,
+  findNearestGitignore,
+  gitignoreEntryForDir,
+} from "../gitignore-sync";
 export type { HistorySnapshot, SerializedMessage } from "../history-snapshot";
 export { deserializeMessage, serializeMessage } from "../history-snapshot";
 export { SessionManager } from "../session";

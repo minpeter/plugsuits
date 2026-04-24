@@ -38,7 +38,7 @@ const assistant = defineAgent({
 const runtime = await createAgentRuntime({
   name: "my-assistant",
   agents: [assistant],
-  persistence: { snapshotStore: new FileSnapshotStore(".sessions") },
+  persistence: { snapshotStore: new FileSnapshotStore(".my-assistant") },
 });
 
 const session = await runtime.openSession();
