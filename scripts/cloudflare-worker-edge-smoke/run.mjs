@@ -18,6 +18,10 @@ const WRANGLER_ENV = {
 };
 const WORK_DIR = mkdtempSync(join(tmpdir(), "plugsuits-worker-edge-"));
 const READY_URL_PATTERN = /Ready on (https?:\/\/[^\s]+)/;
+const READY_TIMEOUT_MS = 30_000;
+const SMOKE_TIMEOUT_MS = 30_000;
+const FETCH_TIMEOUT_MS = 5000;
+const POLL_INTERVAL_MS = 500;
 
 function runWrangler(args) {
   const result = spawnSync("pnpm", ["exec", "wrangler", ...args], {
@@ -40,8 +44,37 @@ function runWrangler(args) {
   }
 }
 
+async function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`fetch timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const body = await response.json();
+    return { body, response };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function waitForSmoke(url, child) {
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + SMOKE_TIMEOUT_MS;
   let lastError;
 
   while (Date.now() < deadline) {
@@ -54,8 +87,14 @@ async function waitForSmoke(url, child) {
     }
 
     try {
-      const response = await fetch(url);
-      const body = await response.json();
+      const requestTimeoutMs = Math.max(
+        1,
+        Math.min(FETCH_TIMEOUT_MS, deadline - Date.now())
+      );
+      const { body, response } = await fetchJsonWithTimeout(
+        url,
+        requestTimeoutMs
+      );
       if (response.ok && body.ok === true) {
         return body;
       }
@@ -66,7 +105,9 @@ async function waitForSmoke(url, child) {
       lastError = error;
     }
 
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+    await new Promise((resolvePromise) =>
+      setTimeout(resolvePromise, POLL_INTERVAL_MS)
+    );
   }
 
   throw lastError ?? new Error("timed out waiting for wrangler dev");
@@ -166,7 +207,11 @@ runWrangler([
 const { child, readyUrl } = startWranglerDev();
 
 try {
-  const url = await readyUrl;
+  const url = await withTimeout(
+    readyUrl,
+    READY_TIMEOUT_MS,
+    `timed out waiting ${READY_TIMEOUT_MS}ms for wrangler dev readiness`
+  );
   const body = await waitForSmoke(url, child);
   console.log(`Cloudflare Worker edge smoke passed: ${body.sessionId}`);
 } finally {
