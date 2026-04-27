@@ -25,6 +25,8 @@ export interface StopConditionInput {
 }
 export type StopCondition = (input: StopConditionInput) => boolean;
 
+const MCP_INIT_MODULE = "./mcp-init.js";
+
 const toToolSet = async (toolSources: ToolSource[] | undefined) => {
   if (!toolSources || toolSources.length === 0) {
     return {};
@@ -235,7 +237,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   };
 
   if (config.mcp !== undefined) {
-    const { resolveMCPOption } = await import("./mcp-init");
+    const { resolveMCPOption }: typeof import("./mcp-init") = await import(
+      MCP_INIT_MODULE
+    );
     const resolved = await resolveMCPOption(config.mcp, mergedTools);
     mergedTools = resolved.tools;
     const previousClose = closeFn;

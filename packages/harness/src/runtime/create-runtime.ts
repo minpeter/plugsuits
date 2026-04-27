@@ -14,6 +14,8 @@ import type {
   DefinedAgent,
 } from "./types";
 
+const SKILLS_MODULE = "../skills.js";
+
 const getDefaultCwd = (): string => {
   if (typeof process === "undefined") {
     return "/";
@@ -29,7 +31,9 @@ const getDefaultCwd = (): string => {
 const loadConfiguredSkills = async (
   config: AgentSkillsConfig
 ): Promise<SkillInfo[]> => {
-  const { SkillsEngine } = await import("../skills");
+  const { SkillsEngine }: typeof import("../skills") = await import(
+    SKILLS_MODULE
+  );
   return await new SkillsEngine(config).loadAllSkills();
 };
 

@@ -12,6 +12,7 @@
     "typecheck:root": "pnpm -F @ai-sdk-tool/harness exec tsc --noEmit -p ../../tsconfig.root.json",
     "check": "pnpm exec ultracite check .",
     "lint": "pnpm exec ultracite fix .",
+    "test:edge-safe": "pnpm -F @ai-sdk-tool/harness build && node scripts/cloudflare-worker-edge-smoke/run.mjs",
     "test:headless-edit": "node --import tsx scripts/test-headless-edit-ops.ts",
     "test:headless-edit-edge": "node --import tsx scripts/test-headless-edit-edge-cases.ts",
     "changeset": "changeset",
@@ -45,6 +46,7 @@
     "tsx": "^4.21.0",
     "turbo": "^2.9.6",
     "ultracite": "^7.6.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "wrangler": "^4.85.0"
   }
 }
