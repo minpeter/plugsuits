@@ -1,6 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +17,7 @@ const WRANGLER_ENV = {
   WRANGLER_SEND_METRICS: "false",
 };
 const WORK_DIR = mkdtempSync(join(tmpdir(), "plugsuits-worker-edge-"));
+const READY_URL_PATTERN = /Ready on (https?:\/\/[^\s]+)/;
 
 function runWrangler(args) {
   const result = spawnSync("pnpm", ["exec", "wrangler", ...args], {
@@ -38,20 +38,6 @@ function runWrangler(args) {
   if (result.status !== 0) {
     throw new Error(`wrangler ${args.join(" ")} failed`);
   }
-}
-
-async function getPort() {
-  const server = createServer();
-  await new Promise((resolvePromise, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolvePromise);
-  });
-  const address = server.address();
-  await new Promise((resolvePromise) => server.close(resolvePromise));
-  if (typeof address !== "object" || address === null) {
-    throw new Error("failed to allocate local port");
-  }
-  return address.port;
 }
 
 async function waitForSmoke(url, child) {
@@ -86,7 +72,7 @@ async function waitForSmoke(url, child) {
   throw lastError ?? new Error("timed out waiting for wrangler dev");
 }
 
-function startWranglerDev(port) {
+function startWranglerDev() {
   const child = spawn(
     "pnpm",
     [
@@ -98,7 +84,7 @@ function startWranglerDev(port) {
       "--ip",
       "127.0.0.1",
       "--port",
-      String(port),
+      "0",
       "--local",
       "--persist-to",
       join(WORK_DIR, "state"),
@@ -110,9 +96,45 @@ function startWranglerDev(port) {
     }
   );
 
-  child.stdout.on("data", (chunk) => process.stdout.write(chunk));
-  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
-  return child;
+  let output = "";
+  let settled = false;
+  const readyUrl = new Promise((resolvePromise, reject) => {
+    const settle = (fn, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      fn(value);
+    };
+    const onData = (chunk) => {
+      output += chunk.toString();
+      const match = output.match(READY_URL_PATTERN);
+      if (match?.[1]) {
+        settle(resolvePromise, match[1]);
+      }
+    };
+    child.stdout.on("data", (chunk) => {
+      process.stdout.write(chunk);
+      onData(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      process.stderr.write(chunk);
+      onData(chunk);
+    });
+    child.once("error", (error) => settle(reject, error));
+    child.once("exit", (code, signal) => {
+      settle(
+        reject,
+        new Error(
+          `wrangler dev exited before readiness with code ${
+            code ?? "null"
+          } and signal ${signal ?? "null"}`
+        )
+      );
+    });
+  });
+
+  return { child, readyUrl };
 }
 
 async function stopChild(child) {
@@ -141,11 +163,11 @@ runWrangler([
   WRANGLER_CONFIG,
 ]);
 
-const port = await getPort();
-const child = startWranglerDev(port);
+const { child, readyUrl } = startWranglerDev();
 
 try {
-  const body = await waitForSmoke(`http://127.0.0.1:${port}/`, child);
+  const url = await readyUrl;
+  const body = await waitForSmoke(url, child);
   console.log(`Cloudflare Worker edge smoke passed: ${body.sessionId}`);
 } finally {
   await stopChild(child);
