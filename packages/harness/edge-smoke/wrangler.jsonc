@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "plugsuits-harness-runtime-edge-smoke",
+  "main": "./worker.mjs",
+  "compatibility_date": "2026-04-27",
+  "workers_dev": true
+}

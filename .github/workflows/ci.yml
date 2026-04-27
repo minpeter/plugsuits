@@ -117,3 +117,29 @@ jobs:
 
       - name: Test
         run: SKIP_E2E=1 pnpm run test
+
+  edge-safe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Cloudflare Worker runtime compatibility
+        run: pnpm run test:edge-safe
