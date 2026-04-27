@@ -12,6 +12,7 @@
     "typecheck:root": "pnpm -F @ai-sdk-tool/harness exec tsc --noEmit -p ../../tsconfig.root.json",
     "check": "pnpm exec ultracite check .",
     "lint": "pnpm exec ultracite fix .",
+    "test:edge-safe": "pnpm -F @ai-sdk-tool/harness exec vitest run src/runtime/runtime-edge-imports.test.ts",
     "test:headless-edit": "node --import tsx scripts/test-headless-edit-ops.ts",
     "test:headless-edit-edge": "node --import tsx scripts/test-headless-edit-edge-cases.ts",
     "changeset": "changeset",
