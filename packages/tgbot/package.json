@@ -1,6 +1,6 @@
 {
   "name": "@plugsuits/tgbot",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Telegram bot powered by Chat SDK + @ai-sdk-tool/harness with shared AI_* runtime configuration",
   "type": "module",
