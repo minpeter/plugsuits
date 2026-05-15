@@ -4,6 +4,7 @@
  */
 
 import type {
+  generateText,
   LanguageModel,
   ModelMessage,
   streamText,
@@ -29,8 +30,33 @@ export type {
   ToolSet,
 } from "ai";
 
+type CoreGenerateResult = Awaited<ReturnType<typeof generateText>>;
 type CoreStreamResult = ReturnType<typeof streamText>;
 type StreamTextOptions = Parameters<typeof streamText>[0];
+
+/** A single part emitted by `Agent.stream().fullStream`. */
+export type AgentStreamPart =
+  CoreStreamResult["fullStream"] extends AsyncIterable<infer Part>
+    ? Part
+    : never;
+
+/** Stream parts that indicate a tool boundary in the AI SDK stream. */
+export type AgentToolBoundaryPart = Extract<
+  AgentStreamPart,
+  { type: "tool-call" | "tool-input-end" | "tool-input-start" }
+>;
+
+/**
+ * Harness-normalized boundary metadata emitted with text buffered before a
+ * tool boundary. `toolName` is optional because some AI SDK boundary parts
+ * (notably `tool-input-end`) only carry a tool-call id.
+ */
+export interface AgentToolTextBoundary {
+  part: AgentToolBoundaryPart;
+  toolCallId?: string;
+  toolName?: string;
+  type: AgentToolBoundaryPart["type"];
+}
 
 export type AgentInstructions = string | (() => Promise<string>);
 
@@ -78,11 +104,15 @@ export interface AgentConfig {
 }
 
 /** An agent instance returned by {@link createAgent}. */
-export interface Agent {
+export interface Agent extends LoopAgent {
   /** Release MCP connections and resources. Safe to call multiple times (idempotent). No-op if no MCP was configured. */
   close(): Promise<void>;
-  config: AgentConfig;
-  stream(opts: AgentStreamOptions): AgentStreamResult;
+}
+
+/** A full agent returned by {@link createAgent}, including non-streaming generation. */
+export interface GeneratingAgent extends Agent {
+  /** Initiate a single non-streaming turn using Vercel AI SDK `generateText`. */
+  generate(opts: AgentGenerateOptions): Promise<AgentGenerateResult>;
 }
 
 /** Shared runtime stream surface consumed by shell packages. */
@@ -90,6 +120,12 @@ export interface RunnableAgent {
   stream(
     opts: AgentStreamOptions
   ): AgentStreamResult | Promise<AgentStreamResult>;
+}
+
+/** Minimal configured agent surface required by {@link runAgentLoop}. */
+export interface LoopAgent {
+  config: AgentConfig;
+  stream(opts: AgentStreamOptions): AgentStreamResult;
 }
 
 /** Options passed to {@link Agent.stream} for a single turn. */
@@ -106,6 +142,8 @@ export interface AgentStreamOptions {
 
 export interface BeforeTurnResult extends Partial<AgentStreamOptions> {}
 
+export interface AgentGenerateOptions extends AgentStreamOptions {}
+
 export interface AgentStreamDefaults
   extends Omit<Partial<AgentStreamOptions>, "abortSignal" | "messages"> {}
 
@@ -114,6 +152,9 @@ export interface AgentPrepareStepContext extends AgentStreamOptions {
 }
 
 export interface AgentPrepareStepResult extends Partial<AgentStreamOptions> {}
+
+/** Result of a single non-streaming turn from {@link Agent.generate}. */
+export type AgentGenerateResult = CoreGenerateResult;
 
 /** Result of a single streaming turn from {@link Agent.stream}. */
 export interface AgentStreamResult {
@@ -191,6 +232,17 @@ export interface LoopHooks {
   ) => BeforeTurnResult | Promise<BeforeTurnResult | undefined> | undefined;
   onStepComplete?: (step: LoopStepInfo) => void | Promise<void>;
   /**
+   * Observer-only hook fired for every part emitted by
+   * `Agent.stream().fullStream`, before more specific stream hooks such as
+   * `onFirstStreamPart`, `onToolLifecycle`, and `onToolCall`.
+   *
+   * Errors thrown from this callback are logged and swallowed.
+   */
+  onStreamPart?: (
+    part: AgentStreamPart,
+    context: LoopContinueContext
+  ) => void | Promise<void>;
+  /**
    * Fires immediately after {@link Agent.stream} is invoked and before the
    * `fullStream` iteration begins. This is the closest hook to "LLM request
    * sent, waiting for first chunk" — intended for consumers that need to
@@ -208,6 +260,21 @@ export interface LoopHooks {
    * with a `phase` argument.
    */
   onStreamStart?: (context: LoopContinueContext) => void | Promise<void>;
+  /**
+   * Observer-only hook fired when visible assistant text has been buffered
+   * before the next tool boundary in the same loop iteration. This lets chat
+   * surfaces send a generic "I'll look that up" style acknowledgement before
+   * the tool actually runs, without hard-coding a weather/search/etc. branch.
+   *
+   * Errors thrown from this callback are logged and swallowed. The callback is
+   * still awaited inline, so keep it fast to avoid delaying stream consumption
+   * and tool execution.
+   */
+  onTextBeforeToolCall?: (
+    text: string,
+    boundary: AgentToolTextBoundary,
+    context: LoopContinueContext
+  ) => void | Promise<void>;
   onToolCall?: (
     call: ToolCallPart,
     context: LoopContinueContext
@@ -224,7 +291,7 @@ export interface LoopHooks {
 /** Options for {@link runAgentLoop}. */
 export interface RunAgentLoopOptions extends LoopHooks {
   abortSignal?: AbortSignal;
-  agent: Agent;
+  agent: LoopAgent;
   maxIterations?: number;
   messages: ModelMessage[];
 }
