@@ -88,6 +88,9 @@ const agent = await createAgent({
 const result = await runAgentLoop({
   agent,
   messages: [{ role: "user", content: "What time is it?" }],
+  onTextBeforeToolCall: (text, call, ctx) => {
+    console.log(`[${ctx.iteration}] Assistant before ${call.toolName}: ${text}`);
+  },
   onToolCall: (call, ctx) => {
     console.log(`[${ctx.iteration}] Tool call: ${call.toolName}`);
   },
@@ -103,7 +106,7 @@ console.log(`Finished after ${result.iterations} iterations`);
 
 ### `createAgent(config)`
 
-Creates an `Agent` instance that wraps a Vercel AI SDK `streamText` call.
+Creates an `Agent` instance that wraps Vercel AI SDK text generation with shared harness defaults, tools, guardrails, and optional MCP tool loading. Use `stream(opts)` for streaming turns and `generate(opts)` for a one-shot non-streaming turn.
 
 ```typescript
 import { createAgent } from "@ai-sdk-tool/harness";
@@ -116,9 +119,28 @@ const agent = await createAgent({
   extraStopConditions,          // StopCondition[] — additional independent stop triggers
   experimental_repairToolCall,  // repair callback for malformed tool calls
 });
+
+const stream = agent.stream({ messages });
+const generated = await agent.generate({ messages });
 ```
 
-**Returns:** `Agent` — an object with `config` and `stream(opts)` method.
+**Returns:** `Agent` — an object with `config`, `stream(opts)`, `generate(opts)`, and `close()` methods.
+
+#### Non-streaming generation
+
+Use `agent.generate(opts)` when a consumer needs the same agent configuration but does not need incremental stream parts. The method uses the same model, instructions, tools, provider option merging, `streamDefaults`, `prepareStep`, MCP-loaded tools, guardrails, and repair callback path as `agent.stream(opts)`.
+
+```typescript
+const result = await agent.generate({
+  messages: [{ role: "user", content: "Summarize this diff." }],
+  temperature: 0.2,
+});
+
+console.log(result.text);
+console.log(result.response.messages);
+```
+
+Prefer `runAgentLoop` for multi-iteration streaming tool loops and `agent.generate()` for simple request/response integrations, tests, and batch jobs that only need the final generated result.
 
 ---
 
@@ -136,14 +158,18 @@ const result = await runAgentLoop({
   abortSignal,     // AbortSignal — for cancellation
 
   // Hooks
-  onPrepareStep,   // (context) => partial AgentStreamOptions override, applied before onBeforeTurn
-  onBeforeTurn,    // (context) => partial AgentStreamOptions override
-  onInterrupt,     // ({ iteration, reason }, context) => void | Promise<void>
-  shouldContinue,  // (finishReason, context) => boolean — custom continuation logic
-  onToolLifecycle, // (lifecycle, context) => void | Promise<void>
-  onToolCall,      // (call, context) => void | Promise<void>
-  onStepComplete,  // (step) => void | Promise<void>
-  onError,         // (error, context) => void | Promise<void> | { shouldContinue?, recovery? }
+  onPrepareStep,          // (context) => partial AgentStreamOptions override, applied before onBeforeTurn
+  onBeforeTurn,           // (context) => partial AgentStreamOptions override
+  onStreamStart,          // (context) => observer fired after Agent.stream() is created
+  onFirstStreamPart,      // (part, context) => observer fired once per non-empty iteration
+  onStreamPart,           // (part, context) => observer fired for every fullStream part
+  onTextBeforeToolCall,   // (text, part, context) => buffered text emitted before each tool boundary
+  onInterrupt,            // ({ iteration, reason }, context) => void | Promise<void>
+  shouldContinue,         // (finishReason, context) => boolean — custom continuation logic
+  onToolLifecycle,        // (lifecycle, context) => void | Promise<void>
+  onToolCall,             // (call, context) => void | Promise<void>
+  onStepComplete,         // (step) => void | Promise<void>
+  onError,                // (error, context) => void | Promise<void> | { shouldContinue?, recovery? }
 });
 ```
 
@@ -156,6 +182,28 @@ interface RunAgentLoopResult {
   finishReason: AgentFinishReason; // Final finish reason
 }
 ```
+
+#### Stream observation hooks
+
+Use the loop hooks when you want harness-managed streaming without reimplementing `stream.fullStream` consumption. Observer hook errors are logged and swallowed so a buggy UI callback does not abort an otherwise valid model stream.
+
+```typescript
+await runAgentLoop({
+  agent,
+  messages,
+  onStreamPart: (part, ctx) => {
+    // Receives every AI SDK fullStream part: start, text-delta, tool-call, etc.
+    console.debug(`[${ctx.iteration}] ${part.type}`);
+  },
+  onTextBeforeToolCall: (text, part) => {
+    // Useful for pre-tool acknowledgements such as "I'll check that now."
+    showAssistantAcknowledgement(text);
+    showToolPending(part.toolName);
+  },
+});
+```
+
+`onTextBeforeToolCall` buffers `text-delta` content inside the current loop iteration, flushes it immediately before the next tool boundary (`tool-input-start`, `tool-input-end`, or `tool-call`), and resets the buffer so the same acknowledgement is not emitted again for later parts of the same tool. Tool calls that arrive without preceding text do not fire this hook.
 
 ---
 
@@ -439,6 +487,8 @@ import type {
   AgentConfig,
   AgentStreamOptions,
   AgentStreamResult,
+  AgentGenerateOptions,
+  AgentGenerateResult,
   AgentFinishReason,
   LoopContinueContext,
   LoopStepInfo,

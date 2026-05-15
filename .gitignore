@@ -19,3 +19,4 @@ work/
 # IDE config (may contain tokens)
 *pencode.json
 .omx/
+packages/minimal-agent/.minimal-agent
