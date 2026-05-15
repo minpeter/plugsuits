@@ -8,7 +8,6 @@ import { AgentError, AgentErrorCode } from "./errors";
 import type { AgentExecutionContext } from "./execution-context";
 import type { ToolDefinition, ToolSource } from "./tool-source";
 import type {
-  Agent,
   AgentConfig,
   AgentGenerateOptions,
   AgentGenerateResult,
@@ -17,6 +16,7 @@ import type {
   AgentPrepareStepResult,
   AgentStreamOptions,
   AgentStreamResult,
+  GeneratingAgent,
   ToolCallPart,
 } from "./types";
 
@@ -240,10 +240,10 @@ const createStepCountStopCondition =
     steps.length >= maxStepsPerTurn;
 
 /**
- * Creates an {@link Agent} instance that wraps a Vercel AI SDK `streamText` call.
+ * Creates a harness agent instance that wraps Vercel AI SDK text generation.
  *
  * @param config - Agent configuration including model, tools, and instructions.
- * @returns An `Agent` object with a `stream()` method for initiating a single turn.
+ * @returns A `GeneratingAgent` object with `stream()` and `generate()` methods for initiating a single turn.
  *
  * @example
  * ```typescript
@@ -254,7 +254,9 @@ const createStepCountStopCondition =
  * });
  * ```
  */
-export async function createAgent(config: AgentConfig): Promise<Agent> {
+export async function createAgent(
+  config: AgentConfig
+): Promise<GeneratingAgent> {
   let mergedTools = {
     ...(config.tools ?? {}),
     ...(await toToolSet(config.toolSources)),

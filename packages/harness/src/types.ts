@@ -46,6 +46,18 @@ export type AgentToolBoundaryPart = Extract<
   { type: "tool-call" | "tool-input-end" | "tool-input-start" }
 >;
 
+/**
+ * Harness-normalized boundary metadata emitted with text buffered before a
+ * tool boundary. `toolName` is optional because some AI SDK boundary parts
+ * (notably `tool-input-end`) only carry a tool-call id.
+ */
+export interface AgentToolTextBoundary {
+  part: AgentToolBoundaryPart;
+  toolCallId?: string;
+  toolName?: string;
+  type: AgentToolBoundaryPart["type"];
+}
+
 export type AgentInstructions = string | (() => Promise<string>);
 
 export interface AgentGuardrails {
@@ -92,13 +104,15 @@ export interface AgentConfig {
 }
 
 /** An agent instance returned by {@link createAgent}. */
-export interface Agent {
+export interface Agent extends LoopAgent {
   /** Release MCP connections and resources. Safe to call multiple times (idempotent). No-op if no MCP was configured. */
   close(): Promise<void>;
-  config: AgentConfig;
+}
+
+/** A full agent returned by {@link createAgent}, including non-streaming generation. */
+export interface GeneratingAgent extends Agent {
   /** Initiate a single non-streaming turn using Vercel AI SDK `generateText`. */
   generate(opts: AgentGenerateOptions): Promise<AgentGenerateResult>;
-  stream(opts: AgentStreamOptions): AgentStreamResult;
 }
 
 /** Shared runtime stream surface consumed by shell packages. */
@@ -106,6 +120,12 @@ export interface RunnableAgent {
   stream(
     opts: AgentStreamOptions
   ): AgentStreamResult | Promise<AgentStreamResult>;
+}
+
+/** Minimal configured agent surface required by {@link runAgentLoop}. */
+export interface LoopAgent {
+  config: AgentConfig;
+  stream(opts: AgentStreamOptions): AgentStreamResult;
 }
 
 /** Options passed to {@link Agent.stream} for a single turn. */
@@ -246,11 +266,13 @@ export interface LoopHooks {
    * surfaces send a generic "I'll look that up" style acknowledgement before
    * the tool actually runs, without hard-coding a weather/search/etc. branch.
    *
-   * Errors thrown from this callback are logged and swallowed.
+   * Errors thrown from this callback are logged and swallowed. The callback is
+   * still awaited inline, so keep it fast to avoid delaying stream consumption
+   * and tool execution.
    */
   onTextBeforeToolCall?: (
     text: string,
-    part: AgentToolBoundaryPart,
+    boundary: AgentToolTextBoundary,
     context: LoopContinueContext
   ) => void | Promise<void>;
   onToolCall?: (
@@ -269,7 +291,7 @@ export interface LoopHooks {
 /** Options for {@link runAgentLoop}. */
 export interface RunAgentLoopOptions extends LoopHooks {
   abortSignal?: AbortSignal;
-  agent: Agent;
+  agent: LoopAgent;
   maxIterations?: number;
   messages: ModelMessage[];
 }

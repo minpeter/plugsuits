@@ -88,8 +88,9 @@ const agent = await createAgent({
 const result = await runAgentLoop({
   agent,
   messages: [{ role: "user", content: "What time is it?" }],
-  onTextBeforeToolCall: (text, call, ctx) => {
-    console.log(`[${ctx.iteration}] Assistant before ${call.toolName}: ${text}`);
+  onTextBeforeToolCall: (text, boundary, ctx) => {
+    const toolLabel = boundary.toolName ?? boundary.toolCallId ?? boundary.type;
+    console.log(`[${ctx.iteration}] Assistant before ${toolLabel}: ${text}`);
   },
   onToolCall: (call, ctx) => {
     console.log(`[${ctx.iteration}] Tool call: ${call.toolName}`);
@@ -106,7 +107,7 @@ console.log(`Finished after ${result.iterations} iterations`);
 
 ### `createAgent(config)`
 
-Creates an `Agent` instance that wraps Vercel AI SDK text generation with shared harness defaults, tools, guardrails, and optional MCP tool loading. Use `stream(opts)` for streaming turns and `generate(opts)` for a one-shot non-streaming turn.
+Creates a `GeneratingAgent` instance that wraps Vercel AI SDK text generation with shared harness defaults, tools, guardrails, and optional MCP tool loading. Use `stream(opts)` for streaming turns and `generate(opts)` for a one-shot non-streaming turn.
 
 ```typescript
 import { createAgent } from "@ai-sdk-tool/harness";
@@ -124,11 +125,11 @@ const stream = agent.stream({ messages });
 const generated = await agent.generate({ messages });
 ```
 
-**Returns:** `Agent` — an object with `config`, `stream(opts)`, `generate(opts)`, and `close()` methods.
+**Returns:** `GeneratingAgent` — an object with `config`, `stream(opts)`, `generate(opts)`, and `close()` methods. Loop-only integrations can depend on the narrower `LoopAgent` type, which requires only `config` and synchronous `stream(opts)`.
 
 #### Non-streaming generation
 
-Use `agent.generate(opts)` when a consumer needs the same agent configuration but does not need incremental stream parts. The method uses the same model, instructions, tools, provider option merging, `streamDefaults`, `prepareStep`, MCP-loaded tools, guardrails, and repair callback path as `agent.stream(opts)`.
+Use `agent.generate(opts)` when a consumer needs the same agent configuration but does not need incremental stream parts. The method uses the same model, tools, provider option merging, `streamDefaults`, `prepareStep`, MCP-loaded tools, guardrails, and repair callback path as streaming turns.
 
 ```typescript
 const result = await agent.generate({
@@ -140,7 +141,7 @@ console.log(result.text);
 console.log(result.response.messages);
 ```
 
-Prefer `runAgentLoop` for multi-iteration streaming tool loops and `agent.generate()` for simple request/response integrations, tests, and batch jobs that only need the final generated result.
+Prefer `runAgentLoop` for multi-iteration streaming tool loops and `agent.generate()` for simple request/response integrations, tests, and batch jobs that only need the final generated result. `agent.generate()` resolves async `instructions` itself; `runAgentLoop` does the same before each streaming turn. Direct `agent.stream()` is intentionally synchronous, so direct stream callers should pass `system` explicitly when using async instructions.
 
 ---
 
@@ -152,7 +153,7 @@ Runs the agent in a loop until a stop condition is met or `maxIterations` is rea
 import { runAgentLoop } from "@ai-sdk-tool/harness";
 
 const result = await runAgentLoop({
-  agent,           // Agent — required
+  agent,           // LoopAgent — required
   messages,        // ModelMessage[] — initial conversation history
   maxIterations,   // number — max loop iterations (default: unlimited)
   abortSignal,     // AbortSignal — for cancellation
@@ -163,7 +164,7 @@ const result = await runAgentLoop({
   onStreamStart,          // (context) => observer fired after Agent.stream() is created
   onFirstStreamPart,      // (part, context) => observer fired once per non-empty iteration
   onStreamPart,           // (part, context) => observer fired for every fullStream part
-  onTextBeforeToolCall,   // (text, part, context) => buffered text emitted before each tool boundary
+  onTextBeforeToolCall,   // (text, boundary, context) => buffered text emitted before each tool boundary
   onInterrupt,            // ({ iteration, reason }, context) => void | Promise<void>
   shouldContinue,         // (finishReason, context) => boolean — custom continuation logic
   onToolLifecycle,        // (lifecycle, context) => void | Promise<void>
@@ -185,7 +186,7 @@ interface RunAgentLoopResult {
 
 #### Stream observation hooks
 
-Use the loop hooks when you want harness-managed streaming without reimplementing `stream.fullStream` consumption. Observer hook errors are logged and swallowed so a buggy UI callback does not abort an otherwise valid model stream.
+Use the loop hooks when you want harness-managed streaming without reimplementing `stream.fullStream` consumption. Observer hook errors are logged and swallowed so a buggy UI callback does not abort an otherwise valid model stream. Hooks are still awaited inline, so keep callbacks fast to avoid delaying stream consumption or tool execution.
 
 ```typescript
 await runAgentLoop({
@@ -195,15 +196,17 @@ await runAgentLoop({
     // Receives every AI SDK fullStream part: start, text-delta, tool-call, etc.
     console.debug(`[${ctx.iteration}] ${part.type}`);
   },
-  onTextBeforeToolCall: (text, part) => {
+  onTextBeforeToolCall: (text, boundary) => {
     // Useful for pre-tool acknowledgements such as "I'll check that now."
     showAssistantAcknowledgement(text);
-    showToolPending(part.toolName);
+    if (boundary.toolName) {
+      showToolPending(boundary.toolName);
+    }
   },
 });
 ```
 
-`onTextBeforeToolCall` buffers `text-delta` content inside the current loop iteration, flushes it immediately before the next tool boundary (`tool-input-start`, `tool-input-end`, or `tool-call`), and resets the buffer so the same acknowledgement is not emitted again for later parts of the same tool. Tool calls that arrive without preceding text do not fire this hook.
+`onTextBeforeToolCall` buffers `text-delta` content inside the current loop iteration, flushes it immediately before the next tool boundary (`tool-input-start`, `tool-input-end`, or `tool-call`), and resets the buffer so the same acknowledgement is not emitted again for later parts of the same tool. The boundary argument is harness-normalized metadata (`type`, optional `toolCallId`, optional `toolName`, and the raw `part`); `toolName` is optional because some AI SDK boundaries only include an id. Tool calls that arrive without preceding text do not fire this hook.
 
 ---
 
@@ -485,6 +488,8 @@ const history = new CheckpointHistory({
 import type {
   Agent,
   AgentConfig,
+  GeneratingAgent,
+  LoopAgent,
   AgentStreamOptions,
   AgentStreamResult,
   AgentGenerateOptions,

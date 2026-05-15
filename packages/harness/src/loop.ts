@@ -14,6 +14,7 @@ import type {
   AgentStreamOptions,
   AgentStreamPart,
   AgentToolBoundaryPart,
+  AgentToolTextBoundary,
   LoopContinueContext,
   RunAgentLoopOptions,
   RunAgentLoopResult,
@@ -49,6 +50,27 @@ const isToolBoundaryPart = (
 
 const isStepBoundaryPart = (part: AgentStreamPart): boolean =>
   part.type === "start-step" || part.type === "finish-step";
+
+const getStringField = (
+  part: AgentToolBoundaryPart,
+  field: "id" | "toolCallId" | "toolName"
+): string | undefined => {
+  const value = (part as Record<string, unknown>)[field];
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return;
+};
+
+const createToolTextBoundary = (
+  part: AgentToolBoundaryPart
+): AgentToolTextBoundary => ({
+  part,
+  toolCallId: getStringField(part, "toolCallId") ?? getStringField(part, "id"),
+  toolName: getStringField(part, "toolName"),
+  type: part.type,
+});
 
 async function invokeObserverHook<Args extends readonly unknown[]>(
   hook: ((...args: Args) => void | Promise<void>) | undefined,
@@ -182,7 +204,7 @@ export async function runAgentLoop(
             onTextBeforeToolCall,
             "onTextBeforeToolCall",
             bufferedText,
-            part,
+            createToolTextBoundary(part),
             context
           );
         }

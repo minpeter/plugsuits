@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentError, AgentErrorCode } from "./errors";
 import { runAgentLoop } from "./loop";
-import type { Agent, AgentStreamResult } from "./types";
+import type { AgentStreamResult, LoopAgent } from "./types";
 
 /**
  * Creates a mock agent that simulates streaming behavior.
@@ -16,12 +16,12 @@ function createMockAgent(
       Array<{ toolName: string; args: Record<string, unknown> }>
     >;
   }
-): Agent {
+): LoopAgent {
   let callIndex = 0;
 
   return {
     config: {
-      model: {} as Agent["config"]["model"],
+      model: {} as LoopAgent["config"]["model"],
     },
     stream(): AgentStreamResult {
       const currentIndex = callIndex;
@@ -192,8 +192,8 @@ describe("runAgentLoop", () => {
   it("applies onBeforeTurn overrides before streaming", async () => {
     const streamCalls: Array<{ system?: string }> = [];
 
-    const agent: Agent = {
-      config: { model: {} as Agent["config"]["model"] },
+    const agent: LoopAgent = {
+      config: { model: {} as LoopAgent["config"]["model"] },
       stream(opts): AgentStreamResult {
         streamCalls.push({ system: opts.system });
         const fullStream: AsyncIterable<never> = {
@@ -229,8 +229,8 @@ describe("runAgentLoop", () => {
       system?: string;
     }> = [];
 
-    const agent: Agent = {
-      config: { model: {} as Agent["config"]["model"] },
+    const agent: LoopAgent = {
+      config: { model: {} as LoopAgent["config"]["model"] },
       stream(opts): AgentStreamResult {
         streamCalls.push({
           experimentalContext: opts.experimentalContext as
@@ -475,11 +475,11 @@ describe("runAgentLoop", () => {
     await runAgentLoop({
       agent,
       messages: [{ role: "user", content: "Hello" }],
-      onTextBeforeToolCall: (text, part, context) => {
+      onTextBeforeToolCall: (text, boundary, context) => {
         boundaries.push({
           iteration: context.iteration,
           text,
-          toolName: part.toolName,
+          toolName: boundary.toolName ?? "(unknown)",
         });
       },
       onToolCall: (part) => {
@@ -530,8 +530,8 @@ describe("runAgentLoop", () => {
     await runAgentLoop({
       agent,
       messages: [{ role: "user", content: "Hello" }],
-      onTextBeforeToolCall: (text, part) => {
-        boundaries.push({ text, type: part.type });
+      onTextBeforeToolCall: (text, boundary) => {
+        boundaries.push({ text, type: boundary.type });
       },
     });
 
@@ -636,10 +636,9 @@ describe("runAgentLoop", () => {
       toolName?: string;
     }> = [];
 
-    const agent: Agent = {
-      close: async () => undefined,
+    const agent: LoopAgent = {
       config: {
-        model: {} as Agent["config"]["model"],
+        model: {} as LoopAgent["config"]["model"],
       },
       stream(): AgentStreamResult {
         async function* fullStreamGenerator() {
