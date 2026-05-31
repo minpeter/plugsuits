@@ -244,10 +244,13 @@ export {
 } from "./tool-stream-parts";
 export type * from "./types";
 export type {
+  Agent,
   AgentConfig,
   AgentGuardrails,
   AgentStreamOptions,
   AgentStreamResult,
+  GeneratingAgent,
+  LoopAgent,
   RunnableAgent,
 } from "./types";
 export type { UsageMeasurement } from "./usage";

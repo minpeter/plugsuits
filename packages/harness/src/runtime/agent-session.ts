@@ -4,7 +4,7 @@ import { runAgentLoop } from "../loop";
 import type { SessionManager } from "../session";
 import type { SkillInfo } from "../skills";
 import type { SnapshotStore } from "../snapshot-store";
-import type { Agent, AgentConfig, RunnableAgent } from "../types";
+import type { AgentConfig, LoopAgent, RunnableAgent } from "../types";
 import { createRuntimeUUID } from "../uuid";
 import type {
   AgentHistoryConfig,
@@ -35,8 +35,11 @@ export interface CreateAgentSessionParams<TAgentName extends string, TContext> {
   snapshotStore?: SnapshotStore;
 }
 
-function isAgent(value: RunnableAgent): value is Agent {
-  return "config" in value;
+function isLoopAgent(value: RunnableAgent): value is LoopAgent {
+  return (
+    "config" in value &&
+    typeof (value as { stream?: unknown }).stream === "function"
+  );
 }
 
 function makeDefineAgentContext<TContext>(params: {
@@ -303,10 +306,10 @@ class AgentSessionImpl<TAgentName extends string, TContext>
     });
   }
 
-  private getLoopAgent(): Agent {
-    if (!isAgent(this.currentRuntimeAgent)) {
+  private getLoopAgent(): LoopAgent {
+    if (!isLoopAgent(this.currentRuntimeAgent)) {
       throw new TypeError(
-        "AgentSession runtimeAgent must be a full Agent with config to run turns"
+        "AgentSession runtimeAgent must include config and stream() to run turns"
       );
     }
 

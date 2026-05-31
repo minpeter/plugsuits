@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentError, AgentErrorCode } from "./errors";
 import { runAgentLoop } from "./loop";
-import type { Agent, AgentStreamResult } from "./types";
+import type { AgentStreamResult, LoopAgent } from "./types";
 
 /**
  * Creates a mock agent that simulates streaming behavior.
@@ -10,17 +10,18 @@ import type { Agent, AgentStreamResult } from "./types";
 function createMockAgent(
   finishReasons: string[],
   options?: {
+    streamPartsPerIteration?: Record<string, unknown>[][];
     throwOnIteration?: number;
     toolCallsPerIteration?: Array<
       Array<{ toolName: string; args: Record<string, unknown> }>
     >;
   }
-): Agent {
+): LoopAgent {
   let callIndex = 0;
 
   return {
     config: {
-      model: {} as Agent["config"]["model"],
+      model: {} as LoopAgent["config"]["model"],
     },
     stream(): AgentStreamResult {
       const currentIndex = callIndex;
@@ -33,9 +34,19 @@ function createMockAgent(
       const finishReason = finishReasons[currentIndex] ?? "stop";
       const toolCallsForThisIteration =
         options?.toolCallsPerIteration?.[currentIndex] ?? [];
+      const streamPartsForThisIteration =
+        options?.streamPartsPerIteration?.[currentIndex];
 
       // Simulate async iterator for fullStream
       async function* fullStreamGenerator() {
+        if (streamPartsForThisIteration) {
+          for (const part of streamPartsForThisIteration) {
+            await Promise.resolve();
+            yield part;
+          }
+          return;
+        }
+
         for (const call of toolCallsForThisIteration) {
           await Promise.resolve();
           yield {
@@ -181,8 +192,8 @@ describe("runAgentLoop", () => {
   it("applies onBeforeTurn overrides before streaming", async () => {
     const streamCalls: Array<{ system?: string }> = [];
 
-    const agent: Agent = {
-      config: { model: {} as Agent["config"]["model"] },
+    const agent: LoopAgent = {
+      config: { model: {} as LoopAgent["config"]["model"] },
       stream(opts): AgentStreamResult {
         streamCalls.push({ system: opts.system });
         const fullStream: AsyncIterable<never> = {
@@ -218,8 +229,8 @@ describe("runAgentLoop", () => {
       system?: string;
     }> = [];
 
-    const agent: Agent = {
-      config: { model: {} as Agent["config"]["model"] },
+    const agent: LoopAgent = {
+      config: { model: {} as LoopAgent["config"]["model"] },
       stream(opts): AgentStreamResult {
         streamCalls.push({
           experimentalContext: opts.experimentalContext as
@@ -400,6 +411,196 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("calls onStreamPart for every emitted stream part across iterations", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      streamPartsPerIteration: [
+        [
+          { type: "start" },
+          { textDelta: "Thinking", type: "text-delta" },
+          {
+            toolCallId: "call_0_lookup",
+            toolName: "lookup",
+            type: "tool-call",
+          },
+        ],
+        [{ type: "start" }, { textDelta: "Done", type: "text-delta" }],
+      ],
+    });
+
+    const observed: Array<{ iteration: number; type: string }> = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onStreamPart: (part, context) => {
+        observed.push({ iteration: context.iteration, type: part.type });
+      },
+    });
+
+    expect(observed).toEqual([
+      { iteration: 0, type: "start" },
+      { iteration: 0, type: "text-delta" },
+      { iteration: 0, type: "tool-call" },
+      { iteration: 1, type: "start" },
+      { iteration: 1, type: "text-delta" },
+    ]);
+  });
+
+  it("emits buffered text before each tool call and resets between boundaries", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      streamPartsPerIteration: [
+        [
+          { textDelta: "I will ", type: "text-delta" },
+          { textDelta: "look this up.", type: "text-delta" },
+          { toolCallId: "call_search", toolName: "search", type: "tool-call" },
+          { textDelta: " Then I will ", type: "text-delta" },
+          { textDelta: "summarize.", type: "text-delta" },
+          {
+            toolCallId: "call_summarize",
+            toolName: "summarize",
+            type: "tool-call",
+          },
+        ],
+        [],
+      ],
+    });
+
+    const boundaries: Array<{
+      iteration: number;
+      text: string;
+      toolName: string;
+    }> = [];
+    const toolCalls: string[] = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onTextBeforeToolCall: (text, boundary, context) => {
+        boundaries.push({
+          iteration: context.iteration,
+          text,
+          toolName: boundary.toolName ?? "(unknown)",
+        });
+      },
+      onToolCall: (part) => {
+        toolCalls.push(part.toolName);
+      },
+    });
+
+    expect(boundaries).toEqual([
+      {
+        iteration: 0,
+        text: "I will look this up.",
+        toolName: "search",
+      },
+      {
+        iteration: 0,
+        text: " Then I will summarize.",
+        toolName: "summarize",
+      },
+    ]);
+    expect(toolCalls).toEqual(["search", "summarize"]);
+  });
+
+  it("flushes pre-tool text at early tool input boundaries without double emitting", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      streamPartsPerIteration: [
+        [
+          { textDelta: "Checking ", type: "text-delta" },
+          { textDelta: "now", type: "text-delta" },
+          {
+            toolCallId: "call_search",
+            toolName: "search",
+            type: "tool-input-start",
+          },
+          {
+            input: { query: "weather" },
+            toolCallId: "call_search",
+            toolName: "search",
+            type: "tool-input-end",
+          },
+          { toolCallId: "call_search", toolName: "search", type: "tool-call" },
+        ],
+        [],
+      ],
+    });
+
+    const boundaries: Array<{ text: string; type: string }> = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onTextBeforeToolCall: (text, boundary) => {
+        boundaries.push({ text, type: boundary.type });
+      },
+    });
+
+    expect(boundaries).toEqual([
+      { text: "Checking now", type: "tool-input-start" },
+    ]);
+  });
+
+  it("does not emit pre-tool text for no-text tool calls", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      streamPartsPerIteration: [
+        [{ toolCallId: "call_search", toolName: "search", type: "tool-call" }],
+        [],
+      ],
+    });
+
+    const boundaries: string[] = [];
+
+    await runAgentLoop({
+      agent,
+      messages: [{ role: "user", content: "Hello" }],
+      onTextBeforeToolCall: (text) => {
+        boundaries.push(text);
+      },
+    });
+
+    expect(boundaries).toEqual([]);
+  });
+
+  it("isolates onStreamPart and onTextBeforeToolCall observer errors", async () => {
+    const agent = createMockAgent(["tool-calls", "stop"], {
+      streamPartsPerIteration: [
+        [
+          { textDelta: "Need data", type: "text-delta" },
+          { toolCallId: "call_search", toolName: "search", type: "tool-call" },
+        ],
+        [],
+      ],
+    });
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const result = await runAgentLoop({
+        agent,
+        messages: [{ role: "user", content: "Hello" }],
+        onStreamPart: () => {
+          throw new Error("stream observer bug");
+        },
+        onTextBeforeToolCall: () => {
+          throw new Error("pre-tool observer bug");
+        },
+      });
+
+      expect(result.iterations).toBe(2);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onStreamPart"),
+        expect.any(Error)
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onTextBeforeToolCall"),
+        expect.any(Error)
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it("calls onToolCall for each tool call", async () => {
     const agent = createMockAgent(["tool-calls", "stop"], {
       toolCallsPerIteration: [
@@ -435,10 +636,9 @@ describe("runAgentLoop", () => {
       toolName?: string;
     }> = [];
 
-    const agent: Agent = {
-      close: async () => undefined,
+    const agent: LoopAgent = {
       config: {
-        model: {} as Agent["config"]["model"],
+        model: {} as LoopAgent["config"]["model"],
       },
       stream(): AgentStreamResult {
         async function* fullStreamGenerator() {

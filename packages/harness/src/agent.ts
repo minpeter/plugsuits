@@ -3,18 +3,20 @@
  * Core agent factory for the harness package.
  */
 
-import { streamText, tool } from "ai";
+import { generateText, streamText, tool } from "ai";
 import { AgentError, AgentErrorCode } from "./errors";
 import type { AgentExecutionContext } from "./execution-context";
 import type { ToolDefinition, ToolSource } from "./tool-source";
 import type {
-  Agent,
   AgentConfig,
+  AgentGenerateOptions,
+  AgentGenerateResult,
   AgentGuardrails,
   AgentPrepareStepContext,
   AgentPrepareStepResult,
   AgentStreamOptions,
   AgentStreamResult,
+  GeneratingAgent,
   ToolCallPart,
 } from "./types";
 
@@ -142,6 +144,33 @@ const createStreamTextResult = (
     experimental_repairToolCall: config.experimental_repairToolCall,
   });
 
+const createGenerateTextResult = (
+  config: AgentConfig,
+  preparedOptions: AgentGenerateOptions
+) =>
+  generateText({
+    model: config.model,
+    tools: config.tools,
+    system: preparedOptions.system,
+    messages: preparedOptions.messages,
+    providerOptions: preparedOptions.providerOptions,
+    maxOutputTokens: preparedOptions.maxOutputTokens,
+    seed: preparedOptions.seed,
+    stopWhen: [
+      config.guardrails
+        ? createGuardedStopCondition(config.guardrails)
+        : textResponseReceived(),
+      ...(config.maxStepsPerTurn === undefined
+        ? []
+        : [createStepCountStopCondition(config.maxStepsPerTurn)]),
+      ...(config.extraStopConditions ?? []),
+    ],
+    temperature: preparedOptions.temperature,
+    abortSignal: preparedOptions.abortSignal,
+    experimental_context: preparedOptions.experimentalContext,
+    experimental_repairToolCall: config.experimental_repairToolCall,
+  });
+
 const serializeToolCall = (
   toolCall: Pick<ToolCallPart, "input" | "toolName">
 ) => JSON.stringify({ input: toolCall.input, toolName: toolCall.toolName });
@@ -211,10 +240,10 @@ const createStepCountStopCondition =
     steps.length >= maxStepsPerTurn;
 
 /**
- * Creates an {@link Agent} instance that wraps a Vercel AI SDK `streamText` call.
+ * Creates a harness agent instance that wraps Vercel AI SDK text generation.
  *
  * @param config - Agent configuration including model, tools, and instructions.
- * @returns An `Agent` object with a `stream()` method for initiating a single turn.
+ * @returns A `GeneratingAgent` object with `stream()` and `generate()` methods for initiating a single turn.
  *
  * @example
  * ```typescript
@@ -225,7 +254,9 @@ const createStepCountStopCondition =
  * });
  * ```
  */
-export async function createAgent(config: AgentConfig): Promise<Agent> {
+export async function createAgent(
+  config: AgentConfig
+): Promise<GeneratingAgent> {
   let mergedTools = {
     ...(config.tools ?? {}),
     ...(await toToolSet(config.toolSources)),
@@ -258,6 +289,29 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   return {
     config: effectiveConfig,
     close: closeFn,
+    /**
+     * Initiates a single non-streaming turn with the given messages.
+     * Returns the AI SDK `generateText` result after applying the same defaults,
+     * prepareStep overrides, tools, guardrails, and execution context as `stream()`.
+     */
+    async generate(opts: AgentGenerateOptions): Promise<AgentGenerateResult> {
+      const instructions = effectiveConfig.instructions;
+      const system =
+        opts.system ??
+        effectiveConfig.streamDefaults?.system ??
+        (typeof instructions === "function"
+          ? await instructions()
+          : instructions);
+      const baseOptions = buildBaseStreamOptions(effectiveConfig, {
+        ...opts,
+        system,
+      });
+      const prepared = effectiveConfig.prepareStep?.(baseOptions);
+      return createGenerateTextResult(
+        effectiveConfig,
+        applyPreparedOverrides(baseOptions, prepared)
+      );
+    },
     /**
      * Initiates a single streaming turn with the given messages.
      * Returns a result object with `fullStream`, `finishReason`, and `response`.

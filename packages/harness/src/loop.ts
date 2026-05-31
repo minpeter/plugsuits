@@ -12,10 +12,65 @@ import { getToolLifecycleState } from "./tool-stream-parts";
 import type {
   AgentFinishReason,
   AgentStreamOptions,
+  AgentStreamPart,
+  AgentToolBoundaryPart,
+  AgentToolTextBoundary,
   LoopContinueContext,
   RunAgentLoopOptions,
   RunAgentLoopResult,
 } from "./types";
+
+const getTextDelta = (part: AgentStreamPart): string | undefined => {
+  if (
+    part &&
+    typeof part === "object" &&
+    "type" in part &&
+    part.type === "text-delta"
+  ) {
+    if ("textDelta" in part && typeof part.textDelta === "string") {
+      return part.textDelta;
+    }
+    if ("text" in part && typeof part.text === "string") {
+      return part.text;
+    }
+    if ("delta" in part && typeof part.delta === "string") {
+      return part.delta;
+    }
+  }
+
+  return;
+};
+
+const isToolBoundaryPart = (
+  part: AgentStreamPart
+): part is AgentToolBoundaryPart =>
+  part.type === "tool-input-start" ||
+  part.type === "tool-input-end" ||
+  part.type === "tool-call";
+
+const isStepBoundaryPart = (part: AgentStreamPart): boolean =>
+  part.type === "start-step" || part.type === "finish-step";
+
+const getStringField = (
+  part: AgentToolBoundaryPart,
+  field: "id" | "toolCallId" | "toolName"
+): string | undefined => {
+  const value = (part as Record<string, unknown>)[field];
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return;
+};
+
+const createToolTextBoundary = (
+  part: AgentToolBoundaryPart
+): AgentToolTextBoundary => ({
+  part,
+  toolCallId: getStringField(part, "toolCallId") ?? getStringField(part, "id"),
+  toolName: getStringField(part, "toolName"),
+  type: part.type,
+});
 
 async function invokeObserverHook<Args extends readonly unknown[]>(
   hook: ((...args: Args) => void | Promise<void>) | undefined,
@@ -62,7 +117,9 @@ export async function runAgentLoop(
     onFirstStreamPart,
     onInterrupt,
     onStepComplete,
+    onStreamPart,
     onStreamStart,
+    onTextBeforeToolCall,
     onToolCall,
     onToolLifecycle,
   } = options;
@@ -118,14 +175,36 @@ export async function runAgentLoop(
       await invokeObserverHook(onStreamStart, "onStreamStart", context);
 
       let firstPartSeen = false;
+      let textBeforeToolCall = "";
 
       for await (const part of stream.fullStream) {
+        await invokeObserverHook(onStreamPart, "onStreamPart", part, context);
+
         if (!firstPartSeen) {
           firstPartSeen = true;
           await invokeObserverHook(
             onFirstStreamPart,
             "onFirstStreamPart",
             part,
+            context
+          );
+        }
+
+        const textDelta = getTextDelta(part);
+        if (textDelta) {
+          textBeforeToolCall += textDelta;
+        }
+
+        if (isStepBoundaryPart(part)) {
+          textBeforeToolCall = "";
+        } else if (isToolBoundaryPart(part) && textBeforeToolCall) {
+          const bufferedText = textBeforeToolCall;
+          textBeforeToolCall = "";
+          await invokeObserverHook(
+            onTextBeforeToolCall,
+            "onTextBeforeToolCall",
+            bufferedText,
+            createToolTextBoundary(part),
             context
           );
         }
