@@ -2,20 +2,13 @@ node_modules/
 dist/
 .env
 *.log
-.conversations/
-
-# tbranch artifact
-jobs
 __pycache__
 
-.cea
-.sisyphus/
-.plugsuits
-.minimal-agent
 *.tsbuildinfo
 .turbo
-work/
 
-# IDE config (may contain tokens)
-*pencode.json
-.omx/
+# harness session state
+.plugsuits
+.minimal-agent
+packages/cea/.plugsuits
+packages/minimal-agent/.minimal-agent
