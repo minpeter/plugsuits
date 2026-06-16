@@ -16,7 +16,7 @@
     "@chat-adapter/state-redis": "^4.26.0",
     "@chat-adapter/telegram": "^4.26.0",
     "@t3-oss/env-core": "^0.13.11",
-    "ai": "^6.0.168",
+    "ai": "^6.0.206",
     "chat": "^4.26.0",
     "undici": "^8.1.0",
     "zod": "^4.3.6"
