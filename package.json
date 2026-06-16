@@ -42,7 +42,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.12",
     "@changesets/cli": "^2.31.0",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.3",
     "tsx": "^4.21.0",
     "turbo": "^2.9.6",
     "ultracite": "^7.6.0",
