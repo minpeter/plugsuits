@@ -92,6 +92,7 @@ export async function executeCommand(
 
 export const shellExecuteTool = tool({
   description: SHELL_EXECUTE_DESCRIPTION,
+  needsApproval: true,
 
   inputSchema: z.object({
     command: z.string().describe("Shell command to execute"),

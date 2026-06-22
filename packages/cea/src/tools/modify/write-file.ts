@@ -56,6 +56,7 @@ export async function executeWriteFile(
 
 export const writeFileTool = tool({
   description: WRITE_FILE_DESCRIPTION,
+  needsApproval: true,
   inputSchema,
   execute: (input) => executeWriteFile(input),
 });

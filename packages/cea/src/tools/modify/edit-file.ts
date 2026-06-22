@@ -252,6 +252,7 @@ export async function executeEditFile(
 
 export const editFileTool = tool({
   description: EDIT_FILE_DESCRIPTION,
+  needsApproval: true,
   inputSchema,
   execute: (input) => executeEditFile(input),
 });

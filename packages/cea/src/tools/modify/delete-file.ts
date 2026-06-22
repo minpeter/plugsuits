@@ -95,6 +95,7 @@ export async function executeDeleteFile(
 
 export const deleteFileTool = tool({
   description: DELETE_FILE_DESCRIPTION,
+  needsApproval: true,
   inputSchema,
   execute: (input) => executeDeleteFile(input),
 });
