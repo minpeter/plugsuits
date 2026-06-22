@@ -130,6 +130,7 @@ function hasCtrlC(parsedKeys: string[]): boolean {
 
 export const shellInteractTool = tool({
   description: SHELL_INTERACT_DESCRIPTION,
+  needsApproval: true,
 
   inputSchema: z.object({
     keystrokes: z
