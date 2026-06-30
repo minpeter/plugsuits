@@ -59,7 +59,7 @@
   "devDependencies": {
     "@ai-sdk/provider": "^3.0.8",
     "@ai-sdk/provider-utils": "^4.0.23",
-    "@biomejs/biome": "2.4.12",
+    "@biomejs/biome": "2.5.1",
     "@types/node": "^25.9.3",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
