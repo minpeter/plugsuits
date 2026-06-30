@@ -57,7 +57,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "^3.0.8",
+    "@ai-sdk/provider": "^4.0.0",
     "@ai-sdk/provider-utils": "^4.0.23",
     "@biomejs/biome": "2.4.12",
     "@types/node": "^25.9.3",
